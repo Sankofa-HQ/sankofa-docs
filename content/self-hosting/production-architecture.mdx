@@ -1,0 +1,34 @@
+---
+title: Production architecture
+description: Understand the role of the engine, SQLite, ClickHouse, and enterprise plugins in a self-hosted deployment.
+section: self-hosting
+order: 4
+toc: true
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+  - server/engine/ee/init.go
+  - server/engine/internal/registry/registry.go
+---
+
+## Core components
+
+- **Engine**: Go application that handles auth, ingest, API routes, and plugin registration
+- **SQLite**: metadata store for users, orgs, projects, boards, cohorts, and saved analysis objects
+- **ClickHouse**: analytics storage for event-heavy query workloads
+
+## Enterprise plugin model
+
+Enterprise capabilities are not a separate app. They register through the
+feature registry at startup when the `enterprise` build tag is active.
+
+The enterprise init path registers:
+
+- replay
+- billing
+- SAML/SSO
+- audit
+
+## Deployment implication
+
+You can think about Sankofa as one engine with optional registered features,
+rather than separate products that need to be orchestrated independently.

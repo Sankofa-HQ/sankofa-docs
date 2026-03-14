@@ -1,0 +1,59 @@
+---
+title: Getting Started
+description: Start with the core Sankofa model, then move into setup, environments, and the first event flow.
+section: getting-started
+order: 1
+toc: true
+source_of_truth:
+  - sdk/sankofa_flutter/README.md
+  - server/engine/cmd/sankofa/main.go
+---
+
+Sankofa is a product analytics stack with four real surfaces in this repository today:
+
+- the Go engine that accepts events and profile updates
+- the ClickHouse-backed analytics layer used by the dashboard
+- the official Flutter SDK
+- enterprise plugins such as replay, billing, audit, and SAML/SSO
+
+## What ships today
+
+<Callout title="Current public integration surface" tone="note">
+  The only official client SDK in this repository today is Flutter. If you are
+  integrating from another environment, use the direct HTTP ingestion endpoints
+  documented in the integrations section.
+</Callout>
+
+Sankofa is designed around three transport operations:
+
+- `track` for event ingestion
+- `people` for profile updates
+- `alias` for identity stitching
+
+Those operations feed the product surfaces you see in the dashboard: events,
+users, cohorts, insights, funnels, flows, retention, and session replay.
+
+## Read this section in order
+
+<StepList
+  steps={[
+    {
+      title: "Read the quickstart",
+      body: "Initialize the Flutter SDK or send your first custom ingest request so you can validate the end-to-end path quickly.",
+    },
+    {
+      title: "Understand environments",
+      body: "Every project can accept both live and test traffic. The engine resolves the environment from the API key you send.",
+    },
+    {
+      title: "Learn the product concepts",
+      body: "Events, people, aliases, default properties, and sessions explain how Sankofa stores and interprets incoming data.",
+    },
+  ]}
+/>
+
+## Next steps
+
+- Go to [Quickstart](/getting-started/quickstart)
+- Review [Environments and API keys](/getting-started/environments-and-api-keys)
+- See [Product concepts](/getting-started/product-concepts)

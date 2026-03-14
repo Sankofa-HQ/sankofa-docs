@@ -1,0 +1,94 @@
+---
+title: API payload reference
+description: Reference for the exact request bodies the engine accepts on the core v1 ingest routes.
+section: integrations
+order: 3
+toc: true
+badge: Custom
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+---
+
+## Track payload
+
+<ApiFieldTable
+  rows={[
+    {
+      name: "event_name",
+      type: "string",
+      required: true,
+      description: "Stable event name such as signup_completed or payment_failed.",
+    },
+    {
+      name: "distinct_id",
+      type: "string",
+      required: true,
+      description: "The active user identifier or anonymous identifier for the event.",
+    },
+    {
+      name: "properties",
+      type: "map<string, string>",
+      required: false,
+      description: "Event-specific properties. Include $session_id here when you want session correlation.",
+    },
+    {
+      name: "default_properties",
+      type: "map<string, string>",
+      required: false,
+      description: "Context fields such as $os, $device_model, $country, and other SDK-provided defaults.",
+    },
+    {
+      name: "lib_version",
+      type: "string",
+      required: false,
+      description: "Client library version label such as flutter-0.0.1 or your own custom sender label.",
+    },
+  ]}
+/>
+
+## People payload
+
+<ApiFieldTable
+  rows={[
+    {
+      name: "distinct_id",
+      type: "string",
+      required: true,
+      description: "The user identity whose profile should be updated.",
+    },
+    {
+      name: "properties",
+      type: "map<string, string>",
+      required: true,
+      description: "Flat profile properties to merge into the person record.",
+    },
+  ]}
+/>
+
+## Alias payload
+
+<ApiFieldTable
+  rows={[
+    {
+      name: "alias_id",
+      type: "string",
+      required: true,
+      description: "The previous anonymous or legacy identifier.",
+    },
+    {
+      name: "distinct_id",
+      type: "string",
+      required: true,
+      description: "The new canonical identifier to stitch future analysis against.",
+    },
+  ]}
+/>
+
+## Promoted fields
+
+The engine promotes some high-value data from payloads into indexed fields:
+
+- `$session_id` from `properties`
+- `$city`, `$region`, `$country`, `$timezone` from `default_properties`
+- `$os` from `default_properties`
+- `$device_model` from `default_properties`

@@ -1,0 +1,89 @@
+---
+title: Initialization
+description: Initialize the Flutter SDK correctly, choose the right endpoint form, and wire the common setup flags.
+section: sdk
+order: 2
+toc: true
+badge: Official
+source_of_truth:
+  - sdk/sankofa_flutter/README.md
+  - examples/flutter_example/lib/main.dart
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+---
+
+## Basic initialization
+
+```dart
+await Sankofa.instance.init(
+  apiKey: 'sk_live_12345',
+  endpoint: 'http://localhost:8080',
+  debug: true,
+);
+```
+
+## Full example from the example app
+
+```dart
+await Sankofa.instance.init(
+  apiKey: key,
+  endpoint: url,
+  debug: _debugMode,
+  trackLifecycleEvents: _trackLifecycleEvents,
+  enableSessionReplay: _enableSessionReplay,
+  replayMode: _replayMode,
+);
+```
+
+## Endpoint normalization
+
+The SDK accepts several endpoint shapes and normalizes them internally:
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Server base",
+      code: "endpoint: 'http://localhost:8080'",
+    },
+    {
+      label: "API base",
+      code: "endpoint: 'http://localhost:8080/api/v1'",
+    },
+    {
+      label: "Track URL",
+      code: "endpoint: 'http://localhost:8080/api/v1/track'",
+    },
+  ]}
+/>
+
+Internally:
+
+- `resolveServerBaseUri(endpoint)` derives the engine base URL
+- `resolveTrackUri(endpoint)` derives the final track URL
+
+## Common flags
+
+| Flag | Purpose |
+| --- | --- |
+| `debug` | Enables SDK log output during development. |
+| `trackLifecycleEvents` | Enables automatic lifecycle tracking when supported by the SDK. |
+| `enableSessionReplay` | Turns replay collection on and configures replay helpers. |
+| `replayMode` | Selects wireframe or screenshot replay behavior. |
+
+## Initialization order
+
+<StepList
+  steps={[
+    {
+      title: "Ensure Flutter bindings are ready",
+      body: "Call `WidgetsFlutterBinding.ensureInitialized()` before you initialize the SDK.",
+    },
+    {
+      title: "Initialize before runApp",
+      body: "This ensures tracking, identity, and replay configuration are ready as the app tree mounts.",
+    },
+    {
+      title: "Wrap replay-aware UI when needed",
+      body: "If replay is enabled, place `SankofaReplayBoundary` near the root and add `SankofaNavigatorObserver()` to the app navigator.",
+    },
+  ]}
+/>

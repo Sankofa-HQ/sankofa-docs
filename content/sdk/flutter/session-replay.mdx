@@ -1,0 +1,64 @@
+---
+title: Session replay
+description: Enable replay in Flutter, understand the enterprise replay endpoints, and connect replay context to analytics events.
+section: sdk
+order: 5
+toc: true
+badge: Enterprise
+source_of_truth:
+  - sdk/sankofa_flutter/lib/src/replay/sankofa_replay.dart
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+  - server/engine/ee/replay/plugin.go
+---
+
+<Callout title="Enterprise feature" tone="warning">
+  Session replay is registered by the enterprise plugin module. The Flutter SDK
+  can enable replay helpers, but replay ingestion and replay configuration
+  endpoints are available only in enterprise builds.
+</Callout>
+
+## Root wiring
+
+```dart
+SankofaReplayBoundary(
+  child: MaterialApp(
+    navigatorObservers: [SankofaNavigatorObserver()],
+    home: const MyScreen(),
+  ),
+);
+```
+
+## Runtime configuration
+
+The replay plugin exposes:
+
+- `GET /api/ee/replay/config`
+- `POST /api/ee/replay/chunk`
+
+The config route returns trigger names and a high-fidelity duration. The
+ingestion route accepts replay chunks with headers such as:
+
+- `X-Session-Id`
+- `X-Chunk-Index`
+- `X-Replay-Mode`
+- `X-Distinct-Id`
+
+## Replay and analytics together
+
+The Flutter SDK injects `$session_id` on every tracked event. That gives Sankofa
+one shared session handle for:
+
+- product analytics
+- funnel and retention analysis
+- replay chunk ingestion
+- anomaly investigation
+
+## Replay modes
+
+The replay subsystem supports two modes:
+
+- `wireframe`
+- `screenshot`
+
+The replay engine can temporarily switch to higher-fidelity capture when a
+configured trigger event fires.

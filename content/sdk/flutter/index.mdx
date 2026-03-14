@@ -1,0 +1,55 @@
+---
+title: Flutter SDK
+description: Official Flutter support for event tracking, identity, offline queueing, and session replay.
+section: sdk
+order: 1
+toc: true
+badge: Official
+source_of_truth:
+  - sdk/sankofa_flutter/README.md
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+  - sdk/sankofa_flutter/lib/src/replay/sankofa_replay.dart
+---
+
+The Flutter SDK is the official client integration surface in this repository.
+It provides:
+
+- queued event delivery
+- automatic flush behavior
+- device and network context
+- identity stitching
+- people profile updates
+- session replay helpers
+
+## Install
+
+```yaml
+dependencies:
+  sankofa_flutter:
+    path: ../sdk/sankofa_flutter
+```
+
+## What to read next
+
+- [Initialization](/sdk/flutter/initialization)
+- [Tracking events](/sdk/flutter/tracking-events)
+- [Identity and people](/sdk/flutter/identity-and-people)
+- [Session replay](/sdk/flutter/session-replay)
+- [API reference](/sdk/flutter/reference)
+
+## Replay-ready app structure
+
+```dart
+MaterialApp(
+  navigatorObservers: [SankofaNavigatorObserver()],
+  home: SankofaReplayBoundary(
+    child: MyScreen(),
+  ),
+);
+```
+
+<Callout title="Supported shapes today" tone="info">
+  The docs in this section are limited to the Flutter package that exists in
+  `sdk/sankofa_flutter`. This is the only official SDK documented in Sankofa
+  Docs v1.
+</Callout>

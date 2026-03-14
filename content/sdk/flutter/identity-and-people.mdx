@@ -1,0 +1,67 @@
+---
+title: Identity and people
+description: Connect anonymous activity to a known user, reset identity on logout, and update profile fields.
+section: sdk
+order: 4
+toc: true
+badge: Official
+source_of_truth:
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+---
+
+## Identify a known user
+
+```dart
+await Sankofa.instance.identify('user_123');
+```
+
+When the user changes from the anonymous ID to a known ID, the SDK queues an
+alias transport item that links the previous ID to the new one.
+
+## Reset on logout
+
+```dart
+await Sankofa.instance.reset();
+```
+
+Reset clears the current user identity, creates a new anonymous ID, and creates
+a new session ID.
+
+## Set people properties
+
+```dart
+await Sankofa.instance.peopleSet({
+  'plan': 'growth',
+  'company_name': 'ThrivnMe',
+  'role': 'operator',
+});
+```
+
+People updates use the `people` transport and target the current `distinct_id`.
+
+## Practical identity model
+
+<StepList
+  steps={[
+    {
+      title: "Track anonymous events first",
+      body: "Let the SDK generate and persist the anonymous ID while the user is not authenticated.",
+    },
+    {
+      title: "Call identify once identity is known",
+      body: "This creates the alias transport item so existing anonymous activity can be stitched to the user.",
+    },
+    {
+      title: "Use peopleSet for durable profile facts",
+      body: "Plan, role, region, account type, and other profile-level attributes belong in people updates instead of every event payload.",
+    },
+  ]}
+/>
+
+## Backend transport mapping
+
+| SDK method | Core endpoint |
+| --- | --- |
+| `identify()` | `POST /api/v1/alias` |
+| `peopleSet()` | `POST /api/v1/people` |
+| `track()` | `POST /api/v1/track` |

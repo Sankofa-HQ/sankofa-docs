@@ -1,0 +1,63 @@
+---
+title: Environments and API keys
+description: Understand how Sankofa resolves live versus test traffic and what the engine expects on each ingest request.
+section: getting-started
+order: 3
+toc: true
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+---
+
+Sankofa projects support two traffic modes:
+
+- `live`
+- `test`
+
+The engine determines which environment to write to by inspecting the API key on
+every request.
+
+## How environment resolution works
+
+For the core v1 ingest routes, the engine checks:
+
+1. `api_key`
+2. `test_api_key`
+
+If the provided `x-api-key` header matches the project live key, the event is
+stored as `live`. If it matches the test key, the event is stored as `test`.
+
+## Required authentication header
+
+Every direct ingest request must include:
+
+```http
+x-api-key: sk_live_12345
+```
+
+If the header is missing, the engine returns `401`. If the key is unknown, it
+returns `403`.
+
+## Practical workflow
+
+Use the test key while you are:
+
+- validating SDK initialization
+- verifying event names and property maps
+- testing replay or onboarding flows
+
+Use the live key when you are ready for production traffic.
+
+<Callout title="Environment is not a query parameter" tone="warning">
+  The core ingest routes do not accept an explicit `environment` field. The
+  environment is inferred from the API key that resolves to the project.
+</Callout>
+
+## Related routes
+
+The same key-resolution pattern is used by:
+
+- `POST /api/v1/track`
+- `POST /api/v1/people`
+- `POST /api/v1/alias`
+- `GET /api/ee/replay/config` in enterprise builds
+- `POST /api/ee/replay/chunk` in enterprise builds

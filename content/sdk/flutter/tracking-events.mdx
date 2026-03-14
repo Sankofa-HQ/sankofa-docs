@@ -1,0 +1,67 @@
+---
+title: Tracking events
+description: Send named events with property maps, understand queued delivery, and keep your event names durable.
+section: sdk
+order: 3
+toc: true
+badge: Official
+source_of_truth:
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+  - sdk/sankofa_flutter/README.md
+---
+
+## Basic event call
+
+```dart
+await Sankofa.instance.track('button_clicked', {
+  'bg_color': 'blue',
+  'screen': 'home',
+});
+```
+
+## What the SDK adds automatically
+
+Before each event is queued, the SDK:
+
+- refreshes the session
+- updates network properties
+- serializes transport values to strings
+- injects `$session_id`
+- attaches the current `distinct_id`
+- includes `default_properties`
+
+## Recommended event naming
+
+Use event names that stay stable as your app evolves. Good examples:
+
+- `signup_completed`
+- `checkout_started`
+- `invite_accepted`
+- `payment_failed`
+- `onboarding_step_viewed`
+
+Avoid encoding presentation details into event names when the real difference
+belongs in properties.
+
+## Property serialization
+
+The transport layer converts values into strings before sending them to the
+engine. That includes:
+
+- strings
+- numbers
+- booleans
+- `DateTime`
+- iterables and maps, which are JSON-encoded
+
+<Callout title="Transport is string-based" tone="note">
+  The backend structs for core ingest expect `map[string]string` for event and
+  people property maps. If you send nested data, treat it as serialized JSON on
+  the transport boundary.
+</Callout>
+
+## Flush behavior
+
+Tracked items are queued locally. The SDK persists the queue and flushes in the
+background. It also flushes immediately in some flows such as `identify()` and
+`peopleSet()`.

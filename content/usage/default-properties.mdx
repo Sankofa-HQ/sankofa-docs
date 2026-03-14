@@ -1,0 +1,59 @@
+---
+title: Default properties
+description: See which contextual fields the engine promotes and why they matter for segmentation and analysis.
+section: usage
+order: 3
+toc: true
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+---
+
+The Flutter SDK gathers default properties and sends them beside each event. The
+engine then promotes the highest-value fields for easier querying.
+
+## Common promoted defaults
+
+<ApiFieldTable
+  rows={[
+    {
+      name: "$city",
+      type: "string",
+      description: "City resolved from GeoIP or SDK context.",
+    },
+    {
+      name: "$region",
+      type: "string",
+      description: "Region resolved from GeoIP or SDK context.",
+    },
+    {
+      name: "$country",
+      type: "string",
+      description: "Country resolved from GeoIP or SDK context.",
+    },
+    {
+      name: "$timezone",
+      type: "string",
+      description: "Timezone resolved from GeoIP or client context.",
+    },
+    {
+      name: "$os",
+      type: "string",
+      description: "Operating system value promoted for device segmentation.",
+    },
+    {
+      name: "$device_model",
+      type: "string",
+      description: "Device model promoted for hardware-level breakdowns.",
+    },
+  ]}
+/>
+
+## Why promotion matters
+
+Promoted fields make it easier to:
+
+- break down events by geography
+- compare device families
+- segment cohorts by platform
+- join replay and session analysis more quickly

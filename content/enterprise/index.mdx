@@ -1,0 +1,29 @@
+---
+title: Enterprise features
+description: Overview of the enterprise-only routes and plugin-backed capabilities present in this repository.
+section: enterprise
+order: 1
+toc: true
+badge: Enterprise
+source_of_truth:
+  - server/engine/ee/init.go
+  - server/engine/internal/registry/registry.go
+---
+
+Enterprise builds register extra features through the same engine binary. The
+current plugin set in this repository includes:
+
+- session replay
+- billing and subscriptions
+- SAML/SSO
+- audit logs
+
+## How enterprise mode is activated
+
+The engine imports the enterprise module only when the `enterprise` build tag is
+active. That import registers the EE plugins into the runtime feature registry.
+
+## Read next
+
+- [Session replay and storage](/enterprise/session-replay-and-storage)
+- [Access, billing, and audit](/enterprise/access-billing-and-audit)

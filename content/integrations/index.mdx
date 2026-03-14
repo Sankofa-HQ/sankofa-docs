@@ -1,0 +1,34 @@
+---
+title: Integrations
+description: Use direct HTTP ingestion when you need Sankofa in environments outside the official Flutter SDK.
+section: integrations
+order: 1
+toc: true
+badge: Custom
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+---
+
+Sankofa exposes three core ingestion routes for custom integrations:
+
+- `POST /api/v1/track`
+- `POST /api/v1/people`
+- `POST /api/v1/alias`
+
+Those routes accept authenticated JSON payloads and resolve project context from
+the `x-api-key` header.
+
+## When to use direct ingestion
+
+Use HTTP ingestion when:
+
+- you are not integrating from Flutter
+- you need server-side event forwarding
+- you want to bridge an existing pipeline into Sankofa
+- you need explicit control over transport and retries
+
+## Read this section in order
+
+- [HTTP ingestion guide](/integrations/http-ingestion)
+- [API payload reference](/integrations/api-payload-reference)
+- [Alias and identity](/integrations/alias-and-identity)

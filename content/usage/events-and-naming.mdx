@@ -1,0 +1,38 @@
+---
+title: Events and naming
+description: Model user or system actions consistently so your funnels, flows, and insights remain durable as the product evolves.
+section: usage
+order: 2
+toc: true
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+---
+
+Events in Sankofa represent user or system actions. Good events are:
+
+- action-oriented
+- stable over time
+- scoped to one meaningful thing happening
+
+## Good examples
+
+- `signup_completed`
+- `checkout_started`
+- `payment_failed`
+- `invite_accepted`
+- `api_request_failed`
+- `workspace_created`
+
+## Keep properties for context
+
+Use properties for the dimensions that vary:
+
+- plan
+- currency
+- screen
+- source
+- failure_code
+- experiment_variant
+
+This keeps the event namespace compact while preserving the detail needed for
+analysis.

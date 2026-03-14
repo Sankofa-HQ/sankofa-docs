@@ -1,0 +1,56 @@
+---
+title: Product concepts
+description: Learn the core data model behind events, people, aliases, default properties, and sessions.
+section: getting-started
+order: 4
+toc: true
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+---
+
+## Events
+
+An event is a named action recorded against a `distinct_id`. In Sankofa, events
+are sent with:
+
+- `event_name`
+- `distinct_id`
+- `properties`
+- `default_properties`
+- `lib_version`
+
+Typical examples are page views, signups, purchases, invite accepts, onboarding
+steps, and API failure markers.
+
+## People profiles
+
+People data is stored separately from the event stream. The `people` transport
+updates the profile record for a `distinct_id` using a flat string property map.
+
+## Aliases
+
+Aliases let you connect an anonymous identifier to a known user identifier. The
+Flutter SDK automatically queues an alias when `identify()` changes the active
+identity from the anonymous ID to the user ID.
+
+## Default properties
+
+Default properties are the contextual fields the SDK collects and sends beside
+event-specific properties. The engine later promotes high-value defaults into
+indexed fields such as city, region, country, OS, and device model.
+
+## Sessions
+
+The Flutter SDK stores and refreshes a session ID locally. It injects
+`$session_id` into every tracked event. The engine promotes that property into a
+session-level field for query and replay correlation.
+
+## Why this matters in the dashboard
+
+Those four concepts drive the rest of the product surface:
+
+- events power trend, funnel, flow, and retention queries
+- people profiles and aliases support identity stitching
+- default properties make geography and device segmentation easier
+- session IDs connect analytics to replay

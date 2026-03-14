@@ -1,0 +1,30 @@
+---
+title: Analysis surfaces
+description: See how the ingest model powers events, users, cohorts, insights, funnels, flows, retention, and replay.
+section: usage
+order: 5
+toc: true
+source_of_truth:
+  - server/engine/internal/models/funnel.go
+  - server/engine/internal/models/flow.go
+  - server/engine/internal/models/retention.go
+  - server/engine/internal/models/insight.go
+  - server/engine/internal/database/models.go
+---
+
+Sankofa is not just an event log. The event model powers several product
+surfaces in the dashboard:
+
+- **Events** for raw timeline and property exploration
+- **Users** for people-level history and identity
+- **Cohorts** for reusable user sets
+- **Insights** for trend charts and metric views
+- **Funnels** for conversion analysis
+- **Flows** for path exploration
+- **Retention** for return behavior
+- **Replay** for session-level visual context in enterprise builds
+
+## Practical implication
+
+Use stable event names and durable identity rules early. It is much easier to
+trust your boards, funnels, and retention views when the ingest layer is clean.

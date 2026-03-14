@@ -1,0 +1,73 @@
+---
+title: HTTP ingestion
+description: Send events, people updates, and aliases directly to the Sankofa engine over the v1 ingest API.
+section: integrations
+order: 2
+toc: true
+badge: Custom
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+---
+
+## Authentication
+
+All custom ingestion requests must include:
+
+```http
+x-api-key: sk_live_12345
+Content-Type: application/json
+```
+
+## Event ingest
+
+```bash
+curl -X POST http://localhost:8080/api/v1/track \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk_live_12345" \
+  -d '{
+    "event_name": "checkout_started",
+    "distinct_id": "user_123",
+    "properties": {
+      "plan": "growth",
+      "$session_id": "sess_abc123"
+    },
+    "default_properties": {
+      "$os": "ios",
+      "$device_model": "iPhone 15"
+    },
+    "lib_version": "custom-http-1.0.0"
+  }'
+```
+
+## People ingest
+
+```bash
+curl -X POST http://localhost:8080/api/v1/people \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk_live_12345" \
+  -d '{
+    "distinct_id": "user_123",
+    "properties": {
+      "plan": "growth",
+      "role": "operator"
+    }
+  }'
+```
+
+## Alias ingest
+
+```bash
+curl -X POST http://localhost:8080/api/v1/alias \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk_live_12345" \
+  -d '{
+    "alias_id": "anon_6b87f2",
+    "distinct_id": "user_123"
+  }'
+```
+
+<Callout title="Expected status codes" tone="note">
+  The core ingest routes return `200` on success, `401` for a missing API key,
+  `403` for an unknown key, `400` for invalid bodies, and `503` if the internal
+  ingest buffer is full.
+</Callout>

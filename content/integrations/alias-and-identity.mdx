@@ -1,0 +1,41 @@
+---
+title: Alias and identity
+description: Stitch anonymous activity into known users and keep your event stream analyzable across signup and login boundaries.
+section: integrations
+order: 4
+toc: true
+badge: Custom
+source_of_truth:
+  - server/engine/cmd/sankofa/main.go
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+---
+
+Identity stitching in Sankofa is explicit. The alias transport connects one
+identifier to another.
+
+## Recommended pattern
+
+1. track anonymous activity with an anonymous `distinct_id`
+2. create the account or authenticate the user
+3. send an alias item from the old ID to the new ID
+4. send future events with the new `distinct_id`
+
+## Example
+
+```json
+{
+  "alias_id": "anon_6b87f2",
+  "distinct_id": "user_123"
+}
+```
+
+## Flutter behavior
+
+The official Flutter SDK does this automatically when `identify(userId)` changes
+the active identity from the anonymous ID to the new user ID.
+
+## People profiles and aliases are different
+
+- `alias` connects identities
+- `people` updates profile facts
+- `track` records timeline events
