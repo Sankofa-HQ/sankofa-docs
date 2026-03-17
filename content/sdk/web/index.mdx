@@ -5,9 +5,11 @@ section: sdk
 order: 2
 badge: Official
 toc: true
+source_of_truth:
+  - https://github.com/Sankofa-HQ/sankofa_sdk_web
 ---
 
-The Sankofa Web SDK is the core integration layer for browser-based applications. It provides a high-level API for tracking user behavior, capturing identity profile updates, and recording user sessions via session replay.
+The Sankofa Web SDK is the core integration layer for browser-based applications. [View source on GitHub](https://github.com/Sankofa-HQ/sankofa_sdk_web). It provides a high-level API for tracking user behavior, capturing identity profile updates, and recording user sessions via session replay.
 
 ## Integration Methods
 
@@ -31,9 +33,25 @@ Copy and paste this snippet into the `<head>` or at the end of the `<body>` of y
 
 For projects using React, Vue, or other modern frameworks:
 
-```bash
-npm install @sankofa/browser
-```
+<CodeTabs
+  tabs={[
+    {
+      label: "NPM Registry",
+      code: "npm install @sankofa/browser",
+      language: "bash",
+    },
+    {
+      label: "GitHub (NPM)",
+      code: "npm install https://github.com/Sankofa-HQ/sankofa_sdk_web.git",
+      language: "bash",
+    },
+    {
+      label: "GitHub (Yarn)",
+      code: "yarn add https://github.com/Sankofa-HQ/sankofa_sdk_web.git",
+      language: "bash",
+    },
+  ]}
+/>
 
 Initialize the SDK once in your application entry point:
 
