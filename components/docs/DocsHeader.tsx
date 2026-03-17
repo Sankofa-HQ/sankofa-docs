@@ -6,6 +6,8 @@ import { ArrowUpRight, LayoutDashboard, Rocket } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { appUrl, docsTopLinks, mainSiteUrl } from "@/lib/site";
 
+const githubUrl = "https://github.com/orgs/Sankofa-HQ/repositories";
+
 export function DocsHeader() {
   const pathname = usePathname();
 
@@ -52,6 +54,14 @@ export function DocsHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <a
+            href={githubUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-white hover:text-slate-950 sm:inline-flex"
+          >
+            GitHub
+          </a>
           <a
             href={mainSiteUrl}
             className="hidden items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-white hover:text-slate-950 sm:inline-flex"

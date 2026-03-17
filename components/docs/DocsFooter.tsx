@@ -22,6 +22,14 @@ export function DocsFooter() {
             </Link>
           ))}
           <a
+            href="https://github.com/orgs/Sankofa-HQ/repositories"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors hover:text-slate-950"
+          >
+            GitHub
+          </a>
+          <a
             href={mainSiteUrl}
             className="font-medium text-slate-950 transition-colors hover:text-rose-700"
           >
