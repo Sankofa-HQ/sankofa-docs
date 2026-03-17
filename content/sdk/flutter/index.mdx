@@ -1,6 +1,6 @@
 ---
 title: Flutter SDK
-description: Official Flutter support for event tracking, identity, offline queueing, and session replay.
+description: Official Flutter support for event tracking, identity, and offline queueing.
 section: sdk
 order: 1
 toc: true
@@ -8,10 +8,9 @@ badge: Official
 source_of_truth:
   - sdk/sankofa_flutter/README.md
   - sdk/sankofa_flutter/lib/sankofa_flutter.dart
-  - sdk/sankofa_flutter/lib/src/replay/sankofa_replay.dart
 ---
 
-The Flutter SDK is the official client integration surface in this repository.
+The Flutter SDK is the official client integration surface within the Sankofa ecosystem.
 It provides:
 
 - queued event delivery
@@ -19,14 +18,31 @@ It provides:
 - device and network context
 - identity stitching
 - people profile updates
-- session replay helpers
 
 ## Install
 
 ```yaml
 dependencies:
-  sankofa_flutter:
-    path: ../sdk/sankofa_flutter
+  sankofa_flutter: ^0.1.0
+```
+
+## Identity and People
+
+To connect anonymous data to a known user, use `identify`. To set profile attributes used in the dashboard, use `setPerson`.
+
+```dart
+// 1. Identify the user (Internal ID)
+await Sankofa.instance.identify("user_987");
+
+// 2. Set profile traits (Display Name, Email, Avatar)
+await Sankofa.instance.setPerson(
+  name: "John Doe",
+  email: "john@example.com",
+  avatar: "https://example.com/avatars/john.jpg",
+  properties: {
+    "plan": "premium"
+  }
+);
 ```
 
 ## What to read next
@@ -34,19 +50,7 @@ dependencies:
 - [Initialization](/sdk/flutter/initialization)
 - [Tracking events](/sdk/flutter/tracking-events)
 - [Identity and people](/sdk/flutter/identity-and-people)
-- [Session replay](/sdk/flutter/session-replay)
 - [API reference](/sdk/flutter/reference)
-
-## Replay-ready app structure
-
-```dart
-MaterialApp(
-  navigatorObservers: [SankofaNavigatorObserver()],
-  home: SankofaReplayBoundary(
-    child: MyScreen(),
-  ),
-);
-```
 
 <Callout title="Supported shapes today" tone="info">
   The docs in this section are limited to the Flutter package that exists in

@@ -10,6 +10,7 @@ export const appUrl =
 export const docsTopLinks = [
   { href: "/getting-started", label: "Getting Started" },
   { href: "/sdk/flutter", label: "Flutter SDK" },
+  { href: "/sdk/web", label: "Web SDK" },
   { href: "/integrations/http-ingestion", label: "Integrations" },
   { href: "/self-hosting", label: "Self-hosting" },
 ];

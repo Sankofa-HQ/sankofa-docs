@@ -1,0 +1,109 @@
+---
+title: Web SDK
+description: Integrate Sankofa into your web applications with support for event tracking and identity resolution via NPM or CDN.
+section: sdk
+order: 2
+badge: Official
+toc: true
+---
+
+The Sankofa Web SDK is the core integration layer for browser-based applications. It provides a high-level API for tracking user behavior and capturing identity profile updates.
+
+## Integration Methods
+
+You can integrate Sankofa using either the NPM package (recommended for modern frameworks) or via a direct Script tag (ideal for simple sites or CMS integrations).
+
+### 1. Script Tag (CDN)
+
+Copy and paste this snippet into the `<head>` or at the end of the `<body>` of your website. This method makes the `Sankofa` global object available immediately.
+
+```html
+<script src="https://cdn.sankofa.dev/sdk/web/v1/sankofa.min.js"></script>
+<script>
+  Sankofa.init({
+    apiKey: "your-api-key",
+    endpoint: "https://your-sankofa-engine.com"
+  });
+</script>
+```
+
+### 2. NPM / Yarn
+
+For projects using React, Vue, or other modern frameworks:
+
+```bash
+npm install @sankofa/browser
+```
+
+Initialize the SDK once in your application entry point:
+
+```typescript
+import { Sankofa } from "@sankofa/browser";
+
+await Sankofa.init({
+  apiKey: "your-api-key",
+  endpoint: "https://your-sankofa-engine.com",
+});
+```
+
+## Core Functionality
+
+### Tracking Events
+
+Track user actions with custom properties to build your event analytics.
+
+```typescript
+Sankofa.track("purchased_item", {
+  item_id: "sku_123",
+  price: 49.99,
+  currency: "USD",
+  category: "electronics"
+});
+```
+
+### Identity and People
+
+Sankofa uses a dual-method approach to manage user identity: `identify` for internal IDs and `setPerson` for human-readable profile traits.
+
+#### Identifying Users
+Use `identify` when a user logs in to link their anonymous history to their persistent internal ID.
+
+```typescript
+await Sankofa.identify("user_987");
+```
+
+#### Setting Profile Traits
+Use `setPerson` to enrich user profiles with information that appears in the Sankofa dashboard.
+
+```typescript
+await Sankofa.setPerson({
+  name: "John Doe",
+  email: "john@example.com",
+  avatar: "https://example.com/avatars/john.jpg",
+  // You can also add custom attributes
+  plan: "premium",
+  signup_date: "2024-03-17"
+});
+```
+
+## Default Properties
+
+The Web SDK automatically collects the following properties with every event:
+
+- `$current_url`: The full URL of the page.
+- `$host`: The domain name.
+- `$pathname`: The URL path.
+- `$referrer`: The referring URL.
+- `$browser`: Browser name (e.g., Chrome, Firefox).
+- `$os`: Operating system.
+- `$screen_height` / `$screen_width`: Device resolution.
+
+## Advanced Configuration
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `apiKey` | `string` | **Required** | Your project API key. |
+| `endpoint` | `string` | **Required** | Your Sankofa engine URL. |
+| `debug` | `boolean` | `false` | Enable console logging. |
+| `flushIntervalMs` | `number` | `5000` | How often to batch and send events. |
+| `autocapture` | `boolean` | `true` | Automatically track pageviews. |

@@ -13,8 +13,15 @@ const quickLinks = [
   },
   {
     title: "Flutter SDK",
-    body: "Track, identify, set people properties, and wire replay in one client.",
+    body: "Track, identify, and set people properties in your mobile applications.",
     href: "/sdk/flutter",
+    icon: Box,
+    badge: "Official" as const,
+  },
+  {
+    title: "Web SDK",
+    body: "Integrate event tracking and identity resolution into your web apps.",
+    href: "/sdk/web",
     icon: Box,
     badge: "Official" as const,
   },
@@ -47,15 +54,15 @@ export default function DocsHomePage() {
           </h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
             Sankofa Docs covers the actual surfaces that ship today: the
-            official Flutter SDK, direct HTTP ingestion, analytics concepts,
+            official Flutter and Web SDKs, direct HTTP ingestion, analytics concepts,
             and the self-hosted Go + ClickHouse stack.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/getting-started/quickstart" className="button-primary">
               Start with quickstart
             </Link>
-            <Link href="/sdk/flutter" className="button-secondary">
-              Explore Flutter SDK
+            <Link href="/sdk/web" className="button-secondary">
+              Explore Web SDK
             </Link>
           </div>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -92,18 +99,12 @@ export default function DocsHomePage() {
             <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600">
               <p>
                 <strong className="text-slate-950">Official today:</strong>{" "}
-                Flutter SDK, replay helpers, direct HTTP ingestion, Go engine,
-                ClickHouse analytics store.
+                Flutter SDK, Web SDK, direct HTTP ingestion, Go engine,
+                and ClickHouse analytics store.
               </p>
               <p>
-                <strong className="text-slate-950">Enterprise labels:</strong>{" "}
-                session replay storage, billing and subscriptions, SAML/SSO, and
-                audit routes are marked explicitly where relevant.
-              </p>
-              <p>
-                <strong className="text-slate-950">Not documented as official SDKs:</strong>{" "}
-                JavaScript, iOS, Android, and web SDKs are omitted because they
-                do not exist in this repo today.
+                Sankofa is built as a complete product analytics stack with
+                a focus on simplicity and self-hosting.
               </p>
             </div>
           </div>
@@ -169,11 +170,11 @@ export default function DocsHomePage() {
             </div>
             <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
               <p className="font-display text-2xl font-semibold text-slate-950">
-                Mixed core + EE
+                Self-hosted
               </p>
               <p className="mt-2 text-sm leading-7 text-slate-600">
-                Enterprise-only routes and features live alongside the core docs
-                with explicit labels instead of a separate docs site.
+                Run Sankofa on your own infrastructure with Docker. You own your
+                data from collection to analysis.
               </p>
             </div>
             <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">

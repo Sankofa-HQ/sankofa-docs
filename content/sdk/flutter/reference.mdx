@@ -7,7 +7,6 @@ toc: true
 badge: Official
 source_of_truth:
   - sdk/sankofa_flutter/lib/sankofa_flutter.dart
-  - sdk/sankofa_flutter/lib/src/replay/sankofa_replay.dart
 ---
 
 ## Core instance methods
@@ -19,10 +18,8 @@ source_of_truth:
   required String endpoint,
   bool debug = false,
   bool trackLifecycleEvents = true,
-  bool enableSessionReplay = false,
-  SankofaReplayMode replayMode = SankofaReplayMode.wireframe,
 })`}
-  description="Initializes the SDK, resolves endpoint URLs, loads persisted identity and queue state, gathers default properties, and prepares replay when enabled."
+  description="Initializes the SDK, resolves endpoint URLs, loads persisted identity and queue state, and gathers default properties."
 />
 
 <MethodSignature
@@ -49,7 +46,7 @@ source_of_truth:
 <MethodSignature
   name="reset"
   signature={`Future<void> reset()`}
-  description="Flushes pending events, clears the current user ID, creates a new anonymous ID, rotates the session, and reconfigures replay if enabled."
+  description="Flushes pending events, clears the current user ID, creates a new anonymous ID, and rotates the session."
 />
 
 ## Endpoint helpers
@@ -64,21 +61,4 @@ source_of_truth:
   name="resolveTrackUri"
   signature={`static Uri resolveTrackUri(String endpoint)`}
   description="Normalizes the final track URL so the SDK always targets the v1 track endpoint."
-/>
-
-## Replay helpers
-
-<MethodSignature
-  name="SankofaReplayBoundary"
-  signature={`const SankofaReplayBoundary({
-  super.key,
-  required Widget child,
-})`}
-  description="Provides the replay capture boundary used by the replay subsystem when replay is enabled."
-/>
-
-<MethodSignature
-  name="SankofaNavigatorObserver"
-  signature={`class SankofaNavigatorObserver extends RouteObserver<PageRoute<dynamic>>`}
-  description="Observes route changes so replay metadata can follow navigation flow inside the app."
 />

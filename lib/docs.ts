@@ -10,8 +10,7 @@ export type DocSectionKey =
   | "sdk"
   | "integrations"
   | "usage"
-  | "self-hosting"
-  | "enterprise";
+  | "self-hosting";
 
 export type DocSection = {
   key: DocSectionKey;
@@ -65,7 +64,7 @@ export const docSections: readonly DocSection[] = [
   {
     key: "sdk",
     title: "SDKs",
-    description: "Official Flutter support and custom ingest patterns.",
+    description: "Official Flutter and Web support.",
     order: 2,
   },
   {
@@ -85,12 +84,6 @@ export const docSections: readonly DocSection[] = [
     title: "Self-hosting",
     description: "Run Sankofa on your own infrastructure.",
     order: 5,
-  },
-  {
-    key: "enterprise",
-    title: "Enterprise",
-    description: "Replay, billing, SSO, and audit capabilities.",
-    order: 6,
   },
 ] as const;
 
@@ -127,8 +120,7 @@ function getSectionKeyFromPath(relativePath: string): DocSectionKey {
     topLevel === "sdk" ||
     topLevel === "integrations" ||
     topLevel === "usage" ||
-    topLevel === "self-hosting" ||
-    topLevel === "enterprise"
+    topLevel === "self-hosting"
   ) {
     return topLevel;
   }
@@ -309,6 +301,7 @@ export function getFeaturedDocs() {
   const featuredHrefs = [
     "/getting-started/quickstart",
     "/sdk/flutter",
+    "/sdk/web",
     "/integrations/http-ingestion",
     "/self-hosting",
   ];

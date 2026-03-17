@@ -29,8 +29,6 @@ await Sankofa.instance.init(
   endpoint: url,
   debug: _debugMode,
   trackLifecycleEvents: _trackLifecycleEvents,
-  enableSessionReplay: _enableSessionReplay,
-  replayMode: _replayMode,
 );
 ```
 
@@ -66,8 +64,6 @@ Internally:
 | --- | --- |
 | `debug` | Enables SDK log output during development. |
 | `trackLifecycleEvents` | Enables automatic lifecycle tracking when supported by the SDK. |
-| `enableSessionReplay` | Turns replay collection on and configures replay helpers. |
-| `replayMode` | Selects wireframe or screenshot replay behavior. |
 
 ## Initialization order
 
@@ -79,11 +75,7 @@ Internally:
     },
     {
       title: "Initialize before runApp",
-      body: "This ensures tracking, identity, and replay configuration are ready as the app tree mounts.",
-    },
-    {
-      title: "Wrap replay-aware UI when needed",
-      body: "If replay is enabled, place `SankofaReplayBoundary` near the root and add `SankofaNavigatorObserver()` to the app navigator.",
+      body: "This ensures tracking, identity, and persistence are ready as the app tree mounts.",
     },
   ]}
 />

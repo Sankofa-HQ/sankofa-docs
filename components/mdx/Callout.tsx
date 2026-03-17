@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, Info, ShieldAlert } from "lucide-react";
 
 const iconMap = {
   info: Info,
+  tip: Info,
   success: CheckCircle2,
   warning: ShieldAlert,
   note: AlertCircle,
@@ -9,6 +10,7 @@ const iconMap = {
 
 const toneMap = {
   info: "border-sky-200 bg-sky-50 text-sky-900",
+  tip: "border-sky-200 bg-sky-50 text-sky-900",
   success: "border-emerald-200 bg-emerald-50 text-emerald-900",
   warning: "border-amber-200 bg-amber-50 text-amber-900",
   note: "border-slate-200 bg-slate-50 text-slate-900",

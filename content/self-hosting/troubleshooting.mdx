@@ -1,13 +1,12 @@
 ---
 title: Troubleshooting
-description: Common local setup issues around API keys, ClickHouse connectivity, CORS, and replay-related storage configuration.
+description: Common local setup issues around API keys, ClickHouse connectivity, and CORS.
 section: self-hosting
 order: 5
 toc: true
 source_of_truth:
   - server/infra/docker-compose.yml
   - server/engine/.env.example
-  - server/engine/ee/replay/plugin.go
 ---
 
 ## Missing or invalid API key
@@ -39,13 +38,3 @@ If you are using the compose file, make sure the Sankofa service can resolve the
 
 If browser requests fail, review `CORS_ALLOWED_ORIGINS` and make sure the docs,
 website, or dashboard origin is included.
-
-## Replay storage failures
-
-Replay uploads depend on the enterprise replay plugin and the B2-compatible
-storage settings in the replay plugin:
-
-- `B2_ENDPOINT`
-- `B2_KEY_ID`
-- `B2_APP_KEY`
-- `B2_BUCKET_NAME`

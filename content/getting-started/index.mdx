@@ -6,22 +6,24 @@ order: 1
 toc: true
 source_of_truth:
   - sdk/sankofa_flutter/README.md
+  - sdk/web/packages/browser/README.md
   - server/engine/cmd/sankofa/main.go
+  - sdk/sankofa_flutter/lib/sankofa_flutter.dart
+  - sdk/web/packages/browser/src/index.ts
 ---
 
-Sankofa is a product analytics stack with four real surfaces in this repository today:
+Sankofa is a product analytics stack with three main components within the Sankofa ecosystem today:
 
 - the Go engine that accepts events and profile updates
 - the ClickHouse-backed analytics layer used by the dashboard
-- the official Flutter SDK
-- enterprise plugins such as replay, billing, audit, and SAML/SSO
+- the official Flutter and Web SDKs
 
 ## What ships today
 
 <Callout title="Current public integration surface" tone="note">
-  The only official client SDK in this repository today is Flutter. If you are
-  integrating from another environment, use the direct HTTP ingestion endpoints
-  documented in the integrations section.
+  Sankofa provides official SDKs for both **Flutter** and **Web** (React/Browser).
+  If you are integrating from another environment, use the direct HTTP ingestion
+  endpoints documented in the integrations section.
 </Callout>
 
 Sankofa is designed around three transport operations:
@@ -31,7 +33,7 @@ Sankofa is designed around three transport operations:
 - `alias` for identity stitching
 
 Those operations feed the product surfaces you see in the dashboard: events,
-users, cohorts, insights, funnels, flows, retention, and session replay.
+users, cohorts, insights, funnels, flows, and retention.
 
 ## Read this section in order
 
@@ -39,7 +41,7 @@ users, cohorts, insights, funnels, flows, retention, and session replay.
   steps={[
     {
       title: "Read the quickstart",
-      body: "Initialize the Flutter SDK or send your first custom ingest request so you can validate the end-to-end path quickly.",
+      body: "Initialize the Flutter or Web SDK to validate the end-to-end path quickly.",
     },
     {
       title: "Understand environments",
