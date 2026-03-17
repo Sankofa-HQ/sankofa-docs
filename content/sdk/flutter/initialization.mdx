@@ -16,7 +16,7 @@ source_of_truth:
 ```dart
 await Sankofa.instance.init(
   apiKey: 'sk_live_12345',
-  endpoint: 'http://localhost:8080',
+  endpoint: 'https://api.sankofa.dev',
   debug: true,
 );
 ```
@@ -40,11 +40,11 @@ The SDK accepts several endpoint shapes and normalizes them internally:
   tabs={[
     {
       label: "Server base",
-      code: "endpoint: 'http://localhost:8080'",
+      code: "endpoint: 'https://api.sankofa.dev'",
     },
     {
       label: "API base",
-      code: "endpoint: 'http://localhost:8080/api/v1'",
+      code: "endpoint: 'https://api.sankofa.dev/api/v1'",
     },
     {
       label: "Track URL",
