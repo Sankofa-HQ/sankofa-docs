@@ -1,0 +1,91 @@
+l---
+title: Session Replay
+description: Record and replay user sessions in the browser using rrweb.
+section: sdk
+order: 2
+---
+
+Web Session Replay uses the industry-standard `rrweb` engine to capture DOM changes, mouse movements, and input events. This allows you to reconstruct user sessions exactly as they appeared in the browser.
+
+## Setup
+
+### 1. Install the Plugin
+
+Session Replay is provided as an optional plugin to keep the core SDK lightweight. Install it via NPM or include it from a CDN.
+
+<CodeTabs
+  tabs={[
+    {
+      label: "NPM",
+      code: `npm install @sankofa/replay-rrweb`,
+      language: "bash",
+    },
+    {
+      label: "CDN",
+      code: `<script src="https://cdn.sankofa.com/sdk/web/plugins/replay-rrweb.min.js"></script>`,
+      language: "html",
+    },
+  ]}
+/>
+
+### 2. Register the Plugin
+
+Add the `rrwebReplayPlugin` to your initialization options.
+
+```javascript
+import { Sankofa } from '@sankofa/browser';
+import { rrwebReplayPlugin } from '@sankofa/replay-rrweb';
+
+Sankofa.init({
+  apiKey: 'YOUR_PROJECT_API_KEY',
+  endpoint: 'https://sankofa.your-domain.com',
+  plugins: [
+    rrwebReplayPlugin({
+      flushIntervalMs: 5000,
+      maxEventsPerChunk: 250,
+    })
+  ]
+});
+```
+
+---
+
+## Privacy & Security
+
+### Automatic Masking
+
+By default, the plugin enables `maskAllInputs`, which replaces all text entered into `<input>`, `<textarea>`, and `<select>` elements with asterisks.
+
+### Selectors for Redaction
+
+You can fine-tune privacy using specific CSS selectors to block, mask, or ignore elements.
+
+| Option | Description |
+| :--- | :--- |
+| `blockSelector` | Elements matching this selector will be completely removed from the recording. |
+| `maskSelector` | Text content inside these elements will be replaced with generic characters. |
+| `ignoreSelector` | Prevents recording events (like clicks) on these elements. |
+
+```javascript
+rrwebReplayPlugin({
+  maskSelector: '.pii-data',
+  blockSelector: '.payment-form',
+  ignoreSelector: '.internal-debug-panel',
+})
+```
+
+---
+
+## Technical Details
+
+### Compression
+
+All replay data is compressed using `gzip` (via `pako`) directly in the browser before being transmitted. This significantly reduces the network impact on the end user.
+
+### Persistence
+
+The plugin uses an IndexedDB-backed persistent queue to store recording chunks if the user goes offline or closes the tab before a flush occurs. These chunks are automatically uploaded when the app is next opened.
+
+### Session Context
+
+Replay chunks are automatically linked to your analytics events via the `$session_id` property, allowing you to jump from a funnel drop-off or an error event directly to the session recording in the Sankofa dashboard.

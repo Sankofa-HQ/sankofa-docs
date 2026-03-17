@@ -10,6 +10,11 @@ type Tab = {
 
 export function CodeTabs({ tabs }: { tabs: Tab[] }) {
   const [activeIndex, setActiveIndex] = useState(0);
+
+  if (!tabs || tabs.length === 0) {
+    return null;
+  }
+
   const activeTab = tabs[activeIndex] ?? tabs[0];
 
   return (
