@@ -22,7 +22,7 @@ Session Replay is provided as an optional plugin to keep the core SDK lightweigh
     },
     {
       label: "CDN",
-      code: `<script src="https://cdn.sankofa.com/sdk/web/plugins/replay-rrweb.min.js"></script>`,
+      code: `<script src="https://cdn.jsdelivr.net/npm/@sankofa/replay-rrweb@0.1.1/dist/sankofa-replay.min.js"></script>`,
       language: "html",
     },
   ]}
@@ -38,7 +38,7 @@ import { rrwebReplayPlugin } from '@sankofa/replay-rrweb';
 
 Sankofa.init({
   apiKey: 'YOUR_PROJECT_API_KEY',
-  endpoint: 'https://sankofa.your-domain.com',
+  endpoint: 'https://api.sankofa.dev',
   plugins: [
     rrwebReplayPlugin({
       flushIntervalMs: 5000,

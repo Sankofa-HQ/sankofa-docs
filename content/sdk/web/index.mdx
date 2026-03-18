@@ -20,11 +20,11 @@ You can integrate Sankofa using either the NPM package (recommended for modern f
 Copy and paste this snippet into the `<head>` or at the end of the `<body>` of your website. This method makes the `Sankofa` global object available immediately.
 
 ```html
-<script src="https://cdn.sankofa.dev/sdk/web/v1/sankofa.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser@0.1.1/dist/sankofa.min.js"></script>
 <script>
   Sankofa.init({
     apiKey: "your-api-key",
-    endpoint: "https://your-sankofa-engine.com"
+    endpoint: "https://api.sankofa.dev"
   });
 </script>
 ```
@@ -60,7 +60,7 @@ import { Sankofa } from "@sankofa/browser";
 
 await Sankofa.init({
   apiKey: "your-api-key",
-  endpoint: "https://your-sankofa-engine.com",
+  endpoint: "https://api.sankofa.dev",
 });
 ```
 
@@ -121,7 +121,7 @@ The Web SDK automatically collects the following properties with every event:
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `apiKey` | `string` | **Required** | Your project API key. |
-| `endpoint` | `string` | **Required** | Your Sankofa engine URL. |
+| `endpoint` | `string` | **Required** | Your Sankofa engine URL (e.g., `https://api.sankofa.dev`). |
 | `debug` | `boolean` | `false` | Enable console logging. |
 | `flushIntervalMs` | `number` | `5000` | How often to batch and send events. |
 | `autocapture` | `boolean` | `true` | Automatically track pageviews. |
