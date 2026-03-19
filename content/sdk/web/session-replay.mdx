@@ -89,3 +89,13 @@ The plugin uses an IndexedDB-backed persistent queue to store recording chunks i
 ### Session Context
 
 Replay chunks are automatically linked to your analytics events via the `$session_id` property, allowing you to jump from a funnel drop-off or an error event directly to the session recording in the Sankofa dashboard.
+
+---
+
+## Remote Configuration
+
+Sankofa remotely synchronizes your replay configuration on initialization. The following settings can be managed directly from the **Sankofa Dashboard**, overriding any local defaults:
+
+- **Sampling**: Control the percentage of sessions to record (e.g., only record 50% of users).
+- **High Fidelity Triggers**: Define events (e.g., `checkout_error`) that switch the SDK to high-detail recording mode for a burst duration.
+- **Privacy Overrides**: Remotely toggle `maskAllInputs` and `captureNetwork` settings to adjust your data collection strategy on-the-fly.

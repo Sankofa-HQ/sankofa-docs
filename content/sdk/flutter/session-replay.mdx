@@ -96,4 +96,8 @@ Sankofa.instance.triggerHighFidelityMode(Duration(seconds: 30));
 
 ### Remote Configuration
 
-The Sankofa engine can remotely push replay configurations to the SDK, such as overriding the list of events that trigger high-fidelity recording. This allows you to adjust your observability strategy without shipping a new app version.
+Sankofa remotely synchronizes your replay configuration on initialization. The following settings can be managed directly from the **Sankofa Dashboard**, overriding any local defaults:
+
+- **Sampling**: Control the percentage of standard sessions to record (e.g., only record 10% of users).
+- **High Fidelity Triggers**: Define a list of event names (e.g., `error`, `purchase_failed`) that switch the SDK to high-detail screenshot mode.
+- **Burst Duration**: Set how many seconds of high-fidelity data to capture after a trigger occurs.
