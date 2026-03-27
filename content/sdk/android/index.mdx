@@ -30,11 +30,25 @@ The Sankofa Android SDK provides a complete solution for product analytics and s
 ### 1. Install
 Add the dependency to your module's `build.gradle.kts` (or `build.gradle`):
 
-```kotlin
-dependencies {
-    implementation("dev.sankofa.sdk:sankofa-android:1.0.0")
-}
-```
+<CodeTabs
+  tabs={[
+    {
+      label: "Gradle (Kotlin)",
+      code: "dependencies {\n    implementation(\"dev.sankofa.sdk:sankofa-android:1.0.0\")\n}",
+      language: "kotlin",
+    },
+    {
+      label: "Gradle (Groovy)",
+      code: "dependencies {\n    implementation 'dev.sankofa.sdk:sankofa-android:1.0.0'\n}",
+      language: "groovy",
+    },
+    {
+      label: "Maven (XML)",
+      code: "<dependency>\n  <groupId>dev.sankofa.sdk</groupId>\n  <artifactId>sankofa-android</artifactId>\n  <version>1.0.0</version>\n  <type>aar</type>\n</dependency>",
+      language: "xml",
+    },
+  ]}
+/>
 
 ### 2. Initialize
 Initialize the SDK in your `Application` class. It **auto-registers** to all Activities – no per-screen boilerplate required.
