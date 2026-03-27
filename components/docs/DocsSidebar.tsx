@@ -10,33 +10,46 @@ export function DocsSidebar({ currentHref }: { currentHref: string }) {
       <nav aria-label="Sidebar" className="space-y-7">
         {sections.map((section) => (
           <div key={section.key}>
-            <div className="mb-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <div className="mb-2 px-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
                 {section.title}
               </p>
-              <p className="mt-1 text-sm text-slate-500">{section.description}</p>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {section.items.map((item) => {
                 const active = currentHref === item.href;
 
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`block rounded-2xl border px-3 py-3 transition-colors ${
-                      active
-                        ? "border-rose-200 bg-white text-slate-950 shadow-sm"
-                        : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{item.title}</span>
-                      {item.badge ? <DocBadge badge={item.badge} /> : null}
-                    </div>
-                    <p className="mt-1 text-sm text-slate-500">{item.description}</p>
-                  </Link>
+                  <div key={item.href} className="space-y-0.5">
+                    <Link
+                      href={item.href}
+                      className={`group flex items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                        active
+                          ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
+                          : "text-slate-600 hover:bg-white hover:text-slate-950"
+                      }`}
+                    >
+                      <span className="truncate">{item.title}</span>
+                      {item.badge ? <DocBadge badge={item.badge} scale={0.8} /> : null}
+                    </Link>
+
+                    {active && item.headings && item.headings.length > 0 && (
+                      <div className="ml-4 mt-1 flex flex-col border-l border-slate-200 py-1">
+                        {item.headings
+                          .filter((h) => h.depth === 2)
+                          .map((heading) => (
+                            <Link
+                              key={heading.id}
+                              href={`#${heading.id}`}
+                              className="px-4 py-1.5 text-[13px] text-slate-500 transition-colors hover:text-slate-950"
+                            >
+                              {heading.text}
+                            </Link>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

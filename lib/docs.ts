@@ -37,6 +37,7 @@ export type DocNavItem = {
   section: DocSectionKey;
   order: number;
   badge?: DocBadge;
+  headings?: DocHeading[];
 };
 
 export type DocHeading = {
