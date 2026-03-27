@@ -1,0 +1,58 @@
+---
+title: Android SDK API Reference
+description: Complete API reference for the Sankofa Android SDK.
+section: sdk
+order: 15
+---
+
+# API Reference 📑
+
+This page provides a complete reference for all public methods available in the Sankofa Android SDK.
+
+## `Sankofa` (Singleton)
+
+The primary entry point for all SDK operations.
+
+| Method | Signature | Description |
+|---|---|---|
+| `init` | `init(context: Context, apiKey: String, config: SankofaConfig)` | Initializes the SDK. Call once in `Application.onCreate`. |
+| `track` | `track(eventName: String, properties: Map<String, Any?>?)` | Tracks a custom event with optional properties. |
+| `identify` | `identify(userId: String)` | Links anonymous data to a known user ID. |
+| `reset` | `reset()` | Clears identity and starts a new anonymous session. |
+| `setPerson` | `setPerson(name: String?, email: String?, properties: Map<String, Any?>?)` | Sets common profile attributes for the current user. |
+| `peopleSet` | `peopleSet(properties: Map<String, Any?>)` | Sets rich profile attributes for the current user. |
+| `flush` | `flush()` | Force-uploads all queued events immediately. |
+| `shutdown` | `shutdown()` | Tears down the SDK and persists the current state. |
+
+## `SankofaConfig` (Data Class)
+
+Configuration options passed to `Sankofa.init()`.
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `endpoint` | `String` | `https://api.sankofa.dev` | Your Sankofa server URL. |
+| `recordSessions` | `Boolean` | `true` | Enable/disable session recordings. |
+| `maskAllInputs` | `Boolean` | `true` | Auto-mask all `EditText` views. |
+| `debug` | `Boolean` | `false` | Enable verbose logging. |
+| `trackLifecycleEvents` | `Boolean` | `true` | Auto-track app open/close. |
+| `flushIntervalSeconds` | `Int` | `30` | Event flush interval. |
+| `batchSize` | `Int` | `50` | Event queue limit. |
+
+## `View` Extensions
+
+Utility extensions for developers using Kotlin.
+
+### `sankofaMask`
+
+```kotlin
+var View.sankofaMask: Boolean
+```
+
+A property to easily mask/unmask any View. Internally sets the View's tag to `"sankofa_mask"`.
+
+---
+
+## 📑 Next Steps
+
+- **[Initialization Guide](/sdk/android/initialization)**: Get started with basic setup.
+- **[Tracking Events](/sdk/android/tracking-events)**: Learn about event capture.

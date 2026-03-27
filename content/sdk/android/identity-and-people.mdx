@@ -1,0 +1,62 @@
+---
+title: Identity & People on Android
+description: Resolving user identities and managing profile attributes in your Android app.
+section: sdk
+order: 13
+---
+
+# Identity & People 👤
+
+Sankofa allows you to resolve anonymous user identities and manage rich customer profiles for detailed behavioral analysis.
+
+## 1. Identifying Users
+
+When a user logs in or creates an account, use `Sankofa.identify()` to link their anonymous session history to their unique user ID in your system.
+
+```kotlin
+Sankofa.identify("user_99")
+```
+
+## 2. Resetting Identity
+
+When a user logs out, use `Sankofa.reset()` to clear their current identity and start a fresh anonymous session.
+
+```kotlin
+Sankofa.reset()
+```
+
+## 3. Setting Person Properties
+
+Rich customer profiles are built by setting "People" properties. Use `Sankofa.setPerson()` to update or add attributes to the current user's profile.
+
+```kotlin
+Sankofa.setPerson(
+    name = "Jane Doe",
+    email = "jane@example.com",
+    properties = mapOf(
+        "membership" to "Gold",
+        "signup_source" to "referral"
+    )
+)
+```
+
+## 4. People Operations
+
+The `peopleSet` method provides a direct way to update properties on the current user profile.
+
+```kotlin
+Sankofa.peopleSet(mapOf(
+    "plan" to "enterprise",
+    "last_billing_date" to "2024-03-27"
+))
+```
+
+> [!IMPORTANT]
+> Always call `Sankofa.identify()` as early as possible after a login event to ensure all subsequent interactions are correctly attributed to the identified user.
+
+---
+
+## 📑 Next Steps
+
+- **[Session Replay](/sdk/android/session-replay)**: Fine-tune your session recordings.
+- **[API Reference](/sdk/android/reference)**: Complete list of available methods.

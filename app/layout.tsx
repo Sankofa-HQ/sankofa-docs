@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     template: "%s | Sankofa Docs",
   },
   description:
-    "Official Sankofa documentation covering usage, Flutter SDK, HTTP ingestion, self-hosting, and enterprise features.",
+    "Official Sankofa documentation covering usage, Android SDK, Flutter SDK, HTTP ingestion, self-hosting, and enterprise features.",
   openGraph: {
     title: "Sankofa Docs",
     description:

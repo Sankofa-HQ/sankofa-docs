@@ -37,6 +37,14 @@ The SDKs normalize these inputs internally.
 }`,
     },
     {
+      label: "Android (Kotlin)",
+      code: `Sankofa.init(
+    context = this,
+    apiKey = "sk_live_12345",
+    config = SankofaConfig(recordSessions = true)
+)`,
+    },
+    {
       label: "Web (NPM)",
       code: `import { Sankofa } from "@sankofa/browser";
 
@@ -70,6 +78,13 @@ await Sankofa.init({
 });`,
     },
     {
+      label: "Android",
+      code: `Sankofa.track("button_clicked", mapOf(
+    "bg_color" to "blue",
+    "screen" to "home"
+))`,
+    },
+    {
       label: "Web",
       code: `Sankofa.track("button_clicked", {
   bg_color: "blue",
@@ -86,6 +101,10 @@ await Sankofa.init({
     {
       label: "Flutter",
       code: `await Sankofa.instance.identify('user_123');`,
+    },
+    {
+      label: "Android",
+      code: `Sankofa.identify("user_123")`,
     },
     {
       label: "Web",

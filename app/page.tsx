@@ -6,9 +6,16 @@ import { getFeaturedDocs, getSidebarSections } from "@/lib/docs";
 const quickLinks = [
   {
     title: "Quickstart",
-    body: "Initialize the Flutter SDK, send your first events, and verify ingest.",
+    body: "Initialize the SDKs, send your first events, and verify ingest.",
     href: "/getting-started/quickstart",
     icon: Rocket,
+    badge: "Official" as const,
+  },
+  {
+    title: "Android SDK",
+    body: "Track, identify, and capture session replays in native Android apps.",
+    href: "/sdk/android",
+    icon: Box,
     badge: "Official" as const,
   },
   {
@@ -54,7 +61,7 @@ export default function DocsHomePage() {
           </h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
             Sankofa Docs covers the actual surfaces that ship today: the
-            official Flutter and Web SDKs, direct HTTP ingestion, analytics concepts,
+            official Android, Flutter and Web SDKs, direct HTTP ingestion, analytics concepts,
             and the self-hosted Go + ClickHouse stack.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -99,7 +106,7 @@ export default function DocsHomePage() {
             <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600">
               <p>
                 <strong className="text-slate-950">Official today:</strong>{" "}
-                Flutter SDK, Web SDK, direct HTTP ingestion, Go engine,
+                Android SDK, Flutter SDK, Web SDK, direct HTTP ingestion, Go engine,
                 and ClickHouse analytics store.
               </p>
               <p>

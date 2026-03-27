@@ -1,0 +1,60 @@
+---
+title: Tracking Events on Android
+description: Capture custom user interactions and properties in your Android app.
+section: sdk
+order: 12
+---
+
+# Tracking Events 📈
+
+Track any user action with a simple method call. Events are automatically enriched with device metadata and batched for efficient uploading.
+
+## 1. Simple Event Tracking
+
+To track a basic event, provide a name describing the user's action.
+
+```kotlin
+Sankofa.track("started_trial")
+```
+
+## 2. Tracking with Properties
+
+Enhance your events by providing a map of custom properties. This allows for more granular analysis in the Sankofa dashboard.
+
+```kotlin
+Sankofa.track("completed_purchase", mapOf(
+    "item_id" to "cam_001",
+    "item_name" to "Vintage Camera",
+    "price" to 120.50,
+    "currency" to "USD"
+))
+```
+
+## 3. Automatic Metadata
+
+Sankofa automatically captures the following device properties with every event:
+
+- **Device**: $brand, $model, $os_version
+- **Screen**: $screen_width, $screen_height
+- **App**: $app_version, $app_release
+
+## 4. Batching & Flushing
+
+To optimize battery life and network usage, the SDK batches events and flushes them periodically.
+
+- **Auto-flush**: Occurs every 30 seconds or when 50 events accumulate.
+- **Manual Flush**: Force an immediate upload of all queued events.
+
+```kotlin
+Sankofa.flush()
+```
+
+> [!TIP]
+> Use `Sankofa.flush()` when a user completes a critical action (like a purchase) to ensure the data is sent immediately before they close the app.
+
+---
+
+## 📑 Next Steps
+
+- **[Identity & People](/sdk/android/identity-and-people)**: Resolve user identities.
+- **[Session Replay](/sdk/android/session-replay)**: Fine-tune your session recordings.

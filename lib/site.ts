@@ -9,6 +9,7 @@ export const appUrl =
 
 export const docsTopLinks = [
   { href: "/getting-started", label: "Getting Started" },
+  { href: "/sdk/android", label: "Android SDK" },
   { href: "/sdk/flutter", label: "Flutter SDK" },
   { href: "/sdk/web", label: "Web SDK" },
   { href: "/integrations/http-ingestion", label: "Integrations" },

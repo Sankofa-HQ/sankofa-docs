@@ -1,0 +1,66 @@
+---
+title: Android SDK Overview
+description: High-fidelity analytics and session replay for native Android applications.
+section: sdk
+order: 10
+badge: Official
+source_of_truth: ["sdks/sankofa_sdk_android"]
+---
+
+# Android SDK 🚀
+
+The Sankofa Android SDK provides a complete solution for product analytics and session replay in native Android applications. It is designed to be lightweight, offline-ready, and privacy-first.
+
+---
+
+## ✨ Key Features
+
+- **Event Tracking**: Send custom events with arbitrary properties and automatic device metadata.
+- **Identity Management**: Link anonymous users to permanent customer profiles.
+- **Session Replay**: 
+  - **Screenshot Mode**: Pixel-perfect visual capture for complex UI debugging.
+  - **Auto-masking**: Sensitive data protection via Kotlin extensions and automatic `EditText` detection.
+- **Offline Reliability**: Robust local queueing with background auto-flushing via WorkManager.
+- **Privacy First**: Granular controls over what to track and what to mask.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install
+Add the dependency to your module's `build.gradle.kts` (or `build.gradle`):
+
+```kotlin
+dependencies {
+    implementation("dev.sankofa.sdk:sankofa-android:1.0.0")
+}
+```
+
+### 2. Initialize
+Initialize the SDK in your `Application` class. It **auto-registers** to all Activities – no per-screen boilerplate required.
+
+```kotlin
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Sankofa.init(
+            context = this,
+            apiKey = "YOUR_PROJECT_API_KEY",
+            config = SankofaConfig(
+                recordSessions = true,
+                maskAllInputs = true, // Auto-mask all EditTexts
+            )
+        )
+    }
+}
+```
+
+---
+
+## 📑 Next Steps
+
+- **[Initialization & Configuration](/sdk/android/initialization)**: Learn about the available configuration options.
+- **[Tracking Events](/sdk/android/tracking-events)**: Start capturing user interactions.
+- **[Identity & People](/sdk/android/identity-and-people)**: Resolve identities and set user properties.
+- **[Session Replay](/sdk/android/session-replay)**: Fine-tune your session recordings and privacy masks.
+- **[API Reference](/sdk/android/reference)**: Complete list of available methods.

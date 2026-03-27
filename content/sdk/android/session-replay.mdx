@@ -1,0 +1,73 @@
+---
+title: Session Replay on Android
+description: Configuring high-fidelity session recordings and privacy masking in your Android app.
+section: sdk
+order: 14
+---
+
+# Session Replay 🎥
+
+Sankofa's session replay engine captures pixel-perfect recordings of user interactions, allowing you to debug complex UI issues and understand user behavior with visual context.
+
+## 1. Enabling Session Replay
+
+Session replay is enabled by default. You can control it via the `recordSessions` option in `SankofaConfig`.
+
+```kotlin
+Sankofa.init(
+    context = this,
+    apiKey = "YOUR_PROJECT_API_KEY",
+    config = SankofaConfig(
+        recordSessions = true // Set to false to disable
+    )
+)
+```
+
+## 2. Privacy & Masking 🛡
+
+Privacy is a top priority. Sankofa provides multiple ways to mask sensitive content from session recordings.
+
+### Automatic Masking
+When `maskAllInputs` is enabled (default), the SDK automatically blacks out all `EditText` views in the recording.
+
+```kotlin
+SankofaConfig(maskAllInputs = true)
+```
+
+### Manual Masking
+You can manually mark any view to be masked. This is useful for custom PII fields or third-party widgets.
+
+#### Option 1: Kotlin Extension (Recommended)
+Use the `sankofaMask` property for a clean, type-safe API.
+
+```kotlin
+import dev.sankofa.sdk.util.sankofaMask
+
+mySensitiveView.sankofaMask = true
+```
+
+#### Option 2: View Tag
+For Java-based projects or static XML layouts, use the `"sankofa_mask"` tag.
+
+```kotlin
+mySensitiveView.tag = "sankofa_mask"
+```
+
+## 3. High-Fidelity Capture
+
+The SDK uses a hybrid capture engine:
+- **PixelCopy (API 26+)**: Fast, hardware-accelerated screenshot capture.
+- **Software Canvas Fallback**: Ensures broad compatibility with older Android versions.
+
+## 4. Performance & Battery
+
+- **Bitmap Recycling**: Uses a pool of reusable bitmaps to minimize memory churn and GC pauses.
+- **Change Detection**: Only captures frames when the screen content actually changes.
+- **Background Suspension**: Recording stops automatically when the app enters the background.
+
+---
+
+## 📑 Next Steps
+
+- **[API Reference](/sdk/android/reference)**: Complete list of available methods.
+- **[Building the SDK](/sdk/android/building)**: Learn how to build the AAR locally.
