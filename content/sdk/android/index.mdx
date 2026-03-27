@@ -1,5 +1,5 @@
 ---
-title: Android SDK Overview
+title: Android SDK
 description: High-fidelity analytics and session replay for native Android applications.
 section: sdk
 order: 10
@@ -57,10 +57,150 @@ class MyApplication : Application() {
 
 ---
 
-## 📑 Next Steps
+## 🛠 Configuration Options
 
-- **[Initialization & Configuration](/sdk/android/initialization)**: Learn about the available configuration options.
-- **[Tracking Events](/sdk/android/tracking-events)**: Start capturing user interactions.
-- **[Identity & People](/sdk/android/identity-and-people)**: Resolve identities and set user properties.
-- **[Session Replay](/sdk/android/session-replay)**: Fine-tune your session recordings and privacy masks.
-- **[API Reference](/sdk/android/reference)**: Complete list of available methods.
+The `SankofaConfig` class allows you to fine-tune the SDK's behavior.
+
+| Option | Default | Description |
+|---|---|---|
+| `endpoint` | `https://api.sankofa.dev` | Base URL of your Sankofa server |
+| `recordSessions` | `true` | Enable or disable high-fidelity session replay |
+| `maskAllInputs` | `true` | Auto-mask all `EditText` views in session recordings |
+| `debug` | `false` | Enable verbose Logcat output for debugging |
+| `trackLifecycleEvents` | `true` | Auto-track `$app_opened/foregrounded/backgrounded` |
+| `flushIntervalSeconds` | `30` | Interval for flushing queued events while foregrounded |
+| `batchSize` | `50` | Maximum number of events to queue before flushing |
+
+### Example with Custom Configuration
+
+```kotlin
+Sankofa.init(
+    context = this,
+    apiKey = "YOUR_PROJECT_API_KEY",
+    config = SankofaConfig(
+        endpoint = "https://analytics.yourdomain.com",
+        recordSessions = true,
+        maskAllInputs = true,
+        debug = true
+    )
+)
+```
+
+---
+
+## 📈 Tracking Events
+
+Track any user action with a simple method call. Events are automatically enriched with device metadata and batched for efficient uploading.
+
+### 1. Simple Event Tracking
+
+```kotlin
+Sankofa.track("started_trial")
+```
+
+### 2. Tracking with Properties
+
+```kotlin
+Sankofa.track("completed_purchase", mapOf(
+    "item_id" to "cam_001",
+    "item_name" to "Vintage Camera",
+    "price" to 120.50,
+    "currency" to "USD"
+))
+```
+
+### 3. Automatic Metadata
+
+Sankofa automatically captures the following device properties with every event:
+- **Device**: $brand, $model, $os_version
+- **Screen**: $screen_width, $screen_height
+- **App**: $app_version, $app_release
+
+---
+
+## 👤 Identity & People
+
+Sankofa allows you to resolve anonymous user identities and manage rich customer profiles.
+
+### 1. Identifying Users
+
+When a user logs in, use `Sankofa.identify()` to link their anonymous history to their unique user ID.
+
+```kotlin
+Sankofa.identify("user_99")
+```
+
+### 2. Resetting Identity
+
+When a user logs out, use `Sankofa.reset()` to clear their current identity and start a fresh anonymous session.
+
+```kotlin
+Sankofa.reset()
+```
+
+### 3. Setting Person Properties
+
+```kotlin
+Sankofa.setPerson(
+    name = "Jane Doe",
+    email = "jane@example.com",
+    properties = mapOf(
+        "membership" to "Gold",
+        "signup_source" to "referral"
+    )
+)
+```
+
+---
+
+## 🎥 Session Replay & Privacy
+
+Sankofa's session replay engine captures pixel-perfect recordings of user interactions.
+
+### Privacy & Masking 🛡
+
+Privacy is a top priority. Sankofa provides multiple ways to mask sensitive content from session recordings.
+
+#### Automatic Masking
+When `maskAllInputs` is enabled (default), the SDK automatically blacks out all `EditText` views.
+
+#### Manual Masking
+##### Option 1: Kotlin Extension (Recommended)
+```kotlin
+import dev.sankofa.sdk.util.sankofaMask
+
+mySensitiveView.sankofaMask = true
+```
+
+##### Option 2: View Tag
+```kotlin
+mySensitiveView.tag = "sankofa_mask"
+```
+
+---
+
+## 📑 API Reference
+
+### `Sankofa` (Singleton)
+
+| Method | Signature | Description |
+|---|---|---|
+| `init` | `init(context: Context, apiKey: String, config: SankofaConfig)` | Initializes the SDK. |
+| `track` | `track(eventName: String, properties: Map<String, Any?>?)` | Tracks a custom event. |
+| `identify` | `identify(userId: String)` | Links anonymous data to a known user ID. |
+| `reset` | `reset()` | Clears identity and starts a new anonymous session. |
+| `setPerson` | `setPerson(name: String?, email: String?, properties: Map<String, Any?>?)` | Sets common profile attributes. |
+| `flush` | `flush()` | Force-uploads all queued events immediately. |
+| `shutdown` | `shutdown()` | Tears down the SDK and persists state. |
+
+### `SankofaConfig`
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `endpoint` | `String` | `https://api.sankofa.dev` | Server URL. |
+| `recordSessions` | `Boolean` | `true` | Enable/disable recordings. |
+| `maskAllInputs` | `Boolean` | `true` | Auto-mask all `EditText` views. |
+| `debug` | `Boolean` | `false` | Enable verbose logging. |
+| `trackLifecycleEvents` | `Boolean` | `true` | Auto-track app open/close. |
+| `flushIntervalSeconds` | `Int` | `30` | Event flush interval. |
+| `batchSize` | `Int` | `50` | Event queue limit. |

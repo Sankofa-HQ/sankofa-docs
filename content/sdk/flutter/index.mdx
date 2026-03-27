@@ -11,57 +11,153 @@ source_of_truth:
   - https://github.com/Sankofa-HQ/sankofa_sdk_flutter
 ---
 
-The Flutter SDK is the official client integration surface within the Sankofa ecosystem. [View source on GitHub](https://github.com/Sankofa-HQ/sankofa_sdk_flutter).
-It provides:
+# Flutter SDK 🚀
 
-- queued event delivery
-- automatic flush behavior
-- device and network context
-- identity stitching
-- people profile updates
-- **session replay** (wireframe & screenshot)
+The Sankofa Flutter SDK is the official client integration surface for Flutter applications. It provides high-level APIs for tracking user behavior, capturing identity updates, and recording user sessions.
 
-## Install
+---
 
-<CodeTabs
-  tabs={[
-    {
-      label: "Pub.dev",
-      code: "dependencies:\n  sankofa_flutter: ^0.1.0",
-      language: "yaml",
-    },
-    {
-      label: "GitHub",
-      code: "dependencies:\n  sankofa_flutter:\n    git:\n      url: https://github.com/Sankofa-HQ/sankofa_sdk_flutter.git",
-      language: "yaml",
-    },
-  ]}
-/>
+## 🚀 Quick Start
 
-## Identity and People
+### 1. Install
+Add the dependency to your `pubspec.yaml`:
 
-To connect anonymous data to a known user, use `identify`. To set profile attributes used in the dashboard, use `setPerson`.
+```yaml
+dependencies:
+  sankofa_flutter: ^0.1.0
+```
+
+### 2. Initialize
+Initialize the SDK before calling `runApp`.
 
 ```dart
-// 1. Identify the user (Internal ID)
-await Sankofa.instance.identify("user_987");
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Sankofa.instance.init(
+    apiKey: 'sk_live_12345',
+    endpoint: 'https://api.sankofa.dev',
+    debug: true
+  );
+  runApp(MyApp());
+}
+```
 
-// 2. Set profile traits (Display Name, Email, Avatar)
-await Sankofa.instance.setPerson(
-  name: "John Doe",
-  email: "john@example.com",
-  avatar: "https://example.com/avatars/john.jpg",
-  properties: {
-    "plan": "premium"
-  }
+---
+
+## 🛠 Configuration & Setup
+
+### Endpoint Normalization
+The SDK accepts several endpoint shapes and normalizes them internally:
+- **Server base**: `https://api.sankofa.dev`
+- **API base**: `https://api.sankofa.dev/api/v1`
+- **Track URL**: `http://localhost:8080/api/v1/track`
+
+### Common Flags
+| Flag | Purpose |
+| --- | --- |
+| `debug` | Enables SDK log output during development. |
+| `trackLifecycleEvents` | Enables automatic lifecycle tracking (app open/close). |
+
+---
+
+## 📈 Tracking Events
+
+Track any user action with a simple method call. Events are automatically enriched with device metadata.
+
+### Basic Event Call
+```dart
+await Sankofa.instance.track('button_clicked', {
+  'bg_color': 'blue',
+  'screen': 'home',
+});
+```
+
+### Automatic Enrichment
+The SDK automatically injects:
+- `$session_id`
+- `$distinct_id`
+- Network and Device properties
+- Default properties
+
+---
+
+## 👤 Identity & People
+
+Sankofa uses a dual-method approach to manage user identity and profile updates.
+
+### Identify a Known User
+```dart
+await Sankofa.instance.identify('user_123');
+```
+This links previous anonymous activity to the new user identity.
+
+### Reset on Logout
+```dart
+await Sankofa.instance.reset();
+```
+Clears identity, rotates the session, and generates a new anonymous ID.
+
+### Set People Properties
+```dart
+await Sankofa.instance.peopleSet({
+  'plan': 'growth',
+  'role': 'operator',
+});
+```
+
+---
+
+## 🎥 Session Replay
+
+Session Replay allows you to see exactly how users interact with your app by recording UI states and touch events.
+
+### Recording Modes
+| Mode | Description |
+| :--- | :--- |
+| `wireframe` | Captures UI layout using lightweight JSON blueprints (Default). |
+| `screenshot` | Captures pixel-perfect snapshots at a target FPS. |
+
+### Setup
+#### 1. Wrap your App
+```dart
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+void main() {
+  runApp(
+    SankofaReplayBoundary(
+      child: MyApp(),
+    ),
+  );
+}
+```
+
+#### 2. Enable in Init
+```dart
+await Sankofa.instance.init(
+  apiKey: 'YOUR_PROJECT_API_KEY',
+  endpoint: 'https://sankofa.your-domain.com',
+  enableSessionReplay: true,
 );
 ```
 
-## What to read next
+### Privacy & Masking
+Use the `SankofaMask` widget to redact sensitive information.
+```dart
+SankofaMask(
+  child: Text('Sensitive User Data'),
+)
+```
 
-- [Initialization](/sdk/flutter/initialization)
-- [Tracking events](/sdk/flutter/tracking-events)
-- [Identity and people](/sdk/flutter/identity-and-people)
-- [Session replay](/sdk/flutter/session-replay)
-- [API reference](/sdk/flutter/reference)
+---
 
+## 📑 API Reference
+
+### Core Instance Methods
+
+| Method | Description |
+|---|---|
+| `init` | Initializes the SDK and gather default properties. |
+| `track` | Queues an event with optional properties. |
+| `identify` | Switches the active distinct ID to a known user. |
+| `peopleSet` | Queues a people profile update. |
+| `reset` | Flushes pending events and clears identity. |

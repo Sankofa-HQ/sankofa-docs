@@ -126,7 +126,55 @@ The Web SDK automatically collects the following properties with every event:
 | `flushIntervalMs` | `number` | `5000` | How often to batch and send events. |
 | `autocapture` | `boolean` | `true` | Automatically track pageviews. |
 
-## What to read next
+## 🎥 Session Replay
 
-- [Session replay](/sdk/web/session-replay)
-- [General concepts](/getting-started/product-concepts)
+Web Session Replay uses the industry-standard `rrweb` engine to capture DOM changes and user interactions.
+
+### 1. Register the Plugin
+
+Add the `rrwebReplayPlugin` to your initialization options.
+
+```javascript
+import { Sankofa } from '@sankofa/browser';
+import { rrwebReplayPlugin } from '@sankofa/replay-rrweb';
+
+Sankofa.init({
+  apiKey: 'YOUR_PROJECT_API_KEY',
+  endpoint: 'https://api.sankofa.dev',
+  plugins: [
+    rrwebReplayPlugin({
+      flushIntervalMs: 5000,
+      maxEventsPerChunk: 250,
+    })
+  ]
+});
+```
+
+### 2. Privacy & Masking
+
+By default, the plugin enables `maskAllInputs`, which replaces all text entered into input fields with asterisks. You can fine-tune privacy using specific CSS selectors.
+
+| Option | Description |
+| :--- | :--- |
+| `blockSelector` | Elements matching this selector will be completely removed from the recording. |
+| `maskSelector` | Text content inside these elements will be replaced with generic characters. |
+| `ignoreSelector` | Prevents recording events (like clicks) on these elements. |
+
+---
+
+## 🛠 Advanced Configuration
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `apiKey` | `string` | **Required** | Your project API key. |
+| `endpoint` | `string` | **Required** | Your Sankofa engine URL. |
+| `debug` | `boolean` | `false` | Enable console logging. |
+| `flushIntervalMs` | `number` | `5000` | How often to batch and send events. |
+| `autocapture` | `boolean` | `true` | Automatically track pageviews. |
+
+---
+
+## 📑 Next Steps
+
+- [General Concepts](/getting-started/product-concepts)
+- [Self-hosting Guide](/self-hosting)
