@@ -63,6 +63,26 @@ await Sankofa.init({
   });
 </script>`,
     },
+    {
+      label: "iOS (Swift)",
+      code: `Sankofa.shared.initialize(
+    apiKey: "sk_live_12345",
+    config: SankofaConfig(recordSessions: true)
+)`,
+    },
+    {
+      label: "iOS (ObjC)",
+      code: `SankofaSankofaConfig *config = [[SankofaSankofaConfig alloc] initWithEndpoint:@"https://api.sankofa.dev"
+                                                                debug:NO
+                                                 trackLifecycleEvents:YES
+                                                 flushIntervalSeconds:30
+                                                            batchSize:50
+                                                       recordSessions:YES
+                                                       maskAllInputs:YES
+                                                         captureMode:SankofaSankofaCaptureModeWireframe];
+
+[[SankofaSankofa shared] initializeWithApiKey:@"sk_live_12345" config:config];`,
+    },
   ]}
 />
 
@@ -91,6 +111,18 @@ await Sankofa.init({
   screen: "home",
 });`,
     },
+    {
+      label: "iOS",
+      code: `Sankofa.shared.track("button_clicked", properties: [
+    "bg_color": "blue",
+    "screen": "home"
+])`,
+    },
+    {
+      label: "iOS (ObjC)",
+      code: `[[SankofaSankofa shared] track:@"button_clicked" 
+                     properties:@{@"bg_color": @"blue", @"screen": @"home"}];`,
+    },
   ]}
 />
 
@@ -109,6 +141,14 @@ await Sankofa.init({
     {
       label: "Web",
       code: `await Sankofa.identify("user_123");`,
+    },
+    {
+      label: "iOS",
+      code: `Sankofa.shared.identify(userId: "user_123")`,
+    },
+    {
+      label: "iOS (ObjC)",
+      code: `[[SankofaSankofa shared] identifyWithUserId:@"user_123"];`,
     },
   ]}
 />
@@ -145,6 +185,7 @@ The SDKs write one JSON payload per queued transport item:
 - `track` events go to `POST /api/v1/track`
 - `people` updates go to `POST /api/v1/people`
 - `alias` events go to `POST /api/v1/alias`
+- `batch` operations go to `POST /api/v1/batch` (Recommended)
 
 If you are not using our official SDKs, see the
 [HTTP ingestion guide](/integrations/http-ingestion).

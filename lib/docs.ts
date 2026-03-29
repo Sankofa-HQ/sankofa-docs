@@ -65,7 +65,7 @@ export const docSections: readonly DocSection[] = [
   {
     key: "sdk",
     title: "SDKs",
-    description: "Official Android, Flutter and Web support.",
+    description: "Official Android, iOS, Flutter and Web support.",
     order: 2,
   },
   {
@@ -302,6 +302,7 @@ export function getFeaturedDocs() {
   const featuredHrefs = [
     "/getting-started/quickstart",
     "/sdk/android",
+    "/sdk/ios",
     "/sdk/flutter",
     "/sdk/web",
     "/integrations/http-ingestion",

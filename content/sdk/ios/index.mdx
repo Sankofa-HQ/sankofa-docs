@@ -1,0 +1,194 @@
+---
+title: iOS SDK
+description: High-fidelity analytics and session replay for native iOS applications.
+section: sdk
+order: 15
+badge: Official
+source_of_truth: ["sdks/sankofa_sdk_ios"]
+---
+
+# iOS SDK 🍎🦾
+
+The Sankofa iOS SDK is a 100% native Swift library providing high-performance product analytics and session replay. It features an offline-first architecture with thread-safe SQLite queuing and a flicker-free "Ghost Masking" replay engine.
+
+---
+
+## ✨ Key Features
+
+- **Native Performance**: Built with Swift, utilizing `GRDB` for SQLite and `CADisplayLink` for throttled, battery-efficient recording.
+- **Event Tracking**: Capture custom events with automatic device metadata enrichment.
+- **Identity Management**: Robust user resolution with `identify()`, `setPerson()`, and session rotation.
+- **Ghost Masking Replay**: 
+  - **Flicker-Free Capture**: Renders views to an off-screen buffer without touching the live UI hierarchy.
+  - **Auto-Masking**: Automatically blacks out `UITextField` and `UITextView` inputs in-memory.
+- **Offline Reliability**: SQLite-backed queue with background task protection to ensure data delivery even when the app is suspended.
+- **Privacy First**: Fully compliant with Apple's 2024 Privacy Manifest requirements (`PrivacyInfo.xcprivacy`).
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install
+Add the Sankofa iOS SDK as a dependency using **Swift Package Manager**:
+
+1. In Xcode, go to **File > Add Packages...**
+2. Enter the repository URL: `https://github.com/Sankofa-HQ/sankofa_sdk_ios`
+3. Select the version or branch (e.g., `main`).
+4. Link the `SankofaIOS` library to your app target.
+
+### 2. Initialize
+Initialize the SDK in your `AppDelegate` or `@main` struct. It automatically tracks app lifecycle events.
+
+```swift
+import SankofaIOS
+
+@main
+struct MyApp: App {
+    init() {
+        Sankofa.shared.initialize(
+            apiKey: "YOUR_PROJECT_API_KEY",
+            config: SankofaConfig(
+                recordSessions: true,
+                maskAllInputs: true 
+            )
+        )
+    }
+    // ...
+}
+```
+
+#### Objective-C
+```objc
+#import <SankofaIOS/SankofaIOS-Swift.h>
+
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    SankofaSankofaConfig *config = [[SankofaSankofaConfig alloc] initWithEndpoint:@"https://api.sankofa.dev"
+                                                                debug:NO
+                                                 trackLifecycleEvents:YES
+                                                 flushIntervalSeconds:30
+                                                            batchSize:50
+                                                       recordSessions:YES
+                                                       maskAllInputs:YES
+                                                         captureMode:SankofaSankofaCaptureModeWireframe];
+
+    [[SankofaSankofa shared] initializeWithApiKey:@"YOUR_PROJECT_API_KEY" config:config];
+    return YES;
+}
+```
+
+---
+
+## 🛠 Configuration Options
+
+The `SankofaConfig` struct allows you to customize the SDK's behavior.
+
+| Option | Default | Description |
+|---|---|---|
+| `endpoint` | `https://api.sankofa.dev` | Your Sankofa backend URL. |
+| `recordSessions` | `true` | Enable or disable high-fidelity session replay. |
+| `maskAllInputs` | `true` | Automatically mask all `UITextField` and `UITextView` views. |
+| `debug` | `false` | Enable verbose console logs for debugging. |
+| `trackLifecycleEvents` | `true` | Auto-track app open, foreground, and background events. |
+| `flushIntervalSeconds` | `30` | Interval for uploading queued events while active. |
+| `batchSize` | `50` | Maximum number of events per batch upload. |
+
+---
+
+## 📈 Tracking Events
+
+Capture user interactions with a single line of code.
+
+### 1. Simple Event
+```swift
+Sankofa.shared.track("button_clicked")
+```
+
+### 2. Events with Properties
+```swift
+Sankofa.shared.track("premium_plan_selected", properties: [
+    "plan_type": "yearly",
+    "price": 99.99
+])
+```
+
+#### Objective-C
+```objc
+[[SankofaSankofa shared] track:@"premium_plan_selected" 
+                     properties:@{@"plan_type": @"yearly", @"price": @99.99}];
+```
+
+---
+
+## 👤 Identity & People
+
+Manage user profiles and link anonymous history to permanent IDs.
+
+### 1. Identifying Users
+```swift
+Sankofa.shared.identify(userId: "user_123")
+```
+
+#### Objective-C
+```objc
+[[SankofaSankofa shared] identifyWithUserId:@"user_123"];
+```
+
+### 2. Setting Profile Properties
+```swift
+Sankofa.shared.setPerson(
+    name: "Kwame Mensah",
+    email: "kwame@sankofa.dev",
+    properties: ["company": "Sankofa Ltd"]
+)
+```
+
+### 3. Resetting (Logout)
+```swift
+Sankofa.shared.reset()
+```
+
+---
+
+## 🎥 Session Replay & Privacy
+
+Sankofa's **Ghost Masking** engine ensures that sensitive user data never leaves the device.
+
+### In-Memory Masking 🛡
+Unlike other SDKs, Sankofa renders a copy of your UI to a detached buffer and applies black masks to sensitive fields **before** the frame is ever serialized or uploaded.
+
+#### Manual Masking
+You can manually tag any view for masking using the `.sankofaMask` modifier or property:
+
+```swift
+// SwiftUI
+Text("Sensitive SSN")
+    .sankofaMask(true)
+
+// UIKit
+mySecureView.sankofaMask = true
+```
+
+---
+
+## 📑 API Reference
+
+### `Sankofa` (Singleton)
+
+| Method | Description |
+|---|---|
+| `initialize(apiKey:config:)` | Setup the SDK. |
+| `track(event:properties:)` | Track a custom event. |
+| `identify(userId:)` | Link current session to a user. |
+| `setPerson(name:email:properties:)` | Set profile attributes. |
+| `reset()` | Rotate session and clear identity. |
+| `flush()` | Trigger an immediate manual upload. |
+
+### `SankofaConfig`
+
+| Property | Type | Default |
+|---|---|---|
+| `endpoint` | `String` | `api.sankofa.dev` |
+| `recordSessions` | `Bool` | `true` |
+| `maskAllInputs` | `Bool` | `true` |
+| `debug` | `Bool` | `false` |
+| `flushInterval` | `TimeInterval` | `30.0` |
