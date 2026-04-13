@@ -48,6 +48,10 @@ source_of_truth:
 
 <ApiFieldTable
   rows={[
+    { name: "B2_ENDPOINT", type: "string", required: true, description: "S3-compatible Backblaze B2 endpoint for Deploy bundle storage, such as https://s3.us-east-005.backblazeb2.com." },
+    { name: "B2_KEY_ID", type: "string", required: true, description: "Backblaze B2 application key ID used by the engine for Deploy bundle uploads and signed downloads." },
+    { name: "B2_APP_KEY", type: "string", required: true, description: "Backblaze B2 application key secret. The key needs read, write, list, and delete access for the deploy bucket." },
+    { name: "B2_DEPLOY_BUCKET_NAME", type: "string", required: true, description: "Bucket where Deploy stores gzip-compressed JavaScript bundles." },
     { name: "B2_PUBLIC_ENDPOINT", type: "string", description: "Public storage endpoint value in the checked-in example." },
     { name: "B2_PUBLIC_BUCKET_NAME", type: "string", description: "Public bucket name." },
     { name: "B2_PUBLIC_KEY_ID", type: "string", description: "Public bucket key identifier." },
