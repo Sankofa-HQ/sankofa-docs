@@ -1,0 +1,212 @@
+---
+title: React Native SDK
+description: Integrate Sankofa Analytics and Deploy into your React Native and Expo apps with event tracking, session replay, heatmaps, and OTA updates.
+section: sdk
+order: 5
+badge: Official
+toc: true
+---
+
+The Sankofa React Native SDK provides event tracking, session replay, heatmaps, and OTA updates for React Native and Expo apps. It bridges to the native iOS and Android Sankofa SDKs for high-performance capture.
+
+## Installation
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Expo",
+      code: "npx expo install sankofa-react-native",
+    },
+    {
+      label: "npm",
+      code: "npm install sankofa-react-native",
+    },
+    {
+      label: "yarn",
+      code: "yarn add sankofa-react-native",
+    },
+  ]}
+/>
+
+<Callout type="warning">
+  This package requires a **development build** (`expo run:ios` / `expo run:android`). Native modules are not supported in Expo Go.
+</Callout>
+
+## Setup
+
+The fastest way to set up is with the Sankofa CLI:
+
+```bash
+sankofa init
+```
+
+This automatically:
+- Adds the config plugin to `app.json` (Expo), or patches `MainApplication.kt` and `AppDelegate.swift` (bare RN)
+- Creates `.sankofa.json` with your project config
+- Updates `.gitignore`
+
+After setup, verify everything is wired correctly:
+
+```bash
+sankofa check
+```
+
+### Manual Setup (Expo)
+
+If you prefer manual setup, add the config plugin to your `app.json`:
+
+```json
+{
+  "expo": {
+    "plugins": ["sankofa-react-native"]
+  }
+}
+```
+
+Then regenerate native projects:
+
+```bash
+npx expo prebuild --clean
+```
+
+## Initialize
+
+Initialize the SDK once at your app's root entry point:
+
+```tsx
+// app/_layout.tsx or App.tsx
+import { Sankofa } from 'sankofa-react-native';
+
+Sankofa.initialize('YOUR_API_KEY', {
+  endpoint: 'https://your-sankofa-server.com',
+  recordSessions: true,
+  maskAllInputs: true,
+  debug: __DEV__,
+});
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `endpoint` | `string` | `https://api.sankofa.dev` | Your Sankofa server URL |
+| `debug` | `boolean` | `false` | Enable verbose logging |
+| `recordSessions` | `boolean` | `true` | Enable session replay recording |
+| `maskAllInputs` | `boolean` | `true` | Auto-mask all text inputs in replays |
+| `trackLifecycleEvents` | `boolean` | `true` | Auto-track app open/background/close |
+| `flushIntervalSeconds` | `number` | `30` | Event flush interval |
+| `batchSize` | `number` | `50` | Max events buffered before early flush |
+
+## Screen Tracking
+
+Tag each screen with the `useSankofaScreen` hook. This powers heatmaps, funnels, and provides context for session replays.
+
+```tsx
+import { useSankofaScreen, Sankofa } from 'sankofa-react-native';
+
+const CheckoutScreen = () => {
+  useSankofaScreen('Checkout');
+
+  return (
+    <View>
+      <Button
+        onPress={() => Sankofa.track('pay_clicked', { amount: 29.99 })}
+        title="Pay"
+      />
+    </View>
+  );
+};
+```
+
+## Event Tracking
+
+```tsx
+// Simple event
+Sankofa.track('button_clicked');
+
+// Event with properties
+Sankofa.track('purchase_completed', {
+  item_id: 'cam_001',
+  price: 120.50,
+  currency: 'USD',
+});
+```
+
+## Identity & User Profiles
+
+```tsx
+// On login — merges anonymous history with the known user
+Sankofa.identify('user_99');
+
+// Set profile attributes
+Sankofa.setPerson({
+  name: 'Jane Doe',
+  email: 'jane@example.com',
+  plan: 'pro',
+});
+
+// On logout — clears identity and starts a fresh session
+Sankofa.reset();
+```
+
+## OTA Deploy
+
+Push JavaScript updates to your users without going through the App Store.
+
+```tsx
+import { SankofaDeploy } from 'sankofa-react-native';
+
+const deploy = new SankofaDeploy({ checkOnResume: true });
+
+// Confirm the app booted successfully (prevents false auto-rollbacks)
+deploy.notifyAppReady();
+
+// Check for updates
+const update = await deploy.checkForUpdate();
+
+if (update.updateAvailable) {
+  if (update.isMandatory) {
+    await deploy.downloadAndApply(update);
+  } else {
+    await deploy.downloadInBackground(update);
+  }
+}
+```
+
+### Deploy API
+
+| Method | Description |
+| :--- | :--- |
+| `new SankofaDeploy(config?)` | Create a deploy instance |
+| `checkForUpdate()` | Check server for available updates |
+| `downloadAndApply(update)` | Download and restart immediately |
+| `downloadInBackground(update)` | Download silently, apply on next restart |
+| `notifyAppReady()` | Confirm healthy boot — prevents auto-rollback |
+| `applyPending()` | Apply a previously downloaded update |
+| `reportError(err, opts?)` | Report an error for crash-rate tracking |
+| `getStatus()` | Get current deploy state |
+
+<Callout type="info">
+  **notifyAppReady()** is critical. If the app crashes twice within 30 seconds without this call, the SDK automatically rolls back to the previous bundle.
+</Callout>
+
+### Error Handling
+
+Report errors from your ErrorBoundary to enable automatic crash-rate monitoring and rollback:
+
+```tsx
+deploy.reportError(error, { fatal: true });
+```
+
+## API Reference
+
+| Method | Description |
+| :--- | :--- |
+| `Sankofa.initialize(apiKey, config?)` | Initialize the SDK at app start |
+| `useSankofaScreen(name)` | Hook — tags the current screen for heatmaps |
+| `Sankofa.track(event, props?)` | Track a custom event |
+| `Sankofa.screen(name, props?)` | Manually tag a screen (alternative to hook) |
+| `Sankofa.identify(userId)` | Link anonymous session to a known user |
+| `Sankofa.setPerson(traits)` | Set profile attributes |
+| `Sankofa.reset()` | Clear identity and start a fresh session |
+| `Sankofa.flush()` | Force-upload all queued events |

@@ -1,0 +1,238 @@
+---
+title: CLI
+description: Set up, verify, and ship Sankofa integrations across every platform with the Sankofa CLI.
+section: sdk
+order: 35
+badge: Official
+toc: true
+---
+
+The Sankofa CLI is the command-line tool for setting up SDK integrations, verifying configurations, and shipping OTA updates. It works across all platforms Sankofa supports.
+
+## Installation
+
+```bash
+npm install -g sankofa-cli
+```
+
+**Requirements:** Node.js 18+. For iOS builds: macOS + Xcode. For Android builds: Android SDK + Java 17.
+
+## Quick Start
+
+### Any Platform (Analytics)
+
+```bash
+# 1. Set up the project — auto-detects platform, patches native files
+sankofa init
+
+# 2. Log in to your Sankofa account
+sankofa login
+
+# 3. Verify everything is wired up
+sankofa check
+```
+
+### React Native (Analytics + Deploy)
+
+```bash
+# 1. Set up
+sankofa init
+
+# 2. Log in
+sankofa login
+
+# 3. Verify
+sankofa check
+
+# 4. Ship your first release
+sankofa release ios
+
+# 5. Push a JS-only patch
+sankofa patch ios
+```
+
+## Platform Support
+
+`sankofa init` and `sankofa check` auto-detect the platform from the project root:
+
+| Platform | Detection | What `init` does |
+| :--- | :--- | :--- |
+| **React Native (Expo)** | `expo` in package.json | Adds config plugin to app.json |
+| **React Native (bare)** | `react-native` in package.json | Patches native entry files |
+| **Flutter** | `pubspec.yaml` exists | Creates config, shows Dart setup |
+| **Web (npm)** | `react`/`next`/`vue`/`vite` in package.json | Creates config, shows import setup |
+| **Web (CDN)** | `index.html` exists | Creates config, shows `<script>` setup |
+| **iOS (Swift)** | `Package.swift` exists | Creates config, shows SPM setup |
+| **Android (Kotlin)** | `app/build.gradle` exists | Creates config, shows Gradle setup |
+
+## Commands
+
+### `sankofa init`
+
+Set up Sankofa in any project. Creates `.sankofa.json`, updates `.gitignore`, and handles platform-specific native setup.
+
+```bash
+sankofa init
+sankofa init --endpoint https://your-server.com --project-id proj_...
+sankofa init --force    # overwrite existing config
+```
+
+Idempotent — safe to run multiple times.
+
+### `sankofa check`
+
+Verify your SDK integration is correct. Validates credentials, native wiring, initialization, tracking calls, and server connectivity.
+
+```bash
+sankofa check              # all modules for detected platform
+sankofa check analytics    # analytics-specific checks
+sankofa check deploy       # deploy-specific checks (React Native only)
+```
+
+Every failed check shows a fix command. Example:
+
+```
+  ANALYTICS
+  ✓ SDK installed          sankofa-react-native@0.1.0
+  ✓ Sankofa.initialize()   app/_layout.tsx
+  ✓ Session Replay         recordSessions configured
+  ✓ Screen tracking        useSankofaScreen() found
+  ✓ Event tracking         Sankofa.track() found
+  ✓ Analytics API access   API key valid and accessible
+
+  ✓ Analytics is fully configured and ready!
+```
+
+**Analytics checks** (all platforms): SDK installed, initialization, API key validation, session replay, screen tracking, event tracking, user identification, server verification.
+
+**Deploy checks** (React Native): Native bundle provider, config plugin, `notifyAppReady()`, `checkForUpdate()`, `.gitignore` coverage, API access.
+
+### `sankofa doctor`
+
+Low-level toolchain diagnostics. Checks Node, Xcode, CocoaPods, Java, Android SDK, and server reachability.
+
+```bash
+sankofa doctor
+```
+
+### `sankofa login`
+
+Authenticate via browser. Creates a Deploy Token for the selected project.
+
+```bash
+sankofa login
+sankofa login --deploy-token sk_deploy_... --project-id proj_...   # CI/CD
+sankofa login --endpoint https://your-server.com                   # self-hosted
+```
+
+### `sankofa logout`
+
+Remove stored credentials.
+
+```bash
+sankofa logout             # both scopes
+sankofa logout --project   # project-scoped only
+sankofa logout --global    # global only
+```
+
+### `sankofa switch`
+
+Switch to a different project without re-authenticating.
+
+```bash
+sankofa switch
+```
+
+### `sankofa release`
+
+Build and publish a base release (React Native).
+
+```bash
+sankofa release ios
+sankofa release android
+sankofa release ios --publish --rollout 50 --description "v1.2.0"
+```
+
+Every release builds the native app, publishes the OTA update, and produces a signed store binary. Pass `--skip-distribution` for OTA only.
+
+### `sankofa patch`
+
+Ship a JavaScript-only update against an existing base release. No native rebuild required.
+
+```bash
+sankofa patch ios
+sankofa patch android --publish --mandatory
+```
+
+### `sankofa preview`
+
+Download and install a published release on your local simulator/emulator.
+
+```bash
+sankofa preview ios
+sankofa preview ios --label v1.2.0-patch.3
+```
+
+### `sankofa status`
+
+Show all releases for the current project with rollout %, install counts, and status.
+
+```bash
+sankofa status
+sankofa status --env live --platform ios
+```
+
+### `sankofa dist`
+
+Build only the signed store binary without publishing an OTA release.
+
+```bash
+sankofa dist ios
+sankofa dist android --android-format aab
+```
+
+### `sankofa submit`
+
+Upload the signed binary to App Store Connect or Play Console.
+
+```bash
+sankofa submit ios --apple-api-key-id ABC --apple-api-issuer UUID
+sankofa submit android --google-service-account ~/sa.json --google-track internal
+```
+
+### `sankofa upgrade`
+
+Check for and install the latest CLI version.
+
+```bash
+sankofa upgrade
+```
+
+## Authentication
+
+Credentials are resolved in this order (highest wins):
+
+1. **Environment variables** — `SANKOFA_DEPLOY_TOKEN`, `SANKOFA_PROJECT_ID`, `SANKOFA_ENDPOINT`
+2. **Project config** — `.sankofa.json` in the project root
+3. **Global config** — `~/.sankofa/credentials.json`
+
+### CI/CD
+
+Skip the browser login with a pre-minted Deploy Token:
+
+```bash
+export SANKOFA_DEPLOY_TOKEN=sk_deploy_...
+export SANKOFA_PROJECT_ID=proj_...
+export SANKOFA_ENDPOINT=https://your-server.com
+
+sankofa patch ios --publish --rollout 25
+```
+
+## Environment Variables
+
+| Variable | Purpose |
+| :--- | :--- |
+| `SANKOFA_DEPLOY_TOKEN` | CI-friendly auth token |
+| `SANKOFA_PROJECT_ID` | Project ID |
+| `SANKOFA_ENDPOINT` | Server URL |
+| `SANKOFA_ENVIRONMENT` | `live` or `test` |
