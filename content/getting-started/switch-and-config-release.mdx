@@ -1,0 +1,139 @@
+---
+title: Switch + Config release notes
+description: What shipped in the V1 launch of Sankofa Switch (feature flags) and Sankofa Config (remote config). Covers backend, dashboard, CLI, and every SDK.
+section: getting-started
+order: 90
+toc: true
+source_of_truth:
+  - server/engine/ee/switchmod
+  - server/engine/ee/configmod
+  - sdks/sankofa_sdk_web/packages/switch
+  - sdks/sankofa_sdk_web/packages/config
+  - cli/sankofa-cli/src/commands/flags.ts
+  - cli/sankofa-cli/src/commands/config.ts
+---
+
+Sankofa Switch and Sankofa Config launch together as the V1 feature-flag and
+remote-config surfaces. Both ride the same targeting + cohort + handshake
+primitives that power Deploy, so rollout semantics are identical and
+production-hardened from day one.
+
+## What shipped
+
+### Backend (enterprise)
+
+- **`ee/targeting/`** — rule evaluation + percentage bucketing primitive
+  shared by every product (`EvaluateRules`, `BucketFor`, `IsDeviceInRollout`,
+  `AssignVariant`).
+- **`ee/cohorts/`** — generic cohort materializer + `CheckMembership` read
+  path, with `RefProvider` plugin registry. Supports dual-write during a
+  zero-downtime table rename via env-flag cutover.
+- **`ee/switchmod/`** — full Switch product: boolean flags, variant flags
+  with deterministic A/B/n weights, targeting rules, schedules (30s
+  worker, timezone-aware), dependencies (topo-sorted + cycle-rejected at
+  save time), halt webhook + resume, experiment results (Wilson CI).
+- **`ee/configmod/`** — typed remote config: `string | int | float | bool |
+  json`, cohort-targeted rules, append-only `ConfigVersion` history,
+  transactional rollback.
+- **`ee/audit/`** — real audit log replacing the mock. Postgres is
+  authoritative (compliance); ClickHouse mirror for fast dashboard
+  queries (TTL 2y).
+- **Handshake composite ETag** — server emits a SHA-256 of every
+  per-module etag. SDKs send `If-None-Match` on refresh; server returns
+  `304 Not Modified` with empty body. Halves handshake cost in
+  steady-state.
+
+### Dashboard
+
+- New **Switch** product: flags list, detail (Overview / Rule / Variants /
+  Schedule / Dependencies / Experiments tabs), halt banner, simulate-
+  evaluation panel.
+- New **Config** product: items list, detail (Overview / Rule / History
+  tabs), version timeline with 1-click restore.
+- **Audit log** page — filterable by actor, resource, action, date range.
+- **Billing** dashboard now routes `?product=switch` and `?product=config`
+  to fully-featured 4-tier plan pickers with Paystack checkout.
+- **Onboarding** modules screen lists all five products (Analytics,
+  Deploy, Catch, **Switch**, **Config**).
+
+### SDKs
+
+Every SDK ships the same three-method API: `getFlag` / `getVariant` /
+`onChange` for Switch, `get<T>` / `getAll` / `onChange` for Config. All
+SDKs cache locally (platform-native storage), stale-while-revalidate up to
+7 days, and send `If-None-Match` to hit the server's 304 path on refresh.
+
+| Platform | Package / Class | Storage | Build status |
+| --- | --- | --- | --- |
+| Web | `@sankofa/switch`, `@sankofa/config` | `localStorage` | ✅ tsc |
+| React Native | `SankofaSwitch`, `SankofaConfig` | native bridge (`SharedPreferences` / `UserDefaults`) | ✅ tsc |
+| Flutter | `SankofaSwitch`, `SankofaConfig` | `shared_preferences` | ✅ dart analyze |
+| iOS (Swift) | `SankofaSwitch`, `SankofaRemoteConfig` | `UserDefaults` | ✅ xcodebuild |
+| Android (Kotlin) | `SankofaSwitch`, `SankofaRemoteConfig` | `SharedPreferences` | ✅ gradle |
+
+**Naming note:** iOS and Android call the remote-config class
+`SankofaRemoteConfig` because `SankofaConfig` is already the init-options
+type on those platforms. The wire format + handshake contract are
+identical across all five SDKs.
+
+### CLI
+
+```bash
+# Feature flags
+sankofa flags list
+sankofa flags create <key> [--description ...] [--default true|false]
+sankofa flags toggle <key> <0-100>
+sankofa flags archive <key>
+sankofa flags halt <key> [--reason ...]
+sankofa flags resume <key>
+sankofa flags scan [--strict]     # stale-flag scanner
+
+# Remote config
+sankofa config list
+sankofa config set <key> <type> <value>
+sankofa config get <key>
+sankofa config history <key>
+sankofa config rollback <key> <version>
+```
+
+CLI uses dashboard JWT auth for everything except `flags halt` (SDK
+webhook, requires `sk_*` API key). Stale-flag scanner covers
+`.js/.ts/.tsx/.dart/.swift/.kt` files with one regex path; cross-references
+code against the server's flag list.
+
+## Upgrade path
+
+- **Existing Deploy customers** — no change required. Switch and Config
+  are opt-in via `sankofa flags create` / `sankofa config set` or by
+  activating the modules on `/onboarding/modules`.
+- **Cohort table rename (`deploy_cohort_members` → `cohort_members`)** —
+  executed via env-flag rollout (no migration required).
+  See the runbook at the top of `server/engine/ee/cohorts/schema.go`. Ops
+  can flip `SANKOFA_COHORT_WRITE_TABLES` and `SANKOFA_COHORT_READ_TABLE`
+  without a code deploy.
+
+## Known limitations (V1)
+
+- **Real-time cohort entry** uses the 5-minute batch materializer. A user
+  entering "Churn Risk" sees their cohort-targeted config within ~5 min of
+  the next tick. Real-time entry via a hot-stream materialized view is V2.
+- **Auto-halt integration with Catch** — the webhook endpoint
+  (`POST /api/switch/halt-webhook`) is live and CLI-driven today. Catch
+  itself ships separately; when it does it just needs to POST the
+  documented payload to this endpoint.
+- **Flag-kind migration** (boolean ↔ variant) is disallowed mid-life.
+  Archive and create a new key with the target shape.
+- **Usage counters** (flag evaluations / config fetches per month) are
+  enforced at the quota middleware, not at SDK call time — hitting a cap
+  logs server-side but doesn't crash the client.
+
+## Next up
+
+Items tracked as V2 / post-GA:
+- Full experiment results page (currently min-viable — variant-vs-variant
+  significance testing with CUPED/sequential tests is future).
+- Real-time cohort entry (ClickHouse materialized view over hot events).
+- Multi-rule Config items (currently one rule per item; multi-tier is
+  expressible today by creating multiple keys).
+- Native SDK API docs per-platform (the `/usage/feature-flags` and
+  `/usage/remote-config` pages cover every SDK inline today).

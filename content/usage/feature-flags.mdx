@@ -1,0 +1,239 @@
+---
+title: Feature Flags (Sankofa Switch)
+description: Boolean flags and A/B/n variants with cohort targeting, percentage rollouts, scheduled toggles, flag dependencies, and an instant kill switch.
+section: usage
+order: 10
+toc: true
+source_of_truth:
+  - server/engine/ee/switchmod/evaluator_batch.go
+  - server/engine/ee/switchmod/handlers.go
+  - sdks/sankofa_sdk_web/packages/switch/src/plugin.ts
+  - sdks/sankofa_sdk_react_native/src/switch/SankofaSwitch.ts
+  - sdks/sankofa_sdk_flutter/lib/src/switch/sankofa_switch.dart
+  - sdks/sankofa_sdk_ios/Sources/SankofaIOS/switch/SankofaSwitch.swift
+  - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/switchmod/SankofaSwitch.kt
+---
+
+Sankofa **Switch** is the feature-flag product. It ships on top of the same
+handshake, cohort materialisation, and targeting engine that power Deploy, so
+you get production-hardened rollout mechanics (consistent hashing, stable
+assignment, deterministic bucketing) without any infrastructure of your own.
+
+## Core concepts
+
+**Flag** — a named on/off toggle (or variant set). Keys are unique per
+`(project, environment)`, so `staging` and `production` can hold divergent
+configurations.
+
+**Targeting rule** — an optional predicate attached to a flag. Supports app
+version range, OS version range, country allow/block, cohort include/exclude,
+and a user-ID pick list. A flag without a rule always returns its default.
+
+**Rollout percentage** — of the devices that match the rule, what percentage
+see the "on" side. Bucketing is deterministic by SHA-256 of
+`distinct_id + flag.key`, so ramps are monotonic: bumping 10% → 30% never
+reshuffles the first 10%.
+
+**Variants** — multiple arms (A/B/n), each with an integer weight that must
+sum to 100 across the flag. Every eligible device deterministically lands in
+one variant. An optional _default variant_ is returned when the rule rejects
+the device.
+
+**Halt** — flipping the kill switch. Server-side, `POST
+/api/switch/halt-webhook` (x-api-key) is the seam that Sankofa Catch (or any
+external signal source) uses to halt a flag automatically; from the
+dashboard, the Halt banner on a flag's detail page does the same thing.
+Halted flags return their default immediately — no handshake roundtrip
+required for devices that already polled.
+
+**Schedule** — start / end timestamps that drive a `ScheduleOverride` on the
+flag. The server's 30s worker applies overrides at the boundary and reverts
+at the end time.
+
+**Dependencies** — a flag can declare that it only evaluates when a parent
+flag resolves to a specific value. Cycles are rejected at save time via
+Tarjan SCC.
+
+## Dashboard walkthrough
+
+1. In the sidebar product switcher, pick **Switch**.
+2. **Create flag** — boolean or variant. Keys must match
+   `[a-z0-9][a-z0-9._-]{0,127}` (the scanner and CLI assume this shape).
+3. **Edit rule** — add targeting + rollout %. Save is optimistic-concurrency
+   protected via `If-Match`.
+4. **Preview** — the detail page's Preview panel runs the same evaluator the
+   handshake uses; the decision you see is exactly what the SDK will return.
+5. **Experiment results** — for variant flags, provide a goal event name and
+   Sankofa computes per-variant conversion rates with a 95% Wilson confidence
+   interval (joins sampled `flag_evaluations` against the events stream).
+
+## SDK integration
+
+All SDKs share the same contract: they register with the unified handshake
+at app launch, receive the full flag decision map, cache it locally
+(platform-native storage) for offline reads, and fire deterministic
+`onChange` callbacks when the next handshake returns a new decision for a
+flag the caller subscribed to.
+
+### Web
+
+```ts
+import { Sankofa } from '@sankofa/browser';
+import { switchPlugin, getSwitch } from '@sankofa/switch';
+
+await Sankofa.init({
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+  plugins: [switchPlugin()],
+});
+
+const switches = getSwitch()!;
+if (switches.getFlag('new_checkout', false)) {
+  showNewCheckout();
+}
+
+const variant = switches.getVariant('hero_test', 'control');
+const unsubscribe = switches.onChange('new_checkout', (decision) => {
+  rerender();
+});
+```
+
+### React Native
+
+```tsx
+import { Sankofa, SankofaSwitch } from 'sankofa-react-native';
+
+Sankofa.initialize('sk_live_...');
+const switches = new SankofaSwitch();
+
+if (switches.getFlag('new_checkout')) {
+  // ...
+}
+const stop = switches.onChange('new_checkout', (d) => rerender());
+```
+
+### Flutter
+
+```dart
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+await Sankofa.instance.init(apiKey: 'sk_live_...');
+final switches = SankofaSwitch();
+
+if (switches.getFlag('new_checkout')) {
+  // ...
+}
+final stop = switches.onChange('new_checkout', (decision) => setState(() {}));
+```
+
+### iOS (Swift)
+
+```swift
+import SankofaIOS
+
+Sankofa.shared.initialize(apiKey: "sk_live_...")
+_ = SankofaSwitch.shared // self-registers on first access
+
+if SankofaSwitch.shared.getFlag("new_checkout") {
+    showNewCheckout()
+}
+let token = SankofaSwitch.shared.onChange("new_checkout") { decision in
+    // rebuild UI
+}
+// later: token.cancel()
+```
+
+### Android (Kotlin)
+
+```kotlin
+import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.switchmod.SankofaSwitch
+
+Sankofa.init(context = this, apiKey = "sk_live_...")
+SankofaSwitch.init(applicationContext)
+
+if (SankofaSwitch.getFlag("new_checkout")) {
+    showNewCheckout()
+}
+val token = SankofaSwitch.onChange("new_checkout") { decision -> rerender() }
+// later: token.cancel()
+```
+
+## CLI
+
+Every operation you can do in the dashboard has a CLI surface.
+
+```bash
+sankofa flags list
+sankofa flags create new_checkout --description "Rebuilt checkout flow"
+sankofa flags toggle new_checkout 25     # shortcut for rule rollout %
+sankofa flags get new_checkout
+sankofa flags archive new_checkout
+sankofa flags halt new_checkout --reason "spike in errors"
+sankofa flags resume new_checkout
+sankofa flags scan                        # stale-flag scanner
+```
+
+`sankofa flags scan` crawls your checkout for `.getFlag("…")` and
+`.getVariant("…")` calls, then cross-references them with the server. It
+emits warnings for:
+
+- Keys referenced in code but not defined on the server (typos / unshipped).
+- Keys defined on the server but not referenced in any code (dead flags).
+- **Errors** for archived-on-server flags still branched in code — delete
+  those branches.
+
+Scanner regex works across `.js/.ts/.tsx`, `.dart`, `.swift`, `.kt` files
+with one code path. Run with `--strict` to fail CI on any warning.
+
+## Handshake, caching, and staleness
+
+Every SDK call lands a cache lookup — the handshake that seeded it runs
+*at init* and on configurable refresh triggers (app resume, manual
+`.refresh()` call, etc). The cache is persisted to platform-native storage
+(`localStorage` / `AsyncStorage` / `SharedPreferences` / `UserDefaults`)
+with a **7-day stale-while-revalidate** window.
+
+The server computes a composite `ETag` across every module that published
+one. SDKs send `If-None-Match` on refresh, which returns `304 Not Modified`
+(zero body bytes) when nothing has changed. Typical production handshake
+latency targets: p50 ≤ 20 ms, p99 ≤ 80 ms, p99.9 ≤ 150 ms.
+
+## Reason tags
+
+Every decision carries a stable reason string the SDK surfaces through
+`getDecision(key).reason`. SDKs and dashboards may key off these — they're
+guaranteed stable across server releases.
+
+| reason | meaning |
+| --- | --- |
+| `rollout` | boolean flag, device matched rule + fell in rollout bucket |
+| `variant_assigned` | variant flag, device matched rule + assigned a variant |
+| `no_rule` | flag has no targeting rule — returns its default |
+| `archived` | flag is archived — returns default |
+| `halted` | flag is halted — returns default |
+| `scheduled` | schedule override is currently active |
+| `not_in_rollout` | matched rule but fell outside rollout bucket |
+| `in_excluded_cohort` | device is in a cohort the rule excludes |
+| `not_in_target_cohort` | device isn't in any of the rule's include cohorts |
+| `country_blocked` / `country_not_in_allow` / `country_unknown` | country predicate rejection |
+| `app_version_below_min` / `app_version_above_max` | app version range rejection |
+| `os_version_below_min` / `os_version_above_max` | OS version range rejection |
+| `not_in_user_allow_list` | device's distinct_id isn't in the rule's user pick list |
+| `dependency_unmet` | parent flag didn't resolve to the required value |
+| `cohort_lookup_failed` | transient ClickHouse error reading cohort membership |
+
+## Limits
+
+Limits are enforced by your org's plan tier (see `dashboard/billing?product=switch`).
+
+| Tier | Flag count | Evaluations/mo | Features |
+| --- | --- | --- | --- |
+| Free | ≤ 10 | 100K | Boolean, basic targeting |
+| Pro | ∞ | 10M | + variants, schedules, 1-level deps |
+| Growth | ∞ | ∞ | + experiment results, halt webhook |
+| Enterprise | ∞ | ∞ | + SSO RBAC, audit export, custom SLA |
+
+Number caps are enforced at the quota middleware, not at SDK call time —
+hitting a cap produces a server-side log line + dashboard warning; the SDK
+continues returning cached decisions.

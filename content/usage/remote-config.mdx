@@ -1,0 +1,195 @@
+---
+title: Remote Config (Sankofa Config)
+description: Typed configuration values (string, int, float, bool, json) with cohort-targeted payloads, append-only version history, and one-click rollback.
+section: usage
+order: 11
+toc: true
+source_of_truth:
+  - server/engine/ee/configmod/evaluator_batch.go
+  - server/engine/ee/configmod/version_store.go
+  - server/engine/ee/configmod/handlers.go
+  - sdks/sankofa_sdk_web/packages/config/src/plugin.ts
+  - sdks/sankofa_sdk_react_native/src/config/SankofaConfig.ts
+  - sdks/sankofa_sdk_flutter/lib/src/config/sankofa_config.dart
+  - sdks/sankofa_sdk_ios/Sources/SankofaIOS/config/SankofaRemoteConfig.swift
+  - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/remoteconfig/SankofaRemoteConfig.kt
+---
+
+Sankofa **Config** is the typed remote-configuration product. Use it to
+change copy, limits, feature-behaviour knobs, and cohort-specific payloads
+without shipping a new app build. Every change is versioned; every
+mutation writes to the audit log.
+
+## Core concepts
+
+**Config item** — a named value scoped to `(project, environment, key)`.
+Each item has a declared **type**: one of `string`, `int`, `float`, `bool`,
+`json`. Type is set at creation and cannot be changed — archive and
+re-create under a new key if you need a different shape.
+
+**Default value** — what the SDK returns when no rule matches or the device
+falls outside the rollout. Validated at write time against the declared
+type so a `json` item can't silently ship a malformed string.
+
+**Rule + rule value** — an optional targeting predicate plus the value
+served when it matches. One rule per item in V1. Perfect for "free tier
+gets 3, enterprise cohort gets 999" without creating two different items.
+
+**Version** — every mutation (create, update, rule save, archive, rollback)
+appends a new `ConfigVersion` row with the full item state + rule snapshot
+at that moment. History is append-only: rolling back writes a **new**
+version whose snapshot matches the target.
+
+**Rollout percentage** — identical bucketing semantics to Switch. Default
+is 100% (every matching device receives the rule value) because Config's
+primary use is cohort-scoped payloads, not gradual ramps.
+
+## Dashboard walkthrough
+
+1. In the sidebar product switcher, pick **Config**.
+2. **Create item** — choose a type, supply a default value (validated
+   against the type), optionally a description.
+3. **Edit rule** — the rule serves a different value when it matches.
+   Common pattern: "Enterprise Tier" cohort gets `max_projects: 999`, the
+   default is `max_projects: 3`.
+4. **Preview** — dry-run against a synthetic device.
+5. **History** — timeline of every version. Each entry shows who, when,
+   what action, and a diff-able value snapshot. The **Restore** button
+   next to any historical version writes a new version from its snapshot.
+
+## SDK integration
+
+The pattern mirrors Switch. Each SDK caches the full decision map locally
+(7-day stale-while-revalidate) and refreshes via the unified handshake.
+Typed `get<T>` handles JSON ↔ native-type coercion so callers don't cast.
+
+### Web
+
+```ts
+import { Sankofa } from '@sankofa/browser';
+import { configPlugin, getConfig } from '@sankofa/config';
+
+await Sankofa.init({
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+  plugins: [configPlugin()],
+});
+
+const cfg = getConfig()!;
+const maxMB = cfg.get<number>('max_upload_mb', 25);
+const pricing = cfg.get<Record<string, number>>('pricing', { pro: 9.99 });
+const all = cfg.getAll();
+
+cfg.onChange('max_upload_mb', (decision) => {
+  if (decision) console.log('now =', decision.value);
+});
+```
+
+### React Native
+
+```tsx
+import { Sankofa, SankofaConfig } from 'sankofa-react-native';
+
+Sankofa.initialize('sk_live_...');
+const cfg = new SankofaConfig();
+const maxMB = cfg.get<number>('max_upload_mb', 25);
+```
+
+### Flutter
+
+```dart
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+await Sankofa.instance.init(apiKey: 'sk_live_...');
+final cfg = SankofaConfig();
+final maxMB = cfg.get<int>('max_upload_mb', 25);
+final pricing = cfg.get<Map<String, dynamic>>('pricing', {'pro': 9.99});
+```
+
+### iOS (Swift)
+
+The iOS class is named **`SankofaRemoteConfig`** because the existing
+`SankofaConfig` struct holds the init options passed to
+`Sankofa.shared.initialize(...)`; renaming that struct would break the
+React Native native bridge.
+
+```swift
+import SankofaIOS
+
+Sankofa.shared.initialize(apiKey: "sk_live_...")
+_ = SankofaRemoteConfig.shared
+
+let maxMB: Int = SankofaRemoteConfig.shared.get("max_upload_mb", default: 25)
+let pricing: [String: Any] = SankofaRemoteConfig.shared.get("pricing", default: ["pro": 9.99])
+```
+
+### Android (Kotlin)
+
+Same naming rationale as iOS — `SankofaConfig` is the init-options `data
+class`; the remote-config module is **`SankofaRemoteConfig`**.
+
+```kotlin
+import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.remoteconfig.SankofaRemoteConfig
+
+Sankofa.init(context = this, apiKey = "sk_live_...")
+SankofaRemoteConfig.init(applicationContext)
+
+val maxMB: Int = SankofaRemoteConfig.get("max_upload_mb", 25)
+```
+
+## CLI
+
+```bash
+sankofa config list
+sankofa config set max_upload_mb int 25 --description "Max file upload size in MB"
+sankofa config set pricing json '{"pro":9.99,"growth":49}'
+sankofa config get max_upload_mb
+sankofa config history max_upload_mb
+sankofa config rollback max_upload_mb 3 --note "revert to v3 — accidental bump"
+```
+
+`sankofa config set` is idempotent: calling it on an existing key with the
+same type just updates the default value (type changes are rejected — use
+a new key for a different shape). Version history tracks every update.
+
+## Typed values on the wire
+
+The server stores every value as text and tags each item with its
+declared type. Over JSON the value is already decoded to its native type:
+
+- `string` → JSON string
+- `int` / `float` → JSON number (different width; SDKs coerce both
+  directions gracefully)
+- `bool` → JSON `true` / `false`
+- `json` → decoded JSON (map / array / primitive / null)
+
+Clients that ask for a type the stored value can't satisfy (e.g. asking
+for an `int` where the item is `string`) fall back to the supplied default
+— a type mismatch is treated the same as a missing key. This keeps
+production-safe: a server-side schema change won't crash clients.
+
+## Rollback flow
+
+Rollback is non-destructive. `POST /api/v1/config/items/:id/rollback` with
+a `version_id` body:
+
+1. Reads the target version's `ValueSnapshot` + `RuleSnapshot`.
+2. Opens a DB transaction.
+3. Writes a new `ConfigVersion` row with `action = "rolled_back"` whose
+   snapshot matches the target.
+4. Updates the item's `default_value` / `CurrentVersion` to match.
+5. Upserts or deletes the rule to match the snapshot.
+6. Commits.
+
+The old versions remain — history is append-only. Rolling back a rollback
+is the same operation in reverse.
+
+## Limits
+
+| Tier | Item count | Fetches/mo | Features |
+| --- | --- | --- | --- |
+| Free | ≤ 25 | 100K | Typed values, basic history |
+| Pro | ∞ | 10M | + cohort targeting, 30d history |
+| Growth | ∞ | ∞ | + 90d history, audit-attributed authorship |
+| Enterprise | ∞ | ∞ | + custom retention, SSO RBAC, audit export |
