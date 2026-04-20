@@ -5,13 +5,14 @@ section: usage
 order: 10
 toc: true
 source_of_truth:
-  - server/engine/ee/switchmod/evaluator_batch.go
-  - server/engine/ee/switchmod/handlers.go
   - sdks/sankofa_sdk_web/packages/switch/src/plugin.ts
+  - sdks/sankofa_sdk_web/packages/switch/src/exposures.ts
   - sdks/sankofa_sdk_react_native/src/switch/SankofaSwitch.ts
   - sdks/sankofa_sdk_flutter/lib/src/switch/sankofa_switch.dart
   - sdks/sankofa_sdk_ios/Sources/SankofaIOS/switch/SankofaSwitch.swift
   - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/switchmod/SankofaSwitch.kt
+  - cli/sankofa-cli/src/commands/flags.ts
+  - cli/sankofa-cli/src/commands/demo.ts
 ---
 
 Sankofa **Switch** is the feature-flag product. It ships on top of the same
@@ -46,13 +47,12 @@ dashboard, the Halt banner on a flag's detail page does the same thing.
 Halted flags return their default immediately — no handshake roundtrip
 required for devices that already polled.
 
-**Schedule** — start / end timestamps that drive a `ScheduleOverride` on the
-flag. The server's 30s worker applies overrides at the boundary and reverts
-at the end time.
+**Schedule** — start / end timestamps that flip a flag automatically.
+Sankofa applies the state at the start boundary and reverts at the end.
 
 **Dependencies** — a flag can declare that it only evaluates when a parent
-flag resolves to a specific value. Cycles are rejected at save time via
-Tarjan SCC.
+flag resolves to a specific value. Cycles are rejected at save time — you
+won't be able to ship a config that would deadlock at evaluation time.
 
 ## Dashboard walkthrough
 
@@ -65,7 +65,7 @@ Tarjan SCC.
    handshake uses; the decision you see is exactly what the SDK will return.
 5. **Experiment results** — for variant flags, provide a goal event name and
    Sankofa computes per-variant conversion rates with a 95% Wilson confidence
-   interval (joins sampled `flag_evaluations` against the events stream).
+   interval joined against your events stream.
 
 ## SDK integration
 
@@ -161,7 +161,9 @@ val token = SankofaSwitch.onChange("new_checkout") { decision -> rerender() }
 
 ## CLI
 
-Every operation you can do in the dashboard has a CLI surface.
+Every operation you can do in the dashboard has a CLI surface. The CLI
+ships with the same `npm install -g sankofa-cli` bundle as Deploy (see
+the [CLI reference](/sdk/cli) for install + auth).
 
 ```bash
 sankofa flags list
@@ -173,6 +175,15 @@ sankofa flags halt new_checkout --reason "spike in errors"
 sankofa flags resume new_checkout
 sankofa flags scan                        # stale-flag scanner
 ```
+
+<Callout title="Seeding demo flags for the example apps" tone="info">
+Running `sankofa demo seed` creates a canonical set of six demo flags and
+six demo config items in your currently-selected project. This is what
+the six example apps in [`example/`](https://github.com/Sankofa-HQ/sankofa/tree/main/example) and
+[`sdks/sankofa_sdk_flutter/example/`](https://github.com/Sankofa-HQ/sankofa/tree/main/sdks/sankofa_sdk_flutter/example)
+read at boot — seed once, reload any example, and every surface in the
+app repaints from the dashboard. See [Demo examples](/getting-started/demo-examples).
+</Callout>
 
 `sankofa flags scan` crawls your checkout for `.getFlag("…")` and
 `.getVariant("…")` calls, then cross-references them with the server. It
@@ -221,7 +232,132 @@ guaranteed stable across server releases.
 | `os_version_below_min` / `os_version_above_max` | OS version range rejection |
 | `not_in_user_allow_list` | device's distinct_id isn't in the rule's user pick list |
 | `dependency_unmet` | parent flag didn't resolve to the required value |
-| `cohort_lookup_failed` | transient ClickHouse error reading cohort membership |
+| `cohort_lookup_failed` | transient error reading cohort membership |
+
+## Identity stitching (anon_id)
+
+Most product apps start sessions anonymous, then call `identify()`
+once the user logs in. Without stitching, the same physical device
+produces two unrelated experiment subjects — flag reads and events
+from before login orphan themselves, which biases every downstream
+metric.
+
+Sankofa stitches automatically. Once `identify()` fires on any SDK,
+every subsequent handshake forwards the pre-identify anonymous id as
+`anon_id` alongside the new `distinct_id`:
+
+```text
+Sankofa.init()                   →  anonymous session
+  ?distinct_id=anon-abc&...          (anon_id omitted)
+
+Sankofa.identify("user_42")
+  ?distinct_id=user_42&anon_id=anon-abc&...
+```
+
+You don't configure it — every SDK forwards `anon_id` by default once
+the two ids diverge, and experiment and targeting queries fold both
+ids into a single experiment subject for that user.
+
+## Exposure tracking
+
+The Web SDK automatically tracks a per-call **exposure** every time
+your code actually reads a flag via `getFlag` / `getVariant` /
+`getDecision`. This is different from handshake bookkeeping: an
+exposure only fires when the app actually used the flag, which is
+what experiment math needs to answer "this user saw variant B and
+did/didn't convert".
+
+The tracker dedupes per session per `(flag, value, variant)` so a
+tight render loop doesn't flood the pipeline, batches up to 50 rows,
+and flushes every 5s. On page unload it uses `navigator.sendBeacon`
+so in-flight batches aren't lost.
+
+```ts
+import { switchPlugin } from '@sankofa/switch';
+
+await Sankofa.init({
+  plugins: [
+    switchPlugin({
+      defaults: FLAG_DEFAULTS,
+      // Default ON. Flip off only if the network POST would be
+      // blocked (locked-down enterprise webviews, extensions
+      // without host permissions).
+      trackExposures: true,
+      // Optional; attached to each exposure row.
+      appVersion: '1.4.2',
+    }),
+  ],
+});
+```
+
+The other SDKs forward `anon_id` today; their per-call exposure
+trackers ship in a follow-up release. Until then, experiment results
+on those platforms read from handshake-level decisions automatically.
+
+## Experiment results
+
+Call `GET /api/v1/switch/flags/:id/experiment-results?goal_event=...`
+(or the **Experiments** tab on the flag's dashboard page) to see
+per-variant conversion rates. Supported query params:
+
+| Param | Default | Notes |
+| --- | --- | --- |
+| `goal_event` | — | Required. The conversion event name your app fires. |
+| `window_hours` | `24` | How long after exposure an event counts as converted. |
+| `method` | `wilson` | `wilson` for 95% CI; `bayesian` for P(variant > control). |
+| `group_by` | — | Set to `cohort` for per-variant × per-cohort breakdown (requires Analytics). |
+
+The response carries a `source` field — when SDKs that emit exposures
+are in use, the number is computed from actual per-call reads; on
+older SDK versions it falls back to handshake-level data
+automatically so older integrations don't go dark.
+
+## Demo manifest
+
+The `sankofa demo seed` CLI command provisions a canonical set of six
+flags across every one of your example projects. The keys are the same
+in every SDK example (web, react-native, html, ios, android, flutter)
+so one dashboard edit repaints six different apps.
+
+| Key | Kind | Default | What it drives in the example |
+| --- | --- | --- | --- |
+| `new_home_layout` | boolean | `false` @ 50% | Swap hero between classic + v2 |
+| `checkout_cta_variant` | variant (A/B/C) | `control` @ 34/33/33 | CTA copy + colour |
+| `onboarding_v2_rollout` | boolean | `false` @ 25% | Progressive rollout gate |
+| `ai_summary_kill_switch` | boolean | `false` | Halt-webhook target |
+| `ab_pricing_page` | variant (A/B) | `A` @ 50/50 | Pricing copy + tier order |
+| `premium_badge_visible` | boolean | `true` @ 100% | Premium badge visibility |
+
+Variant flags ship with `checkout_cta_variant` as a three-way split
+and `ab_pricing_page` as a simple A/B. Rollouts are seeded but the
+rules contain no cohort filters — edit them in the dashboard to layer
+targeting on top.
+
+## Halt webhook
+
+`POST /api/switch/halt-webhook` (authed by `x-api-key`) is the public
+seam any external signal source uses to halt a flag:
+
+```bash
+curl -X POST https://api.sankofa.dev/api/switch/halt-webhook \
+  -H "x-api-key: sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "flag_key": "ai_summary",
+    "environment": "live",
+    "reason": "5% error rate spike",
+    "evidence_url": "https://grafana.yourco.com/d/abc"
+  }'
+```
+
+Idempotent — halting an already-halted flag is a 200 no-op. Optional
+auto-resume: configure the window in the flag's halt settings on the
+dashboard and Sankofa clears the halt once the window elapses cleanly.
+
+Sankofa Catch, when available, posts to this endpoint on exception
+spikes tagged with a flag value. For now you can drive it from any
+external system — PagerDuty webhooks, Grafana alert channels, custom
+CI scripts — or manually via `sankofa flags halt`.
 
 ## Limits
 

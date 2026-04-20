@@ -210,3 +210,53 @@ deploy.reportError(error, { fatal: true });
 | `Sankofa.setPerson(traits)` | Set profile attributes |
 | `Sankofa.reset()` | Clear identity and start a fresh session |
 | `Sankofa.flush()` | Force-upload all queued events |
+
+## Feature flags + Remote config
+
+Switch (feature flags) and Config (remote config) are exported from
+the same `sankofa-react-native` package — no extra install needed.
+Construct the modules **before** `Sankofa.initialize()` so the first
+handshake routes their payloads in:
+
+```tsx
+import {
+  Sankofa,
+  SankofaSwitch,
+  SankofaConfig,
+} from 'sankofa-react-native';
+
+// Construct before init so they land in the Module Registry first.
+const flags = new SankofaSwitch({ defaults: FLAG_DEFAULTS });
+const config = new SankofaConfig({ defaults: CONFIG_DEFAULTS });
+
+Sankofa.initialize('sk_live_...', {
+  endpoint: 'https://api.sankofa.dev',
+});
+
+if (flags.getFlag('new_checkout')) { /* ... */ }
+const maxMB = config.get<number>('max_upload_mb', 25);
+```
+
+The React Native SDK forwards `anon_id` automatically once the user
+`identify()`s, so experiment queries stitch pre- and post-login rows
+for the same device. See the
+[Switch + Config integration guide](/usage/switch-config-integration)
+for bundled defaults, `onChange`, troubleshooting, and the canonical
+demo manifest.
+
+### Seed demo flags + config
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
+Then run [`example/sankofa_example_react_native`](https://github.com/Sankofa-HQ/sankofa/tree/main/example/sankofa_example_react_native)
+and flip values from the dashboard — every surface repaints live.
+
+## 📑 Next Steps
+
+- [Switch + Config integration guide](/usage/switch-config-integration)
+- [Demo examples](/getting-started/demo-examples)
+- [CLI reference](/sdk/cli) — `sankofa flags`, `sankofa config`, `sankofa demo`

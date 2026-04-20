@@ -161,3 +161,53 @@ SankofaMask(
 | `identify` | Switches the active distinct ID to a known user. |
 | `peopleSet` | Queues a people profile update. |
 | `reset` | Flushes pending events and clears identity. |
+
+---
+
+## Feature flags + Remote config
+
+`SankofaSwitch` and `SankofaConfig` ship in the same `sankofa_flutter`
+package. Construct them **before** `Sankofa.instance.init()` so the
+Traffic Cop registry has them when the first handshake fires — if you
+construct after init you'll see "module not installed" warnings on
+the first boot (behaviour self-corrects on the next handshake, but the
+warnings are easy to avoid).
+
+```dart
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+final switches = SankofaSwitch(defaults: flagDefaults);
+final config = SankofaConfig(defaults: configDefaults);
+
+await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+);
+
+if (switches.getFlag('new_checkout')) { /* ... */ }
+final maxMB = config.get<int>('max_upload_mb', 25);
+```
+
+Both modules forward `anon_id` automatically after `identify()`. See
+the [Switch + Config integration guide](/usage/switch-config-integration)
+for bundled defaults, `onChange`, and troubleshooting tips including
+the common `BoxConstraints forces an infinite height` gotcha with
+Flutter `Row(crossAxisAlignment: stretch)` inside `ListView`.
+
+### Seed demo flags + config
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
+Then run [`sdks/sankofa_sdk_flutter/example`](https://github.com/Sankofa-HQ/sankofa/tree/main/sdks/sankofa_sdk_flutter/example)
+(the Flutter SDK repo's own example app) — dashboard edits repaint
+the `FlagsLabScreen` without a hot reload.
+
+## 📑 Next Steps
+
+- [Switch + Config integration guide](/usage/switch-config-integration)
+- [Demo examples](/getting-started/demo-examples)
+- [CLI reference](/sdk/cli) — `sankofa flags`, `sankofa config`, `sankofa demo`

@@ -218,3 +218,75 @@ mySensitiveView.tag = "sankofa_mask"
 | `trackLifecycleEvents` | `Boolean` | `true` | Auto-track app open/close. |
 | `flushIntervalSeconds` | `Int` | `30` | Event flush interval. |
 | `batchSize` | `Int` | `50` | Event queue limit. |
+
+> `SankofaConfig` (above) is the init-options data class passed to
+> `Sankofa.init(context, apiKey, config)`. The **remote-config**
+> module is called `SankofaRemoteConfig` — different responsibility,
+> different type.
+
+---
+
+## Feature flags + Remote config
+
+`SankofaSwitch` and `SankofaRemoteConfig` are Kotlin `object`
+singletons. Call `init(context, defaults)` on each from
+`Application.onCreate()` after `Sankofa.init(...)`; bundled defaults
+are returned synchronously before the first handshake lands.
+
+```kotlin
+import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.SankofaConfig
+import dev.sankofa.sdk.switchmod.SankofaSwitch
+import dev.sankofa.sdk.remoteconfig.SankofaRemoteConfig
+
+class ExampleApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Sankofa.init(
+            context = this,
+            apiKey = "sk_live_...",
+            config = SankofaConfig(endpoint = "https://api.sankofa.dev"),
+        )
+        SankofaSwitch.init(this, flagDefaults)
+        SankofaRemoteConfig.init(this, configDefaults)
+    }
+}
+```
+
+Anywhere in your app:
+
+```kotlin
+if (SankofaSwitch.getFlag("new_checkout")) { /* ... */ }
+val maxMB: Int = SankofaRemoteConfig.get("max_upload_mb", 25)
+
+val token = SankofaSwitch.onChange("new_checkout") { decision ->
+    runOnUiThread { /* update UI */ }
+}
+// later: token.cancel()
+```
+
+The Android SDK forwards `anon_id` on handshake after
+`Sankofa.identify(...)` fires, stitching pre- and post-login rows for
+the same device. See the full
+[Switch + Config integration guide](/usage/switch-config-integration)
+for bundled defaults, `onChange` tokens, Compose integration patterns,
+and troubleshooting.
+
+### Seed demo flags + config
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
+Then open [`example/sankofa_example_android`](https://github.com/Sankofa-HQ/sankofa/tree/main/example/sankofa_example_android)
+in Android Studio — the `FlagsLabActivity` (Compose-based) plus the
+main activity's variant CTA + maintenance banner all repaint live
+from the dashboard.
+
+## 📑 Next Steps
+
+- [Switch + Config integration guide](/usage/switch-config-integration)
+- [Demo examples](/getting-started/demo-examples)
+- [CLI reference](/sdk/cli) — `sankofa flags`, `sankofa config`, `sankofa demo`

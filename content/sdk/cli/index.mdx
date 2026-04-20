@@ -208,6 +208,196 @@ Check for and install the latest CLI version.
 sankofa upgrade
 ```
 
+## Feature flags (Sankofa Switch)
+
+Every flag operation is also a CLI operation. The flag subcommands
+authenticate with your **dashboard JWT** (via `sankofa login`), not
+the Deploy Token — flag CRUD needs full user + project-role RBAC.
+
+### `sankofa flags list`
+
+```bash
+sankofa flags list
+sankofa flags list --env test
+sankofa flags list --include-archived
+```
+
+Returns a table of flag key, kind (`boolean` / `variant`), rollout %,
+last updated, and status (`active` / `halted` / `archived`).
+
+### `sankofa flags get`
+
+```bash
+sankofa flags get new_checkout
+```
+
+Prints the flag's default value, attached rule (rollout %, targeting
+predicates, cohort includes), and variant list with weights.
+
+### `sankofa flags create`
+
+Creates a new **boolean** flag. For variant flags, create the flag
+here first, then add variants via the dashboard or `sankofa demo seed`
+(which uses the variant API internally).
+
+```bash
+sankofa flags create new_checkout \
+  --description "Rebuilt checkout flow" \
+  --default false
+```
+
+### `sankofa flags toggle`
+
+Shortcut that upserts the flag's rule with a rollout % while preserving
+any existing targeting. Great for the progressive-rollout loop.
+
+```bash
+sankofa flags toggle new_checkout 10    # start at 10%
+sankofa flags toggle new_checkout 50    # ramp to 50%
+sankofa flags toggle new_checkout 100
+```
+
+Rollout is bucketed deterministically on `SHA-256(distinct_id + flag.key)`,
+so ramps are monotonic — bumping 10% → 30% never reshuffles the first
+10%.
+
+### `sankofa flags archive`
+
+```bash
+sankofa flags archive new_checkout
+```
+
+Archived flags always return their default. SDKs still serve the
+cached decision until the next handshake, at which point `reason =
+archived`.
+
+### `sankofa flags halt` / `sankofa flags resume`
+
+The kill-switch path. `halt` flips the flag to its default
+immediately; `resume` clears the halt and re-evaluates the rule.
+
+```bash
+sankofa flags halt new_checkout --reason "spike in errors"
+sankofa flags resume new_checkout
+```
+
+Halt is also exposed as `POST /api/switch/halt-webhook` (x-api-key
+auth) — Sankofa Catch or any external system can flip flags without
+dashboard access.
+
+### `sankofa flags scan`
+
+Stale-flag scanner. Walks your checkout for `.getFlag("…")` and
+`.getVariant("…")` calls across JS/TS/Dart/Swift/Kotlin, then
+cross-references the keys against the server.
+
+```bash
+sankofa flags scan
+sankofa flags scan --strict    # fail CI on any warning
+```
+
+Warnings: referenced-in-code-but-missing-on-server (typos), on-server-
+but-unreferenced (dead flags). Errors: archived-on-server but still
+branched in code. Pass `--strict` to wire scanner into CI.
+
+## Remote config (Sankofa Config)
+
+### `sankofa config list`
+
+```bash
+sankofa config list
+sankofa config list --env test
+```
+
+Table of key, type, current default value (truncated), version, last
+updated.
+
+### `sankofa config get`
+
+```bash
+sankofa config get max_upload_mb
+```
+
+Prints the current default + rule + latest version number.
+
+### `sankofa config set`
+
+Create or update a config item's default value. Type is required on
+create; on an existing key with a matching type, `set` only updates
+the default value (type mismatches are rejected — archive the old key
+and use a new one for a different shape).
+
+```bash
+sankofa config set max_upload_mb int 25 --description "Max file upload in MB"
+sankofa config set support_url string "https://support.acme.com"
+sankofa config set trial_discount_pct float 0.2
+sankofa config set maintenance_banner_enabled bool true
+sankofa config set pricing json '{"pro":9.99,"growth":49}'
+```
+
+JSON values accept any JSON shape — maps, arrays, scalars. The server
+validates the payload against the declared type at write time.
+
+### `sankofa config history`
+
+```bash
+sankofa config history max_upload_mb
+sankofa config history max_upload_mb --limit 5
+```
+
+Append-only version log. Every create, default-value update, rule
+save, archive, or rollback appends a row.
+
+### `sankofa config rollback`
+
+Non-destructively revert to a historical version — writes a **new**
+version whose snapshot matches the target, rather than deleting
+history.
+
+```bash
+sankofa config rollback max_upload_mb 3 --note "revert accidental bump"
+```
+
+The rollback pulls the target version's value + rule snapshot, opens
+a transaction, writes a new `rolled_back` version, and updates the
+item's default + rule to match. Rolling back a rollback is the same
+operation in reverse.
+
+## Demo fixtures
+
+Provision the canonical demo flags + config items used by every
+Sankofa example app (web, react-native, html, ios, android, flutter)
+in one shot.
+
+### `sankofa demo seed`
+
+```bash
+sankofa demo seed
+sankofa demo seed --force           # overwrite existing values
+sankofa demo seed --skip-flags      # only seed config items
+sankofa demo seed --skip-config     # only seed feature flags
+```
+
+Creates:
+
+**6 flags** — `new_home_layout`, `checkout_cta_variant` (variant
+A/B/C), `onboarding_v2_rollout`, `ai_summary_kill_switch`,
+`ab_pricing_page` (variant A/B), `premium_badge_visible`.
+
+**6 config items** — `support_url` (string), `max_uploads_per_day`
+(int), `trial_discount_pct` (float), `maintenance_banner_enabled`
+(bool), `pricing_table` (json), `theme_colors` (json).
+
+Idempotent by default — keys that already exist are skipped. Pass
+`--force` to overwrite the default values to match the manifest.
+
+<Callout title="Pair with an example app" tone="info">
+Seed once, then run any of the six Sankofa example projects — every
+UI surface in the examples is wired to these exact keys, so dashboard
+edits repaint the apps without code changes. See the
+[Demo examples guide](/getting-started/demo-examples).
+</Callout>
+
 ## Authentication
 
 Credentials are resolved in this order (highest wins):
@@ -232,7 +422,20 @@ sankofa patch ios --publish --rollout 25
 
 | Variable | Purpose |
 | :--- | :--- |
-| `SANKOFA_DEPLOY_TOKEN` | CI-friendly auth token |
+| `SANKOFA_DEPLOY_TOKEN` | CI-friendly Deploy auth token |
+| `SANKOFA_JWT` | CI-friendly dashboard JWT (used by `flags`, `config`, `demo`) |
 | `SANKOFA_PROJECT_ID` | Project ID |
 | `SANKOFA_ENDPOINT` | Server URL |
 | `SANKOFA_ENVIRONMENT` | `live` or `test` |
+
+<Callout title="Which auth for which command?" tone="info">
+**Deploy commands** (`release`, `patch`, `submit`, `dist`, `status`,
+`preview`) use `SANKOFA_DEPLOY_TOKEN` — pre-mint one from the
+dashboard's "Deploy tokens" panel for CI runs.
+
+**Switch / Config / demo commands** (`flags`, `config`, `demo`) use
+`SANKOFA_JWT` because flag and config CRUD require full user auth
+and project-role RBAC. Either log in interactively via
+`sankofa login`, or issue a long-lived JWT from the dashboard for
+CI.
+</Callout>

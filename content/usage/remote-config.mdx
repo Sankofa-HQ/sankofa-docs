@@ -5,14 +5,13 @@ section: usage
 order: 11
 toc: true
 source_of_truth:
-  - server/engine/ee/configmod/evaluator_batch.go
-  - server/engine/ee/configmod/version_store.go
-  - server/engine/ee/configmod/handlers.go
   - sdks/sankofa_sdk_web/packages/config/src/plugin.ts
   - sdks/sankofa_sdk_react_native/src/config/SankofaConfig.ts
   - sdks/sankofa_sdk_flutter/lib/src/config/sankofa_config.dart
   - sdks/sankofa_sdk_ios/Sources/SankofaIOS/config/SankofaRemoteConfig.swift
   - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/remoteconfig/SankofaRemoteConfig.kt
+  - cli/sankofa-cli/src/commands/config.ts
+  - cli/sankofa-cli/src/commands/demo.ts
 ---
 
 Sankofa **Config** is the typed remote-configuration product. Use it to
@@ -36,8 +35,8 @@ served when it matches. One rule per item in V1. Perfect for "free tier
 gets 3, enterprise cohort gets 999" without creating two different items.
 
 **Version** — every mutation (create, update, rule save, archive, rollback)
-appends a new `ConfigVersion` row with the full item state + rule snapshot
-at that moment. History is append-only: rolling back writes a **new**
+appends a new version entry with the full item state + rule snapshot at
+that moment. History is append-only: rolling back writes a **new**
 version whose snapshot matches the target.
 
 **Rollout percentage** — identical bucketing semantics to Switch. Default
@@ -153,6 +152,92 @@ sankofa config rollback max_upload_mb 3 --note "revert to v3 — accidental bump
 same type just updates the default value (type changes are rejected — use
 a new key for a different shape). Version history tracks every update.
 
+<Callout title="Seeding demo config for the example apps" tone="info">
+`sankofa demo seed` creates a canonical set of six config items (plus
+six flags) used by every Sankofa example project. See
+[Demo examples](/getting-started/demo-examples) for the full key list
+and walkthrough.
+</Callout>
+
+## Bundled defaults
+
+Every SDK accepts a `defaults` map that's returned synchronously when
+the handshake hasn't landed yet. This matters on the first cold-start
+frame, during long network stalls, and in offline mode:
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Web",
+      code: `import { configPlugin } from '@sankofa/config';
+
+await Sankofa.init({
+  plugins: [configPlugin({
+    defaults: {
+      max_upload_mb: { value: 25, type: 'int', reason: 'local_default', version: 0 },
+      support_url:   { value: 'https://support.sankofa.dev', type: 'string', reason: 'local_default', version: 0 },
+    },
+  })],
+});`,
+    },
+    {
+      label: "React Native",
+      code: `const cfg = new SankofaConfig({
+  defaults: {
+    max_upload_mb: { value: 25, type: 'int', reason: 'local_default', version: 0 },
+  },
+});`,
+    },
+    {
+      label: "Flutter",
+      code: `final cfg = SankofaConfig(defaults: {
+  'max_upload_mb': const ItemDecision(
+    value: 25, type: ConfigType.int_,
+    reason: ItemReason.unknown, version: 0,
+  ),
+});`,
+    },
+    {
+      label: "iOS",
+      code: `_ = SankofaRemoteConfig.shared.withDefaults([
+    "max_upload_mb": ItemDecision(
+        value: .int(25),
+        type: .int, reason: .unknown, version: 0
+    ),
+])`,
+    },
+    {
+      label: "Android",
+      code: `SankofaRemoteConfig.init(
+    this,
+    mapOf(
+        "max_upload_mb" to ItemDecision(
+            value = 25,
+            type = ConfigType.INT,
+            reason = ItemReason.UNKNOWN,
+            version = 0,
+        )
+    )
+)`,
+    },
+  ]}
+/>
+
+## Identity stitching (anon_id)
+
+When a user identifies mid-session (`Sankofa.identify("user_42")`), the
+device's `distinct_id` changes. Without stitching, rule predicates that
+relied on cohort membership would re-bucket the device as a new
+experiment subject the moment the user logs in — flipping targeted
+payloads mid-session, which is exactly what you don't want.
+
+Every Sankofa SDK forwards the pre-identify id as `anon_id` on every
+handshake after `identify()`, so cohort-scoped targeting survives the
+login boundary — the same anonymous cohort membership carries through
+to the identified session.
+
+Stitching is automatic — nothing to configure on the SDK side.
+
 ## Typed values on the wire
 
 The server stores every value as text and tags each item with its
@@ -171,19 +256,71 @@ production-safe: a server-side schema change won't crash clients.
 
 ## Rollback flow
 
-Rollback is non-destructive. `POST /api/v1/config/items/:id/rollback` with
-a `version_id` body:
+Rollback is non-destructive. The dashboard **Restore** button, the
+CLI `sankofa config rollback <key> <version>`, or a direct
+`POST /api/v1/config/items/:id/rollback` with a `version_id` body all
+do the same thing:
 
-1. Reads the target version's `ValueSnapshot` + `RuleSnapshot`.
-2. Opens a DB transaction.
-3. Writes a new `ConfigVersion` row with `action = "rolled_back"` whose
-   snapshot matches the target.
-4. Updates the item's `default_value` / `CurrentVersion` to match.
-5. Upserts or deletes the rule to match the snapshot.
-6. Commits.
+1. Load the snapshot of the target version (default value + rule +
+   rollout %).
+2. Append a new history entry whose snapshot matches the target.
+3. Update the item's live default, rule, and version number to match.
 
-The old versions remain — history is append-only. Rolling back a rollback
-is the same operation in reverse.
+The old versions are preserved — history is append-only. Rolling back
+a rollback is the same operation in reverse.
+
+## onChange subscriptions
+
+Every SDK exposes `onChange(key, listener)` that fires when a
+handshake refresh returns a new decision for the subscribed key. The
+listener receives the full `ItemDecision` envelope (or `null` if the
+item was removed remotely); returning from the callback is all that's
+needed.
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Web",
+      code: `const stop = cfg.onChange('pricing_table', (decision) => {
+  if (decision) renderPricing(decision.value);
+});
+// later: stop();`,
+    },
+    {
+      label: "React Native",
+      code: `const stop = cfg.onChange('pricing_table', (decision) => {
+  if (decision) setPricing(decision.value);
+});`,
+    },
+    {
+      label: "Flutter",
+      code: `final stop = cfg.onChange('pricing_table', (decision) {
+  if (decision != null) setState(() => _pricing = decision.value);
+});`,
+    },
+    {
+      label: "iOS",
+      code: `let token = SankofaRemoteConfig.shared.onChange("pricing_table") { decision in
+    guard let d = decision else { return }
+    renderPricing(d.value)
+}
+// later: token.cancel()`,
+    },
+    {
+      label: "Android",
+      code: `val token = SankofaRemoteConfig.onChange("pricing_table") { decision ->
+    decision?.let { renderPricing(it.value) }
+}
+// later: token.cancel()`,
+    },
+  ]}
+/>
+
+Subscribe once per key per view; the tokens/`stop` return values are
+the handle you cancel when the view unmounts. Unlike flag onChange,
+config callbacks run at whatever cadence the host app's handshake
+refreshes (app resume, manual `refresh()`, etc) — not on every value
+read, which is the source of the per-mount pattern.
 
 ## Limits
 

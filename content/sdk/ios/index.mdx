@@ -192,3 +192,59 @@ mySecureView.sankofaMask = true
 | `maskAllInputs` | `Bool` | `true` |
 | `debug` | `Bool` | `false` |
 | `flushInterval` | `TimeInterval` | `30.0` |
+
+> `SankofaConfig` (above) is the init-options struct passed to
+> `Sankofa.shared.initialize(...)`. The **remote-config** module is
+> called `SankofaRemoteConfig` — different responsibility, different
+> type.
+
+---
+
+## Feature flags + Remote config
+
+`SankofaSwitch` and `SankofaRemoteConfig` are singletons that
+self-register with the Module Registry on first access, so there's no
+separate init call beyond seeding bundled defaults:
+
+```swift
+import SankofaIOS
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(endpoint: "https://api.sankofa.dev")
+)
+
+_ = SankofaSwitch.shared.withDefaults(flagDefaults)
+_ = SankofaRemoteConfig.shared.withDefaults(configDefaults)
+
+if SankofaSwitch.shared.getFlag("new_checkout") {
+    showNewUI()
+}
+let maxMB: Int = SankofaRemoteConfig.shared.get("max_upload_mb", default: 25)
+```
+
+The iOS SDK forwards `anon_id` on handshake after `Sankofa.shared.identify(...)`
+fires, so experiment queries stitch pre- and post-login rows for the
+same device. See the full
+[Switch + Config integration guide](/usage/switch-config-integration)
+for bundled defaults, `onChange` tokens, and the `SankofaRemoteConfig`
+↔ `SankofaConfig` naming rationale.
+
+### Seed demo flags + config
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
+Then open [`example/sankofa_example_ios`](https://github.com/Sankofa-HQ/sankofa/tree/main/example/sankofa_example_ios)
+in Xcode and run — every surface in the **Lab** tab (plus the variant
+CTA on the Tracking tab + maintenance banner) repaints live from the
+dashboard.
+
+## 📑 Next Steps
+
+- [Switch + Config integration guide](/usage/switch-config-integration)
+- [Demo examples](/getting-started/demo-examples)
+- [CLI reference](/sdk/cli) — `sankofa flags`, `sankofa config`, `sankofa demo`

@@ -1,0 +1,547 @@
+---
+title: Switch + Config integration guide
+description: End-to-end setup for feature flags and remote config across Web, React Native, Flutter, iOS, Android, and HTML — including identity stitching, exposure tracking, bundled defaults, and the CLI.
+section: usage
+order: 12
+toc: true
+source_of_truth:
+  - sdks/sankofa_sdk_web/packages/switch/src/plugin.ts
+  - sdks/sankofa_sdk_web/packages/config/src/plugin.ts
+  - sdks/sankofa_sdk_react_native/src/switch/SankofaSwitch.ts
+  - sdks/sankofa_sdk_react_native/src/config/SankofaConfig.ts
+  - sdks/sankofa_sdk_flutter/lib/src/switch/sankofa_switch.dart
+  - sdks/sankofa_sdk_flutter/lib/src/config/sankofa_config.dart
+  - sdks/sankofa_sdk_ios/Sources/SankofaIOS/switch/SankofaSwitch.swift
+  - sdks/sankofa_sdk_ios/Sources/SankofaIOS/config/SankofaRemoteConfig.swift
+  - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/switchmod/SankofaSwitch.kt
+  - sdks/sankofa_sdk_android/sankofa/src/main/java/dev/sankofa/sdk/remoteconfig/SankofaRemoteConfig.kt
+  - cli/sankofa-cli/src/commands/flags.ts
+  - cli/sankofa-cli/src/commands/config.ts
+  - cli/sankofa-cli/src/commands/demo.ts
+---
+
+This is the comprehensive end-to-end guide for integrating **Sankofa
+Switch** (feature flags) and **Sankofa Config** (remote config) into
+every platform Sankofa supports. If you want the conceptual reference,
+see [Feature flags](/usage/feature-flags) and
+[Remote config](/usage/remote-config); this page is the step-by-step
+walkthrough.
+
+<Callout title="Before you start" tone="info">
+You'll need a Sankofa project with an API key (see
+[Environments and API keys](/getting-started/environments-and-api-keys)).
+To seed the canonical demo flags + configs in one shot, install the
+CLI:
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
+The six example apps in the Sankofa repo all consume the keys
+`sankofa demo seed` creates — see [Demo examples](/getting-started/demo-examples).
+</Callout>
+
+## Setup per platform
+
+Both modules follow the same three-step pattern on every SDK:
+
+1. **Install** — add the package (or import block).
+2. **Register with init** — construct / plug in before the first
+   handshake so the Traffic Cop routes decisions into the module.
+3. **Call** — `getFlag` / `getVariant` / `get<T>` anywhere; subscribe
+   via `onChange` to re-render when decisions refresh.
+
+### Web (browser SDK)
+
+```bash
+npm install @sankofa/browser @sankofa/switch @sankofa/config
+```
+
+```ts
+import { Sankofa } from '@sankofa/browser';
+import { switchPlugin, getSwitch } from '@sankofa/switch';
+import { configPlugin, getConfig } from '@sankofa/config';
+
+await Sankofa.init({
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+  plugins: [
+    switchPlugin({ defaults: DEMO_FLAG_DEFAULTS }),
+    configPlugin({ defaults: DEMO_CONFIG_DEFAULTS }),
+  ],
+});
+
+const flags = getSwitch()!;
+const config = getConfig()!;
+
+if (flags.getFlag('new_checkout')) {
+  // ...
+}
+const maxMB = config.get<number>('max_upload_mb', 25);
+```
+
+The web SDK ships with per-call exposure tracking enabled by default
+— see [Exposure tracking](/usage/feature-flags#exposure-tracking).
+
+### React Native
+
+```bash
+npx expo install sankofa-react-native
+# or
+npm install sankofa-react-native
+```
+
+Construct the module singletons **before** `Sankofa.initialize()` so
+they're registered with the Module Registry by the time the first
+handshake fires:
+
+```tsx
+import { Sankofa, SankofaSwitch, SankofaConfig } from 'sankofa-react-native';
+
+// inside a useEffect or module init:
+Sankofa.initialize('sk_live_...', {
+  endpoint: 'https://api.sankofa.dev',
+  recordSessions: true,
+});
+const flags = new SankofaSwitch({ defaults: FLAG_DEFAULTS });
+const config = new SankofaConfig({ defaults: CONFIG_DEFAULTS });
+
+if (flags.getFlag('new_checkout')) {
+  // ...
+}
+```
+
+### Flutter
+
+```yaml
+# pubspec.yaml
+dependencies:
+  sankofa_flutter: ^0.1.0
+```
+
+Construct the modules **before** `Sankofa.instance.init()` so the
+Traffic Cop registry has them when the first handshake fires:
+
+```dart
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+// before init:
+final switches = SankofaSwitch(defaults: DEMO_FLAG_DEFAULTS);
+final config = SankofaConfig(defaults: DEMO_CONFIG_DEFAULTS);
+
+await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+);
+
+if (switches.getFlag('new_checkout')) {
+  // ...
+}
+final maxMB = config.get<int>('max_upload_mb', 25);
+```
+
+<Callout title="Module registration order" tone="warn">
+If you construct `SankofaSwitch` / `SankofaConfig` **after** `Sankofa
+.instance.init()` resolves, the first handshake has already fired —
+you'll see warnings like "`Server enabled 'switch' but SankofaSwitch
+is not installed`" on the first boot, and the modules will pick up
+the next handshake only. Construct before init.
+</Callout>
+
+### iOS (Swift)
+
+Add via Swift Package Manager — point to
+`https://github.com/Sankofa-HQ/sankofa_sdk_ios`.
+
+```swift
+import SankofaIOS
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(endpoint: "https://api.sankofa.dev")
+)
+
+// Seed bundled defaults + trigger module self-registration.
+_ = SankofaSwitch.shared.withDefaults(flagDefaults)
+_ = SankofaRemoteConfig.shared.withDefaults(configDefaults)
+
+// Anywhere in your app:
+if SankofaSwitch.shared.getFlag("new_checkout") {
+    showNewUI()
+}
+let maxMB: Int = SankofaRemoteConfig.shared.get("max_upload_mb", default: 25)
+```
+
+iOS uses singletons (`.shared`) that self-register on first access.
+The class is called `SankofaRemoteConfig` (not `SankofaConfig`) because
+`SankofaConfig` is already the init-options struct.
+
+### Android (Kotlin)
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation("dev.sankofa:sdk:0.1.0")
+}
+```
+
+```kotlin
+import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.SankofaConfig
+import dev.sankofa.sdk.switchmod.SankofaSwitch
+import dev.sankofa.sdk.remoteconfig.SankofaRemoteConfig
+
+// In your Application.onCreate():
+Sankofa.init(
+    context = this,
+    apiKey = "sk_live_...",
+    config = SankofaConfig(endpoint = "https://api.sankofa.dev"),
+)
+SankofaSwitch.init(this, flagDefaults)
+SankofaRemoteConfig.init(this, configDefaults)
+
+// Anywhere:
+if (SankofaSwitch.getFlag("new_checkout")) { /* ... */ }
+val maxMB: Int = SankofaRemoteConfig.get("max_upload_mb", 25)
+```
+
+Same naming rationale as iOS — `SankofaConfig` is the init-options
+data class, so the remote-config singleton is `SankofaRemoteConfig`.
+
+### HTML (no build step)
+
+For plain HTML sites, use the IIFE CDN bundles — each package exposes
+a global that mirrors its npm export.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/switch/dist/sankofa-switch.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/config/dist/sankofa-config.min.js"></script>
+<script>
+  Sankofa.init({
+    apiKey: 'sk_live_...',
+    endpoint: 'https://api.sankofa.dev',
+    plugins: [
+      SankofaSwitch.switchPlugin({ defaults: FLAG_DEFAULTS }),
+      SankofaConfig.configPlugin({ defaults: CONFIG_DEFAULTS }),
+    ],
+  });
+
+  // After Sankofa.init resolves:
+  const flags = SankofaSwitch.getSwitch();
+  const config = SankofaConfig.getConfig();
+  if (flags.getFlag('new_checkout')) { /* ... */ }
+</script>
+```
+
+## Bundled defaults
+
+Every SDK accepts a `defaults` map that's returned synchronously when
+the handshake hasn't completed and there's no persisted cache. This
+matters on:
+
+- **Cold first launch** before the first handshake round-trip.
+- **Air-gapped / offline** starts where the handshake will never land.
+- **Slow networks** where the SDK should render with defaults, then
+  swap to remote values when they arrive.
+
+The wire shape is the full `FlagDecision` / `ItemDecision` envelope so
+you can precompute a reason tag (`local_default`, `fallback`, etc) for
+debugging:
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Web / RN",
+      code: `const FLAG_DEFAULTS = {
+  new_checkout: {
+    value: false,
+    reason: 'local_default',
+    version: 0,
+  },
+  hero_variant: {
+    value: true,
+    variant: 'control',
+    reason: 'local_default',
+    version: 0,
+  },
+};
+
+const CONFIG_DEFAULTS = {
+  max_upload_mb: {
+    value: 25,
+    type: 'int',
+    reason: 'local_default',
+    version: 0,
+  },
+};`,
+    },
+    {
+      label: "Flutter",
+      code: `final flagDefaults = {
+  'new_checkout': const FlagDecision(
+    value: false, reason: FlagReason.unknown, version: 0,
+  ),
+};
+final configDefaults = {
+  'max_upload_mb': const ItemDecision(
+    value: 25, type: ConfigType.int_,
+    reason: ItemReason.unknown, version: 0,
+  ),
+};`,
+    },
+    {
+      label: "iOS",
+      code: `let flagDefaults: [String: FlagDecision] = [
+    "new_checkout": FlagDecision(value: false, reason: .unknown, version: 0)
+]
+let configDefaults: [String: ItemDecision] = [
+    "max_upload_mb": ItemDecision(
+        value: .int(25),
+        type: .int, reason: .unknown, version: 0
+    )
+]`,
+    },
+    {
+      label: "Android",
+      code: `val flagDefaults = mapOf(
+    "new_checkout" to FlagDecision(
+        value = false,
+        reason = FlagReason.UNKNOWN, version = 0,
+    )
+)
+val configDefaults = mapOf(
+    "max_upload_mb" to ItemDecision(
+        value = 25,
+        type = ConfigType.INT,
+        reason = ItemReason.UNKNOWN, version = 0,
+    )
+)`,
+    },
+  ]}
+/>
+
+## Subscribing to changes
+
+`onChange(key, listener)` fires when a handshake refresh returns a new
+decision for the subscribed key. Use this to re-render views when a
+dashboard edit lands.
+
+<CodeTabs
+  tabs={[
+    {
+      label: "Web",
+      code: `const stop = flags.onChange('new_checkout', (decision) => {
+  if (decision) {
+    console.log(\`flag -> \${decision.value} (reason=\${decision.reason})\`);
+  } else {
+    console.log('flag removed remotely');
+  }
+});
+// later: stop();`,
+    },
+    {
+      label: "React Native",
+      code: `useEffect(() => {
+  const stop = flags.onChange('new_checkout', (decision) => {
+    setNewCheckout(decision?.value ?? false);
+  });
+  return stop;
+}, []);`,
+    },
+    {
+      label: "Flutter",
+      code: `@override
+void initState() {
+  super.initState();
+  _unsub = switches.onChange('new_checkout', (d) {
+    setState(() => _newCheckout = d?.value ?? false);
+  });
+}
+
+@override
+void dispose() {
+  _unsub();
+  super.dispose();
+}`,
+    },
+    {
+      label: "iOS",
+      code: `@State private var token: Cancellation?
+
+var body: some View {
+    SomeView()
+        .onAppear {
+            token = SankofaSwitch.shared.onChange("new_checkout") { decision in
+                // update @State
+            }
+        }
+        .onDisappear { token?.cancel() }
+}`,
+    },
+    {
+      label: "Android",
+      code: `private var token: Cancellation? = null
+
+override fun onStart() {
+    super.onStart()
+    token = SankofaSwitch.onChange("new_checkout") { decision ->
+        runOnUiThread { /* update UI */ }
+    }
+}
+
+override fun onStop() {
+    super.onStop()
+    token?.cancel()
+}`,
+    },
+  ]}
+/>
+
+## Identity stitching (anon_id)
+
+Every SDK forwards the pre-identify anonymous id as `anon_id` on every
+handshake after the user calls `identify()`. The server records it on
+each evaluation / exposure row, and experiment queries merge both ids
+into a single user.
+
+You don't configure this — the SDKs do it transparently as soon as
+`distinctId !== anonymousId`.
+
+<Callout title="Why this matters" tone="info">
+Without stitching, the same user produces two separate experiment
+rows — one anonymous, one identified. That biases every downstream
+metric (conversion rate, retention, funnel), because the anonymous
+half of the session has no events attributed to it. Stitching OR-joins
+the ids so the identified row "inherits" the anonymous exposures.
+</Callout>
+
+See [Identity stitching (feature flags)](/usage/feature-flags#identity-stitching-anon-id)
+for the full query shape.
+
+## Exposure tracking (web only at launch)
+
+On the web SDK, every `getFlag`/`getVariant`/`getDecision` call fires
+an **exposure** row to `POST /api/switch/exposures` — unless the same
+`(flag, value, variant)` combination has already been exposed this
+session (per-session dedup).
+
+Why this matters: `flag_evaluations` writes one row per handshake per
+flag, regardless of whether your code actually read that flag.
+`flag_exposures` writes only for flags actually read, which is what
+experiment math wants ("this user saw variant B and did/didn't
+convert").
+
+```ts
+import { switchPlugin } from '@sankofa/switch';
+
+await Sankofa.init({
+  plugins: [switchPlugin({
+    // Default ON. Flip off for webviews / extensions where the POST
+    // would be blocked.
+    trackExposures: true,
+    // Forwarded with every exposure row (optional — defaults to SDK
+    // version).
+    appVersion: '1.4.2',
+  })],
+});
+```
+
+The tracker batches up to 50 rows and flushes every 5s, and on page
+unload uses `navigator.sendBeacon` so unflushed rows aren't lost.
+`identify()` resets the dedup set so the identified user re-fires
+exposures on next read (server-side stitching folds them together).
+
+The other SDKs (React Native, iOS, Android, Flutter) forward `anon_id`
+today but don't yet ship the per-call exposure tracker — experiment
+results on those platforms fall back to `flag_evaluations` until the
+tracker ships. The server handles the fallback automatically (see
+[Experiment source preference](/usage/feature-flags#experiment-source-preference)).
+
+## CLI workflow
+
+After `npm install -g sankofa-cli` and `sankofa login`, use these to
+drive flags + config from the terminal:
+
+```bash
+# Flags
+sankofa flags list
+sankofa flags create new_checkout --description "Rebuilt checkout"
+sankofa flags toggle new_checkout 25
+sankofa flags halt new_checkout --reason "error spike"
+sankofa flags scan --strict
+
+# Config
+sankofa config set max_upload_mb int 25
+sankofa config set pricing json '{"pro":9.99,"growth":49}'
+sankofa config rollback max_upload_mb 3 --note "revert bump"
+
+# Demo
+sankofa demo seed                  # provision canonical example keys
+sankofa demo seed --force          # overwrite existing values
+sankofa demo seed --skip-config    # flags only
+```
+
+See the full [CLI reference](/sdk/cli) for every option and CI
+authentication patterns.
+
+## Troubleshooting
+
+### "`Server enabled 'switch' but SankofaSwitch is not installed`"
+
+The Traffic Cop's registry was empty when the first handshake fired.
+This means the module was constructed **after** `Sankofa.init` /
+`Sankofa.initialize` resolved. Move the `SankofaSwitch(...)` (or
+`.shared` access / `.init(context, ...)` call) **before** SDK init.
+
+This shows up in logs only — the module still picks up the next
+handshake, so behaviour is correct after a few seconds; it's just
+suboptimal.
+
+### `BoxConstraints forces an infinite height` (Flutter)
+
+A `Row` with `crossAxisAlignment: CrossAxisAlignment.stretch` inside a
+`ListView` crashes because the scroll view provides unbounded height.
+Wrap the Row in `IntrinsicHeight` so the stretch can size against the
+tallest child.
+
+### "My variant flag reads always return the default"
+
+Most common cause: the flag was created as `boolean` (via
+`sankofa flags create`) and never had variants added. Variants require
+a separate `PUT /api/v1/switch/flags/:id/variants` call — either via
+the dashboard's Variants tab, via the API directly, or via
+`sankofa demo seed` (which uses the variant API internally for
+`checkout_cta_variant` and `ab_pricing_page`).
+
+### "Handshake 304" on every refresh
+
+That's expected — the server emits a composite `ETag` over every
+module's payload. As long as nothing has changed, SDKs send
+`If-None-Match` and receive `304 Not Modified` (zero body bytes). The
+cached decisions are still authoritative.
+
+### Dashboard shows zero experiment rows
+
+Three things to check:
+
+1. Is the flag variant (`kind = variant`)? Experiments only run on
+   variant flags.
+2. Are users hitting the variant-assignment code path? On web, a
+   `getVariant` call is what fires the exposure row — if the branch
+   never runs, the experiment query finds nothing.
+3. Is the goal event actually being tracked? Experiment results join
+   exposures → events on `distinct_id` (plus `anon_id` for stitched
+   users). No events in the window means 0 converted.
+
+## Next steps
+
+- [Feature flags (Switch) reference](/usage/feature-flags) — reason
+  tags, halt mechanics, dependencies, rollout math.
+- [Remote config reference](/usage/remote-config) — typed values,
+  version history, rollback flow.
+- [Demo examples](/getting-started/demo-examples) — run six fully
+  integrated example apps and watch dashboard edits repaint them.
+- [CLI reference](/sdk/cli) — every command, every option, CI auth.

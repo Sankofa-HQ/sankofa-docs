@@ -5,43 +5,39 @@ section: getting-started
 order: 90
 toc: true
 source_of_truth:
-  - server/engine/ee/switchmod
-  - server/engine/ee/configmod
   - sdks/sankofa_sdk_web/packages/switch
   - sdks/sankofa_sdk_web/packages/config
   - cli/sankofa-cli/src/commands/flags.ts
   - cli/sankofa-cli/src/commands/config.ts
 ---
 
-Sankofa Switch and Sankofa Config launch together as the V1 feature-flag and
-remote-config surfaces. Both ride the same targeting + cohort + handshake
-primitives that power Deploy, so rollout semantics are identical and
-production-hardened from day one.
+Sankofa Switch and Sankofa Config launch together as the V1 feature-flag
+and remote-config surfaces. Both share the same handshake, targeting, and
+cohort primitives that already power Deploy — so rollout semantics are
+identical and production-hardened from day one.
 
 ## What shipped
 
-### Backend (enterprise)
+### Platform
 
-- **`ee/targeting/`** — rule evaluation + percentage bucketing primitive
-  shared by every product (`EvaluateRules`, `BucketFor`, `IsDeviceInRollout`,
-  `AssignVariant`).
-- **`ee/cohorts/`** — generic cohort materializer + `CheckMembership` read
-  path, with `RefProvider` plugin registry. Supports dual-write during a
-  zero-downtime table rename via env-flag cutover.
-- **`ee/switchmod/`** — full Switch product: boolean flags, variant flags
-  with deterministic A/B/n weights, targeting rules, schedules (30s
-  worker, timezone-aware), dependencies (topo-sorted + cycle-rejected at
-  save time), halt webhook + resume, experiment results (Wilson CI).
-- **`ee/configmod/`** — typed remote config: `string | int | float | bool |
-  json`, cohort-targeted rules, append-only `ConfigVersion` history,
-  transactional rollback.
-- **`ee/audit/`** — real audit log replacing the mock. Postgres is
-  authoritative (compliance); ClickHouse mirror for fast dashboard
-  queries (TTL 2y).
-- **Handshake composite ETag** — server emits a SHA-256 of every
-  per-module etag. SDKs send `If-None-Match` on refresh; server returns
-  `304 Not Modified` with empty body. Halves handshake cost in
-  steady-state.
+- **Switch** — boolean flags, A/B/n variant flags with deterministic
+  weighting, targeting rules (app version range, OS version range,
+  country allow/block, cohort include/exclude, user pick-list), rollout
+  %, scheduled toggles (timezone-aware), dependencies (cycles rejected
+  at save time), halt webhook + resume, and experiment results with a
+  95% Wilson CI (plus Bayesian posteriors + P(variant > control) when
+  enabled).
+- **Config** — typed remote config (`string | int | float | bool |
+  json`), cohort-targeted payloads, append-only version history, and
+  non-destructive rollback.
+- **Audit log** — every mutation (flag, config, rule, variant,
+  schedule, dependency) is captured with actor, action, and a diff-able
+  value snapshot. Compliance-ready retention (90d primary, 2y mirrored
+  for dashboard search).
+- **Unified handshake** — both products merge into the existing
+  `/api/v1/handshake` contract. SDKs send `If-None-Match`; the server
+  returns `304 Not Modified` with an empty body when nothing changed,
+  keeping steady-state cost near zero.
 
 ### Dashboard
 
@@ -103,29 +99,29 @@ code against the server's flag list.
 
 ## Upgrade path
 
-- **Existing Deploy customers** — no change required. Switch and Config
-  are opt-in via `sankofa flags create` / `sankofa config set` or by
-  activating the modules on `/onboarding/modules`.
-- **Cohort table rename (`deploy_cohort_members` → `cohort_members`)** —
-  executed via env-flag rollout (no migration required).
-  See the runbook at the top of `server/engine/ee/cohorts/schema.go`. Ops
-  can flip `SANKOFA_COHORT_WRITE_TABLES` and `SANKOFA_COHORT_READ_TABLE`
-  without a code deploy.
+Existing Deploy customers don't need to do anything — Switch and Config
+are opt-in. Activate them from the dashboard's **Modules** screen, then
+create your first flag (`sankofa flags create`) or config item
+(`sankofa config set`).
+
+Self-hosted installs get the new features in the next server upgrade;
+no data migration required.
 
 ## Known limitations (V1)
 
-- **Real-time cohort entry** uses the 5-minute batch materializer. A user
-  entering "Churn Risk" sees their cohort-targeted config within ~5 min of
-  the next tick. Real-time entry via a hot-stream materialized view is V2.
+- **Real-time cohort entry** uses a batch materialiser that refreshes
+  every 5 minutes. A user entering a cohort like "Churn Risk" sees
+  their cohort-targeted config within ~5 min of the next tick. Real-
+  time entry ships in V2.
 - **Auto-halt integration with Catch** — the webhook endpoint
-  (`POST /api/switch/halt-webhook`) is live and CLI-driven today. Catch
-  itself ships separately; when it does it just needs to POST the
-  documented payload to this endpoint.
+  (`POST /api/switch/halt-webhook`) is live and CLI-driven today.
+  Catch itself ships separately; when it does it'll post the
+  documented payload to this endpoint automatically.
 - **Flag-kind migration** (boolean ↔ variant) is disallowed mid-life.
   Archive and create a new key with the target shape.
-- **Usage counters** (flag evaluations / config fetches per month) are
-  enforced at the quota middleware, not at SDK call time — hitting a cap
-  logs server-side but doesn't crash the client.
+- **Usage counters** (evaluations / fetches per month) are enforced at
+  the quota layer — hitting a cap is a dashboard warning; the SDK
+  continues serving cached decisions.
 
 ## Next up
 

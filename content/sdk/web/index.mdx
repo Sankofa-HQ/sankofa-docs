@@ -174,7 +174,49 @@ By default, the plugin enables `maskAllInputs`, which replaces all text entered 
 
 ---
 
+## Feature flags + Remote config
+
+The Web SDK ships Switch (feature flags) and Config (remote config)
+as optional plugins alongside `@sankofa/browser`:
+
+```bash
+npm install @sankofa/switch @sankofa/config
+```
+
+```ts
+import { Sankofa } from '@sankofa/browser';
+import { switchPlugin, getSwitch } from '@sankofa/switch';
+import { configPlugin, getConfig } from '@sankofa/config';
+
+await Sankofa.init({
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+  plugins: [switchPlugin(), configPlugin()],
+});
+
+const flags = getSwitch()!;
+const config = getConfig()!;
+```
+
+The web Switch plugin also ships **per-call exposure tracking** —
+deduplicated per session, batched every 5s to
+`POST /api/switch/exposures`. See the full
+[Switch + Config integration guide](/usage/switch-config-integration)
+for identity stitching, bundled defaults, `onChange` subscriptions,
+and exposure-tracker options.
+
+To seed demo flags + config items for the bundled web example:
+
+```bash
+npm install -g sankofa-cli
+sankofa login
+sankofa demo seed
+```
+
 ## 📑 Next Steps
 
+- [Switch + Config integration guide](/usage/switch-config-integration)
+- [Demo examples](/getting-started/demo-examples)
+- [CLI reference](/sdk/cli) — `sankofa flags`, `sankofa config`, `sankofa demo`
 - [General Concepts](/getting-started/product-concepts)
 - [Self-hosting Guide](/self-hosting)
