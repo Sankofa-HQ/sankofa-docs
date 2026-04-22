@@ -1,0 +1,283 @@
+---
+title: Data lifecycle and deletion guarantees
+description: How Sankofa handles data retention, plan-downgrade wipes, project and organisation deletion, user account deletion, and the end-to-end compliance trail.
+section: self-hosting
+order: 5
+toc: true
+source_of_truth:
+  - server/engine/ee/dataops/
+  - server/engine/ee/billing/retention.go
+  - server/engine/ee/billing/grace_worker.go
+  - server/engine/ee/billing/downgrade_preview.go
+---
+
+This page is the compliance reference for Sankofa's data lifecycle.
+It's the document to share with a customer's security review, a
+DPA/GDPR checklist, or an internal auditor asking "what actually
+happens when someone clicks Delete?"
+
+## Stores
+
+Sankofa persists data across three stores. Every retention + deletion
+path covers all three:
+
+| Store         | What lives there                                           |
+|---------------|-------------------------------------------------------------|
+| Postgres      | Configuration, users, orgs, projects, issues, alerts, rules, tokens, audit log (authoritative) |
+| ClickHouse    | Events, persons, replays metadata, catch events/spans/vitals, audit events (mirror) |
+| Backblaze B2  | Replay video chunks, Catch profile bodies, Catch symbol artifacts, Deploy bundles |
+
+---
+
+## Retention
+
+### Plan-aware retention (the primary mechanism)
+
+Each plan tier carries explicit retention windows. Analytics windows
+live on `PlanConfig.EventRetentionDays` and `ReplayRetentionDays`.
+Per-module tiers (Catch especially) carry their own windows like
+`CatchRetentionDays`.
+
+The **retention enforcer** (`ee/billing/retention.go`) runs:
+
+- **On boot** and every 24h via an internal cron.
+- **Immediately on every plan-tier change** via `NotifyPlanChanged(orgID)`.
+  This fires from every subscribe, Paystack webhook, and grace-period
+  auto-downgrade path — a customer who downgrades from Pro (90d) to
+  Hobby (30d) has the 31-90d window purged within seconds, not 24h.
+
+The enforcer is **hook-based**:
+
+- `analytics` hook — wipes `events`, `persons`, `person_aliases`,
+  `session_replay_chunks` (+ the matching B2 replay-chunk objects)
+  per org.
+- `catch` hook — resolves the org's active Catch tier and trims 7 CH
+  tables (`catch_events`, `catch_breadcrumbs`, `catch_transactions`,
+  `catch_spans`, `catch_vitals`, `catch_profiles_index`,
+  `catch_auto_action_log`) + batch-deletes expiring profile bodies
+  from B2.
+
+Every CH `ALTER TABLE ... DELETE` mutation is followed by a 2-second
+sleep so the merge queue stays calm even on a 1-GB-RAM cluster.
+
+### TTL safety net (secondary)
+
+Every table with a timestamp column carries a belt-and-braces TTL
+clause baked into its DDL:
+
+| Table                           | TTL ceiling |
+|---------------------------------|-------------|
+| `events`                        | 730 days    |
+| `persons`                       | 730 days    |
+| `deploy_events`                 | 365 days    |
+| `session_replay_chunks`         | 180 days    |
+| `screen_backgrounds`            | 365 days    |
+| `replay_interactions`           | 365 days    |
+| `scroll_reach_sessions`         | 365 days    |
+| `catch_events`                  | 90 days     |
+| `catch_breadcrumbs`             | 30 days     |
+| `catch_transactions`            | 30 days     |
+| `catch_spans`                   | 30 days     |
+| `catch_vitals`                  | 30 days     |
+| `catch_profiles_index`          | 7 days      |
+| `catch_auto_action_log`         | 365 days    |
+| `flag_evaluations`              | 90 days     |
+| `flag_exposures`                | 90 days     |
+| `config_fetches`                | 30 days     |
+| `config_item_evaluations`       | 90 days     |
+| `audit_events`                  | 730 days    |
+| `cohort_members` (materialised) | 365 days    |
+
+Tables without a timestamp column (`person_aliases`,
+`cohort_static_members`) rely entirely on the explicit retention
+enforcer + the project/org purger.
+
+TTLs are the **ceiling** — plan-tier retention almost always wipes
+earlier for active subscriptions.
+
+### Per-project retention override
+
+Admins can force a shorter retention window on Catch data via
+**Settings → Catch → Data retention override** (UI) or the
+`event_retention_days_override` field on `CatchProjectConfig` (API).
+Zero falls back to the plan default.
+
+---
+
+## Deletion paths
+
+### Project or organisation deletion
+
+When an admin clicks **Delete project** or **Delete organisation**:
+
+1. The HTTP handler runs the Postgres cascade inside a transaction
+   (members, saved analyses, boards, etc.) and returns **202
+   Accepted** in under 200 ms.
+2. A `DataPurgeJob` row is enqueued.
+3. The **Purger worker** (`ee/dataops/purger.go`) picks it up — one
+   job at a time, serialised — and:
+   - For every registered plugin contributor (analytics baseline,
+     switch, config, deploy, catch, replay, heatmap, audit, billing,
+     admin): queries for B2 object keys, fires per-table CH `ALTER
+     TABLE DELETE`, wipes Postgres EE rows.
+   - Batch-deletes all collected B2 object keys using the free
+     Class-A `DeleteObjects` API in 1000-key chunks. **Never** calls
+     `ListObjectsV2` (Class-C, paid).
+   - Paces every CH mutation with a 2-second sleep.
+4. The job row is finalised with `status = succeeded | partial |
+   failed`, plus `tables_done` and `b2_keys_deleted` counters.
+
+Admins can watch progress at **Billing → Data Deletion History** or
+poll `GET /api/v1/data-purge/:jobID`.
+
+Crash recovery: a job `running` when the process dies is flipped back
+to `queued` on the next boot, up to 3 attempts.
+
+### User account deletion
+
+`DELETE /api/v1/auth/me` (self-service, password re-confirmed) and
+`DELETE /api/admin/users/:id` (admin, with SOC2 audit log) both
+delegate to the **User Purger** (`ee/dataops/user_purger.go`).
+
+**Sole-owner guard.** Before any cleanup, the purger scans
+`organization_members` for orgs where the user is the only Owner. If
+found, deletion is refused with HTTP 409 — the caller must transfer
+ownership or delete the org first.
+
+**Delete vs anonymise.**
+
+| Rows                                                                 | Action    |
+|----------------------------------------------------------------------|-----------|
+| `organization_members`, `project_members`, `team_members`, `org_module_access` | DELETE    |
+| `deploy_tokens` (owner-bound CI keys)                               | DELETE    |
+| `audit_log_entries` + CH `audit_events`                             | ANONYMISE |
+| `catch_issues.assignee_id`, `catch_alert_rules.created_by`          | ANONYMISE |
+| `config_versions.actor_id`, `actor_email`                           | ANONYMISE |
+| `deploy_releases.released_by`                                       | ANONYMISE |
+| `admin_audit_logs.admin_user_id`                                    | ANONYMISE |
+| `saved_*.created_by_id`, `boards.created_by_id`, `board_shares.shared_by_id` | ANONYMISE |
+| `data_purge_jobs.requested_by`                                      | ANONYMISE |
+
+Anonymisation replaces the identifier with the sentinel value
+`"deleted_user"`. Email columns are cleared to the empty string.
+Audit rows survive so "X happened at Y time" is still legible to a
+compliance reviewer — only the PII link to the deleted user is
+stripped.
+
+---
+
+## Downgrade severity
+
+A downgrade is a planned data-loss event. The flow is deliberately
+hard to trigger by accident:
+
+1. **Preview endpoint** — `GET /api/v1/billing/downgrade/preview`
+   returns the cutoff date, per-metric row counts that will be
+   deleted, and a 10-minute HMAC confirmation token.
+2. **3-step modal** on the billing page:
+   - Step 1 — red banner with the exact cutoff date ("Everything older
+     than March 22, 2026 will be deleted").
+   - Step 2 — per-metric breakdown (events, replays, catch events,
+     profiles).
+   - Step 3 — user must type `DOWNGRADE AND DELETE` verbatim to
+     enable the Confirm button.
+3. **Server gate** — `POST /api/v1/billing/subscribe` with
+   `plan_tier=hobby` (or any cheaper per-module tier) returns **400
+   confirmation_required** without a valid HMAC token from the
+   preview. Clients cannot skip the modal.
+
+### Grace-period auto-downgrade
+
+When a Paystack charge fails, the subscription enters
+`status = grace_period`. The **grace-period worker** runs hourly:
+
+| Day | Action                                                                                       |
+|-----|----------------------------------------------------------------------------------------------|
+| T+0 | Grace period begins (on charge fail). Email: "Payment failed — grace period started."       |
+| T+4 | **Warning email with exact preview** (cutoff date, row counts) + "Update Payment Method" CTA. |
+| T+6 | **Final warning email** — "24 hours until auto-downgrade." Same preview, blunter copy.       |
+| T+7 | **Auto-downgrade.** Retention enforcer fires immediately; after-downgrade email is sent.     |
+
+Every email includes a direct link to the billing dashboard's
+payment-portal action (Paystack customer portal).
+
+### Audit trail
+
+Every downgrade — manual or auto — writes an `AuditLogEntry` + CH
+mirror row with:
+
+- `actor_id` (user or `"system"` for grace-period auto)
+- `actor_email` (denormalised)
+- `resource_type` = `subscription` or `module_subscription`
+- `action` = `plan_downgraded`
+- `changes.before` + `changes.after` including retention fields
+- `changes.after.cutoff_date`
+- `ip`, `user_agent`
+
+These show up under **Audit Log** in the dashboard and in the CH
+`audit_events` table for external compliance pipelines.
+
+---
+
+## Observability
+
+All lifecycle workers emit Prometheus-compatible metrics. Scrape via
+`GET /metrics` (set `METRICS_SCRAPE_TOKEN` env var for auth). Key
+series:
+
+- `sankofa_purge_jobs_total{status="succeeded|partial|failed"}`
+- `sankofa_purge_jobs_in_flight`
+- `sankofa_purge_tables_cleared_total`
+- `sankofa_purge_b2_keys_deleted_total` — indicator that the free
+  Class-A delete path is working.
+- `sankofa_purge_contributor_failures_total{contributor}` — bounded
+  cardinality at registered contributor names.
+- `sankofa_retention_sweeps_total`
+- `sankofa_retention_orgs_processed_total`
+- `sankofa_retention_hook_failures_total{hook}`
+- `sankofa_grace_warnings_sent_total{day}`
+- `sankofa_grace_auto_downgrades_total`
+
+JSON versions of the same counters are available at `GET /debug/vars`
+(same auth contract).
+
+---
+
+## Cost guarantees
+
+- **Backblaze B2** — only `DeleteObjects` (Class-A, FREE) is used
+  for cleanup. The code never calls `ListObjectsV2` (Class-C,
+  $0.004 per 1000). Keys are always discovered via CH/Postgres
+  queries we've already paid for.
+- **ClickHouse mutations** — paced at 2 seconds between `ALTER
+  TABLE DELETE` calls per worker. A purge of 22 tables takes ~44s;
+  retention sweeps handle orgs serially with the same pacing. Never
+  stacks mutations on the merge queue.
+- **Workers are serialised** — one purge job at a time; one
+  retention sweep; one grace-worker tick per hour. Memory footprint
+  is constant regardless of queue depth.
+
+---
+
+## Operational knobs
+
+| Env var                                | Purpose                                                                 | Default |
+|----------------------------------------|-------------------------------------------------------------------------|---------|
+| `METRICS_SCRAPE_TOKEN`                 | Shared-secret auth for `/metrics` and `/debug/vars`                    | empty (open) |
+| `B2_KEY_ID`, `B2_APP_KEY`, `B2_BUCKET_NAME` | Backblaze credentials; absent → object-storage cleanup skipped     | —       |
+| `API_SECRET`                           | Signs JWTs + downgrade HMAC tokens                                     | required |
+| `APP_URL`                              | Used in email CTA links                                                 | https://app.sankofa.dev |
+
+---
+
+## What's explicitly not included
+
+- **Pause rather than delete** — once retention wipes a row, it's
+  gone. Sankofa does not keep backup copies past the retention
+  window. If you need long-term retention, export via the `GET
+  /api/v1/events` or equivalent endpoints before the window closes.
+- **Undo on plan downgrade** — the 3-step modal is the undo. After
+  the confirm click, the retention sweep has already started.
+- **Point-in-time recovery** — ClickHouse backups are your own
+  operational choice. Sankofa's application-level retention is one-
+  way.
