@@ -1,0 +1,168 @@
+/* Typography for MDX-rendered prose. Replaces Tailwind .prose. */
+
+.prose {
+  color: var(--page-fg);
+  font: var(--docs-paragraph);
+  letter-spacing: -0.011em;
+  max-width: 760px;
+}
+
+.prose > * + * { margin-top: 1.25em; }
+.prose > h1 + *,
+.prose > h2 + *,
+.prose > h3 + *,
+.prose > h4 + * { margin-top: 0.75em; }
+
+.prose h1 {
+  font: var(--title-h2);
+  letter-spacing: -0.02em;
+  margin-top: 0;
+  margin-bottom: 8px;
+  scroll-margin-top: 96px;
+}
+.prose h2 {
+  font: 600 28px/36px var(--font-display);
+  letter-spacing: -0.015em;
+  color: var(--page-fg);
+  margin-top: 56px;
+  margin-bottom: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 96px;
+}
+.prose > h2:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 24px;
+}
+.prose h3 {
+  font: 600 22px/30px var(--font-display);
+  letter-spacing: -0.010em;
+  color: var(--page-fg);
+  margin-top: 40px;
+  margin-bottom: 8px;
+  scroll-margin-top: 96px;
+}
+.prose h4 {
+  font: 600 18px/26px var(--font-display);
+  letter-spacing: -0.005em;
+  color: var(--page-fg);
+  margin-top: 32px;
+  margin-bottom: 8px;
+  scroll-margin-top: 96px;
+}
+
+.prose p {
+  font: var(--docs-paragraph);
+  letter-spacing: -0.011em;
+  color: var(--page-fg-muted);
+  margin: 0;
+}
+
+.prose strong {
+  color: var(--page-fg);
+  font-weight: 600;
+}
+
+.prose em { font-style: italic; }
+
+.prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 160ms ease-out;
+}
+.prose a:hover { color: var(--accent-strong); }
+
+.prose ul,
+.prose ol {
+  padding-left: 24px;
+  margin: 0;
+  color: var(--page-fg-muted);
+  font: var(--docs-paragraph);
+}
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+.prose li { margin: 6px 0; }
+.prose li > p { margin: 0; }
+.prose li::marker { color: var(--page-fg-soft); }
+
+.prose blockquote {
+  margin: 24px 0;
+  padding: 12px 20px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 8px 8px 0;
+  color: var(--page-fg);
+  font-style: normal;
+}
+.prose blockquote p { color: var(--page-fg); }
+
+.prose hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+  margin: 48px 0;
+}
+
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  color: var(--page-fg);
+  font-feature-settings: "ss01";
+  white-space: nowrap;
+}
+
+.prose pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 24px 0;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.prose thead {
+  background: var(--surface-2);
+}
+.prose th {
+  text-align: left;
+  font: 500 12px/16px var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--page-fg-soft);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.prose td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--page-fg-muted);
+  vertical-align: top;
+}
+.prose tr:last-child td { border-bottom: 0; }
+
+.prose img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: block;
+  margin: 24px 0;
+}
+
+/* First-child resets so prose flows directly into the page header */
+.prose > *:first-child { margin-top: 0; }

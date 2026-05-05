@@ -1,45 +1,35 @@
-import { AlertCircle, CheckCircle2, Info, ShieldAlert } from "lucide-react";
+import type { ReactNode } from "react";
 
-const iconMap = {
-  info: Info,
-  tip: Info,
-  success: CheckCircle2,
-  warning: ShieldAlert,
-  note: AlertCircle,
-} as const;
+type Tone = "note" | "tip" | "warning" | "danger" | "success";
 
-const toneMap = {
-  info: "border-sky-200 bg-sky-50 text-sky-900",
-  tip: "border-sky-200 bg-sky-50 text-sky-900",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-900",
-  warning: "border-amber-200 bg-amber-50 text-amber-900",
-  note: "border-slate-200 bg-slate-50 text-slate-900",
-} as const;
+const ICONS: Record<Tone, string> = {
+  note: "i",
+  tip: "✓",
+  warning: "!",
+  danger: "✕",
+  success: "✓",
+};
 
 export function Callout({
+  tone = "note",
   title,
-  tone = "info",
   children,
 }: {
-  title: string;
-  tone?: keyof typeof iconMap;
-  children: React.ReactNode;
+  tone?: Tone | "info";
+  title?: string;
+  children: ReactNode;
 }) {
-  const Icon = iconMap[tone];
-
+  // Map legacy "info" to "note"
+  const normalized: Tone = tone === "info" ? "note" : tone;
   return (
-    <div className={`my-8 rounded-[1.5rem] border p-5 ${toneMap[tone]}`}>
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-full bg-white/70 p-2">
-          <Icon className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="font-semibold">{title}</p>
-          <div className="mt-2 text-sm leading-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            {children}
-          </div>
-        </div>
+    <aside className="docs-callout" data-tone={normalized}>
+      <div className="docs-callout-icon" aria-hidden>
+        {ICONS[normalized]}
       </div>
-    </div>
+      <div className="docs-callout-body">
+        {title ? <p className="docs-callout-title">{title}</p> : null}
+        <div className="docs-callout-content">{children}</div>
+      </div>
+    </aside>
   );
 }

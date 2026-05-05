@@ -1,0 +1,273 @@
+---
+title: Quickstart
+description: Send your first event into Sankofa in under five minutes — pick your platform, install, initialize, and verify.
+badge: 5 min
+toc: true
+sdks: [web, flutter, react-native, ios, android, node, go, python]
+---
+
+This guide walks you through sending your first event from any official Sankofa SDK, identifying a user, and verifying the path end-to-end. You'll need a project API key — get one from the [dashboard](https://app.sankofa.dev) under **Project → API keys**.
+
+<Callout tone="note" title="Pick your language once">
+The code samples below are tabbed by SDK. Pick your platform and the docs will remember your choice across every page.
+</Callout>
+
+## 1. Install the SDK
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="bash" code={`npm install @sankofa/browser
+# or
+pnpm add @sankofa/browser`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
+  sankofa_flutter: ^1.0.0`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="bash" code={`npm install @sankofa/react-native
+# Expo Config Plugin auto-applies on prebuild`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS">
+<CodeBlock lang="swift" filename="Package.swift" code={`.package(url: "https://github.com/sankofa-hq/sankofa-ios.git", from: "1.0.0")`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android">
+<CodeBlock lang="kotlin" filename="build.gradle.kts" code={`dependencies {
+    implementation("dev.sankofa:sankofa-android:1.0.0")
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="bash" code={`npm install @sankofa/node`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="bash" code={`go get github.com/sankofa-hq/sankofa_sdk_go`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="bash" code={`pip install sankofa-catch`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 2. Initialize with your API key
+
+Use a `live` key for production builds and a `test` key for local development. The engine resolves the environment from the key on every request, so the same code path works for both.
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" filename="src/sankofa.ts" code={`import { Sankofa } from "@sankofa/browser";
+
+await Sankofa.init({
+  apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" filename="lib/main.dart" code={`void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Sankofa.instance.init(
+    apiKey: 'sk_live_...',
+    endpoint: 'https://api.sankofa.dev',
+  );
+  runApp(const MyApp());
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { Sankofa } from "@sankofa/react-native";
+
+Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" filename="AppDelegate.swift" code={`import Sankofa
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(recordSessions: true)
+)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" filename="MyApp.kt" code={`Sankofa.init(
+    context = this,
+    apiKey = "sk_live_...",
+    config = SankofaConfig(recordSessions = true)
+)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" filename="server.ts" code={`import { Sankofa } from "@sankofa/node";
+
+Sankofa.init({
+  apiKey: process.env.SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" filename="main.go" code={`import "github.com/sankofa-hq/sankofa_sdk_go/sankofa"
+
+client, err := sankofa.New(sankofa.Config{
+    APIKey:   os.Getenv("SANKOFA_KEY"),
+    Endpoint: "https://api.sankofa.dev",
+})
+if err != nil { log.Fatal(err) }`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" filename="app.py" code={`import sankofa
+
+sankofa.init(
+    api_key=os.environ["SANKOFA_KEY"],
+    endpoint="https://api.sankofa.dev",
+)`} />
+</CodeGroupItem>
+</CodeGroup>
+
+<Callout tone="tip" title="Endpoints normalize automatically">
+You can pass the server base (`https://api.sankofa.dev`), the API base (`/api/v1`), or the full ingest URL — the SDKs normalize them internally. Use `region` flags (`region: "eu"`) to pin EU data residency.
+</Callout>
+
+## 3. Track an event
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`Sankofa.track("checkout_started", {
+  cart_value: 49.99,
+  item_count: 3,
+  currency: "USD",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`await Sankofa.instance.track('checkout_started', {
+  'cart_value': 49.99,
+  'item_count': 3,
+  'currency': 'USD',
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`Sankofa.track("checkout_started", {
+  cart_value: 49.99,
+  item_count: 3,
+  currency: "USD",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`Sankofa.shared.track("checkout_started", properties: [
+    "cart_value": 49.99,
+    "item_count": 3,
+    "currency": "USD"
+])`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`Sankofa.track("checkout_started", mapOf(
+    "cart_value" to 49.99,
+    "item_count" to 3,
+    "currency" to "USD"
+))`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`Sankofa.track("checkout_started", {
+  cart_value: 49.99,
+  item_count: 3,
+  currency: "USD",
+}, { distinctId: "user_123" });`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`client.Track(ctx, sankofa.Event{
+    Name:       "checkout_started",
+    DistinctID: "user_123",
+    Properties: map[string]any{
+        "cart_value":  49.99,
+        "item_count":  3,
+        "currency":    "USD",
+    },
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`sankofa.track("checkout_started", {
+    "cart_value": 49.99,
+    "item_count": 3,
+    "currency": "USD",
+}, distinct_id="user_123")`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 4. Identify the user
+
+When the user signs in (or you discover their identity), call `identify`. Sankofa stitches the pre-identify anonymous traffic onto the resolved user automatically.
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`await Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`await Sankofa.instance.identify('user_123', traits: {
+  'email': 'ada@example.com',
+  'plan': 'pro',
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`Sankofa.shared.identify(userId: "user_123", traits: [
+    "email": "ada@example.com",
+    "plan": "pro"
+])`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`Sankofa.identify("user_123", mapOf(
+    "email" to "ada@example.com",
+    "plan" to "pro"
+))`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`client.Identify(ctx, sankofa.Person{
+    DistinctID: "user_123",
+    Traits:     map[string]any{"email": "ada@example.com", "plan": "pro"},
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`sankofa.identify("user_123", traits={
+    "email": "ada@example.com",
+    "plan": "pro",
+})`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 5. Verify the path
+
+<Steps>
+  <Step title="Check the dashboard">
+    Open [app.sankofa.dev](https://app.sankofa.dev) → your project → **Live events**. Your `checkout_started` event should appear within a few seconds.
+  </Step>
+  <Step title="Confirm the environment">
+    The event card shows whether it was ingested as `live` or `test`. If it landed on the wrong side, you used the wrong API key — see [Environments and API keys](/concepts/environments-and-api-keys).
+  </Step>
+  <Step title="Validate identity stitching">
+    After your `identify` call, the same event should appear on the **People** view, attributed to `user_123`. Anonymous events from before `identify` get re-attributed automatically.
+  </Step>
+</Steps>
+
+## What to read next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/events" eyebrow="Concepts" title="Events deep dive">
+    Naming conventions, default properties, and how events flow through the engine.
+  </Card>
+  <Card href="/get-started/first-feature-flag" eyebrow="Hands-on" title="Your first feature flag">
+    Roll out a feature to a cohort, gate behind A/B variants, and halt on a Catch signal.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="API reference" title="Direct HTTP ingestion">
+    Skip the SDK and POST events to `/api/v1/track` from any environment.
+  </Card>
+</CardGrid>

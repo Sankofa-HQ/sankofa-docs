@@ -1,43 +1,65 @@
-"use client";
+import { CodeBlock } from "./CodeBlock";
+import { CodeGroup, CodeGroupItem } from "./CodeGroup";
 
-import { useState } from "react";
+type LegacyTab = { label: string; code: string; lang?: string };
 
-type Tab = {
-  label: string;
-  code: string;
-  language?: string;
+const LABEL_TO_TAB: Record<string, string> = {
+  flutter: "flutter",
+  "android (kotlin)": "android",
+  android: "android",
+  "web (npm)": "web",
+  "web (cdn)": "web-cdn",
+  web: "web",
+  "ios (swift)": "ios",
+  "ios (objc)": "ios-objc",
+  ios: "ios",
+  "react native": "react-native",
+  "react-native": "react-native",
+  rn: "react-native",
+  go: "go",
+  node: "node",
+  java: "java",
+  python: "python",
+  curl: "curl",
 };
 
-export function CodeTabs({ tabs }: { tabs: Tab[] }) {
-  const [activeIndex, setActiveIndex] = useState(0);
+const LABEL_TO_LANG: Record<string, string> = {
+  flutter: "dart",
+  "android (kotlin)": "kotlin",
+  android: "kotlin",
+  "web (npm)": "ts",
+  "web (cdn)": "html",
+  web: "ts",
+  "ios (swift)": "swift",
+  "ios (objc)": "objective-c",
+  ios: "swift",
+  "react native": "tsx",
+  "react-native": "tsx",
+  rn: "tsx",
+  go: "go",
+  node: "ts",
+  java: "java",
+  python: "python",
+  curl: "bash",
+};
 
-  if (!tabs || tabs.length === 0) {
-    return null;
-  }
-
-  const activeTab = tabs[activeIndex] ?? tabs[0];
-
+/**
+ * Legacy <CodeTabs tabs={[{label, code}]} />. Adapts to the new <CodeGroup>.
+ * New MDX should use <CodeGroup> with <CodeGroupItem> children directly.
+ */
+export function CodeTabs({ tabs }: { tabs: LegacyTab[] }) {
   return (
-    <div className="my-8 overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-950">
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.label}
-            type="button"
-            className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-              index === activeIndex
-                ? "bg-white text-slate-950"
-                : "text-slate-300 hover:bg-white/10 hover:text-white"
-            }`}
-            onClick={() => setActiveIndex(index)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      <pre className="overflow-x-auto p-5 text-sm text-slate-100">
-        <code>{activeTab.code}</code>
-      </pre>
-    </div>
+    <CodeGroup>
+      {tabs.map((t) => {
+        const key = t.label.toLowerCase().trim();
+        const tab = LABEL_TO_TAB[key] ?? key.replace(/[^a-z0-9]+/g, "-");
+        const lang = t.lang ?? LABEL_TO_LANG[key] ?? "text";
+        return (
+          <CodeGroupItem key={t.label} tab={tab} label={t.label}>
+            <CodeBlock code={t.code} lang={lang} hideLang />
+          </CodeGroupItem>
+        );
+      })}
+    </CodeGroup>
   );
 }

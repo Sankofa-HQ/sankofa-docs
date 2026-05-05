@@ -1,0 +1,130 @@
+---
+title: Welcome to Sankofa
+description: One platform unifies eight products — ship features, observe what breaks, and recover before users notice.
+toc: true
+---
+
+Sankofa is a closed-source SaaS platform for the full **build → ship → observe → recover** loop. Eight products run on a single engine and a unified set of SDKs, so a flag, a deploy, a crash, and a survey share the same identity, the same cohorts, and the same audit trail.
+
+<Callout tone="note" title="Built for product, engineering, and growth — together">
+You don't need separate vendors for analytics, error tracking, feature flags, and OTA. Sankofa replaces the seam between them with a single decision protocol that every SDK speaks.
+</Callout>
+
+## The eight products
+
+<CardGrid cols={4}>
+  <Card href="/products/plan/overview" eyebrow="Engineering" title="Plan">
+    Tickets bonded to deploys, replays, and revenue impact.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Engineering" title="Catch">
+    Crash detection with auto-rollback in under 60 seconds.
+  </Card>
+  <Card href="/products/switch/overview" eyebrow="Experimentation" title="Switch">
+    Feature flags with cohort targeting, halt webhooks, and dependencies.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Engineering" title="Deploy">
+    OTA releases gated by Catch and Switch signals.
+  </Card>
+  <Card href="/products/analytics/overview" eyebrow="Insights" title="Analytics">
+    Events, users, cohorts, insights, funnels, flows, retention.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Insights" title="Pulse">
+    Surveys triggered by real user behavior and cohorts.
+  </Card>
+  <Card href="/products/config/overview" eyebrow="Experimentation" title="Remote Config">
+    Typed values with cohort-targeted payloads and version history.
+  </Card>
+  <Card href="/products/ab-switch/overview" eyebrow="Experimentation" title="A/B Switch">
+    Experiments with retention impact measured in real time.
+  </Card>
+</CardGrid>
+
+## How the pieces fit together
+
+Sankofa is organized around three concepts you'll see throughout the docs:
+
+<Steps>
+  <Step title="Organizations and projects">
+    Every customer has an **organization**. Inside an organization, you create **projects** for each app, service, or environment-isolated workload. A project is the boundary for events, flags, configs, deploys, surveys, RBAC, and billing.
+  </Step>
+  <Step title="Live and test environments">
+    Each project has two environments — `live` and `test` — each with its own API key. The engine resolves the environment from the API key on every request. There is no separate "test project" — the same configuration powers both, so you can promote with confidence.
+  </Step>
+  <Step title="One handshake, every product">
+    On app launch and resume, an SDK calls a single decision endpoint. The engine returns a snapshot of every flag, config, survey trigger, and deploy directive — keyed by cohort, ETag-cached, and replayed on the next crash. This is the seam that makes "one binary, zero glue code" possible.
+  </Step>
+</Steps>
+
+## What ships today
+
+<PlatformMatrix
+  rows={[
+    { feature: "Analytics (events, identify)", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
+    { feature: "Catch (crash + breadcrumbs)", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "yes" } },
+    { feature: "Switch (feature flags)", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
+    { feature: "Remote Config", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "no" } },
+    { feature: "Pulse (surveys)", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Deploy (OTA)", support: { Web: "no", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Session replay", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+  ]}
+/>
+
+## SDKs at a glance
+
+The web ships as a **multi-package monorepo** so you only pay for what you use. Every other platform ships as a **single SDK** that bundles all eight products.
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/overview" eyebrow="7 packages" title="Web">
+    `@sankofa/browser`, `catch`, `config`, `switch`, `pulse`, `replay-rrweb`, `react`. Tree-shakeable.
+  </Card>
+  <Card href="/sdks/flutter/overview" eyebrow="Single SDK" title="Flutter">
+    All eight products in a single `pub.dev` package.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="Single SDK" title="React Native">
+    Bare and Expo. Config plugin included.
+  </Card>
+  <Card href="/sdks/ios/overview" eyebrow="Single SDK" title="iOS">
+    Swift first, Objective-C interop. SPM and CocoaPods.
+  </Card>
+  <Card href="/sdks/android/overview" eyebrow="Single SDK" title="Android">
+    Kotlin first. Maven Central.
+  </Card>
+  <Card href="/sdks/node/overview" eyebrow="Single SDK" title="Node">
+    Express and Fastify subpath exports.
+  </Card>
+  <Card href="/sdks/go/overview" eyebrow="Single SDK" title="Go">
+    Server-side analytics, flags, and config.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
+    `sankofa init`, `release`, `flags`, `config`, `demo`.
+  </Card>
+</CardGrid>
+
+<Callout tone="tip" title="SDKs are open source">
+The SDKs themselves are open-source and developed in public. The Sankofa platform — engine, dashboard, admin — is proprietary. The open SDKs mean you can audit what we send over the wire and contribute fixes.
+</Callout>
+
+## Read the docs in this order
+
+<Steps>
+  <Step title="Quickstart">
+    Send your first event in under five minutes. Pick your platform and follow along.
+
+    [Go to Quickstart →](/get-started/quickstart)
+  </Step>
+  <Step title="Concepts">
+    Learn the data model — organizations, projects, environments, events, identity, sessions, the decision handshake, retention.
+
+    [Read Concepts →](/concepts/overview)
+  </Step>
+  <Step title="Products and SDKs">
+    Pick the product or SDK you want to integrate and follow its dedicated guides.
+
+    [Browse Products →](/products/overview)  ·  [Browse SDKs →](/sdks/overview)
+  </Step>
+  <Step title="API reference">
+    For custom pipelines, server-to-server flows, or SDKs we don't yet ship, the REST API is fully documented.
+
+    [Open API reference →](/api/overview)
+  </Step>
+</Steps>

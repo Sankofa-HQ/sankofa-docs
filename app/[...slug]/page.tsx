@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { DocsPageShell } from "@/components/docs/DocsPageShell";
-import { MdxContent } from "@/components/docs/MdxContent";
+import { PageShell } from "@/components/docs/PageShell";
+import { MdxRenderer } from "@/components/mdx/MdxRenderer";
 import { docsUrl } from "@/lib/site";
-import { getAllDocPages, getDocPageBySlug } from "@/lib/docs";
+import { getAllPages, getPageBySlug } from "@/lib/content";
 
 export function generateStaticParams() {
-  return getAllDocPages().map((page) => ({
-    slug: page.slug,
+  return getAllPages().map((page) => ({
+    slug: [page.sectionKey, ...page.slugParts].filter(Boolean),
   }));
 }
 
@@ -17,32 +17,20 @@ export async function generateMetadata({
   params: Promise<{ slug: string[] }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const page = getDocPageBySlug(slug);
-
-  if (!page) {
-    return {};
-  }
-
+  const page = getPageBySlug(slug);
+  if (!page) return {};
   return {
-    title: page.title,
-    description: page.description,
+    title: page.frontmatter.title,
+    description: page.frontmatter.description,
     alternates: {
       canonical: `${docsUrl}${page.href}`,
     },
     openGraph: {
-      title: `${page.title} | Sankofa Docs`,
-      description: page.description,
+      title: `${page.frontmatter.title} · Sankofa Docs`,
+      description: page.frontmatter.description,
       url: `${docsUrl}${page.href}`,
       siteName: "Sankofa Docs",
       type: "article",
-      images: [
-        {
-          url: "/logo-full.png",
-          width: 1200,
-          height: 630,
-          alt: "Sankofa Docs",
-        },
-      ],
     },
   };
 }
@@ -53,15 +41,11 @@ export default async function DocPage({
   params: Promise<{ slug: string[] }>;
 }) {
   const { slug } = await params;
-  const page = getDocPageBySlug(slug);
-
-  if (!page) {
-    notFound();
-  }
-
+  const page = getPageBySlug(slug);
+  if (!page) notFound();
   return (
-    <DocsPageShell page={page}>
-      <MdxContent source={page.content} />
-    </DocsPageShell>
+    <PageShell page={page}>
+      <MdxRenderer source={page.content} />
+    </PageShell>
   );
 }

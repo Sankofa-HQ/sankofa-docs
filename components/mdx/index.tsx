@@ -1,171 +1,94 @@
-import Link from "next/link";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { headingId } from "@/lib/docs";
-import { Callout } from "@/components/mdx/Callout";
-import { StepList } from "@/components/mdx/StepList";
-import { ApiFieldTable } from "@/components/mdx/ApiFieldTable";
-import { MethodSignature } from "@/components/mdx/MethodSignature";
-import { CodeTabs } from "@/components/mdx/CodeTabs";
-import { DocBadge } from "@/components/docs/DocBadge";
+import { headingId } from "@/lib/content";
+import { Callout } from "./Callout";
+import { CodeBlock } from "./CodeBlock";
+import { CodeGroup, CodeGroupItem } from "./CodeGroup";
+import { ParameterTable } from "./ParameterTable";
+import { EndpointBadge } from "./EndpointBadge";
+import { RequestResponse } from "./RequestResponse";
+import { Steps, Step, StepList } from "./Steps";
+import { Tabs, Tab } from "./Tabs";
+import { Accordion, AccordionItem } from "./Accordion";
+import { Card, CardGrid } from "./Card";
+import { PlatformMatrix } from "./PlatformMatrix";
+import { Badge, SDKBadge, SinceBadge, DeprecatedBadge } from "./Badges";
+import { CodeTabs } from "./CodeTabs";
+import { MethodSignature } from "./MethodSignature";
+import { DocLink } from "./DocLink";
 
-function flattenText(children: ReactNode): string {
-  if (typeof children === "string" || typeof children === "number") {
-    return String(children);
-  }
-
-  if (Array.isArray(children)) {
-    return children.map(flattenText).join("");
-  }
-
+function flatten(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(flatten).join("");
   if (children && typeof children === "object" && "props" in children) {
-    return flattenText((children as { props: { children?: ReactNode } }).props.children);
+    return flatten((children as { props: { children?: ReactNode } }).props.children);
   }
-
   return "";
 }
 
-function HeadingOne({
-  children,
-  ...props
-}: ComponentPropsWithoutRef<"h1">) {
-  const id = props.id ?? headingId(flattenText(children));
-
+function H({ depth, children, ...props }: ComponentPropsWithoutRef<"h2"> & { depth: 1 | 2 | 3 | 4 }) {
+  const Tag = (`h${depth}` as unknown) as "h1";
+  const id = props.id ?? headingId(flatten(children));
   return (
-    <h1
-      id={id}
-      className="mt-8 font-display text-4xl font-semibold tracking-tight text-slate-950"
-      {...props}
-    >
+    <Tag id={id} {...props}>
       {children}
-    </h1>
+    </Tag>
   );
 }
 
-function HeadingTwo({
-  children,
-  ...props
-}: ComponentPropsWithoutRef<"h2">) {
-  const id = props.id ?? headingId(flattenText(children));
-
-  return (
-    <h2
-      id={id}
-      className="mt-14 scroll-mt-28 font-display text-3xl font-semibold tracking-tight text-slate-950"
-      {...props}
-    >
-      {children}
-    </h2>
-  );
-}
-
-function HeadingThree({
-  children,
-  ...props
-}: ComponentPropsWithoutRef<"h3">) {
-  const id = props.id ?? headingId(flattenText(children));
-
-  return (
-    <h3
-      id={id}
-      className="mt-10 scroll-mt-28 font-display text-2xl font-semibold tracking-tight text-slate-950"
-      {...props}
-    >
-      {children}
-    </h3>
-  );
-}
-
-function HeadingFour({
-  children,
-  ...props
-}: ComponentPropsWithoutRef<"h4">) {
-  const id = props.id ?? headingId(flattenText(children));
-
-  return (
-    <h4
-      id={id}
-      className="mt-8 scroll-mt-28 font-display text-xl font-semibold text-slate-950"
-      {...props}
-    >
-      {children}
-    </h4>
-  );
+/**
+ * Pre + code from MDX gets routed to <CodeBlock>. Inline code keeps the default
+ * (rendered by .prose styles).
+ */
+function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
+  // children is a single <code> element produced by MDX/remark for fenced blocks.
+  if (
+    children &&
+    typeof children === "object" &&
+    "props" in children
+  ) {
+    const code = (children as { props: { className?: string; children?: ReactNode } }).props;
+    const lang = (code.className ?? "").replace(/^language-/, "") || "text";
+    const text = typeof code.children === "string" ? code.children : flatten(code.children);
+    return <CodeBlock code={text} lang={lang} />;
+  }
+  return <pre>{children}</pre>;
 }
 
 export const mdxComponents = {
-  h1: HeadingOne,
-  h2: HeadingTwo,
-  h3: HeadingThree,
-  h4: HeadingFour,
-  p: (props: ComponentPropsWithoutRef<"p">) => (
-    <p className="mt-5 text-base leading-8 text-slate-600" {...props} />
+  h1: (p: ComponentPropsWithoutRef<"h2">) => <H depth={1} {...p} />,
+  h2: (p: ComponentPropsWithoutRef<"h2">) => <H depth={2} {...p} />,
+  h3: (p: ComponentPropsWithoutRef<"h3">) => <H depth={3} {...p} />,
+  h4: (p: ComponentPropsWithoutRef<"h4">) => <H depth={4} {...p} />,
+  a: ({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) => (
+    <DocLink href={href} {...rest}>
+      {children}
+    </DocLink>
   ),
-  ul: (props: ComponentPropsWithoutRef<"ul">) => (
-    <ul className="mt-5 list-disc space-y-3 pl-6 text-base leading-8 text-slate-600" {...props} />
-  ),
-  ol: (props: ComponentPropsWithoutRef<"ol">) => (
-    <ol className="mt-5 list-decimal space-y-3 pl-6 text-base leading-8 text-slate-600" {...props} />
-  ),
-  li: (props: ComponentPropsWithoutRef<"li">) => <li {...props} />,
-  a: ({
-    href = "#",
-    ...props
-  }: ComponentPropsWithoutRef<"a">) =>
-    href.startsWith("/") ? (
-      <Link
-        href={href}
-        className="font-medium text-rose-700 underline decoration-rose-200 underline-offset-4 transition-colors hover:text-rose-800"
-        {...props}
-      />
-    ) : (
-      <a
-        href={href}
-        className="font-medium text-rose-700 underline decoration-rose-200 underline-offset-4 transition-colors hover:text-rose-800"
-        {...props}
-      />
-    ),
-  blockquote: (props: ComponentPropsWithoutRef<"blockquote">) => (
-    <blockquote
-      className="my-8 border-l-4 border-rose-200 bg-rose-50/60 px-5 py-4 text-base leading-8 text-slate-700"
-      {...props}
-    />
-  ),
-  hr: (props: ComponentPropsWithoutRef<"hr">) => (
-    <hr className="my-10 border-slate-200" {...props} />
-  ),
-  table: (props: ComponentPropsWithoutRef<"table">) => (
-    <div className="my-8 overflow-x-auto">
-      <table className="min-w-full overflow-hidden rounded-[1.5rem] border border-slate-200" {...props} />
-    </div>
-  ),
-  thead: (props: ComponentPropsWithoutRef<"thead">) => (
-    <thead className="bg-slate-50" {...props} />
-  ),
-  th: (props: ComponentPropsWithoutRef<"th">) => (
-    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.22em] text-slate-400" {...props} />
-  ),
-  td: (props: ComponentPropsWithoutRef<"td">) => (
-    <td className="border-t border-slate-200 px-4 py-4 text-sm leading-7 text-slate-600" {...props} />
-  ),
-  pre: (props: ComponentPropsWithoutRef<"pre">) => (
-    <pre className="docs-scrollbar my-8 overflow-x-auto rounded-[1.5rem] bg-slate-950 p-5 text-sm text-slate-100" {...props} />
-  ),
-  code: ({ className, ...props }: ComponentPropsWithoutRef<"code">) =>
-    className ? (
-      <code className={className} {...props} />
-    ) : (
-      <code
-        className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[0.92em] text-slate-900"
-        {...props}
-      />
-    ),
-  strong: (props: ComponentPropsWithoutRef<"strong">) => (
-    <strong className="font-semibold text-slate-950" {...props} />
-  ),
+  pre: Pre,
+  // Custom MDX components surfaced to authors:
   Callout,
+  CodeBlock,
+  CodeGroup,
+  CodeGroupItem,
+  ParameterTable,
+  EndpointBadge,
+  RequestResponse,
+  Steps,
+  Step,
   StepList,
-  ApiFieldTable,
-  MethodSignature,
+  Tabs,
+  Tab,
+  Accordion,
+  AccordionItem,
+  Card,
+  CardGrid,
+  PlatformMatrix,
+  Badge,
+  SDKBadge,
+  SinceBadge,
+  DeprecatedBadge,
+  // Legacy compat (used by current MDX during migration):
   CodeTabs,
-  FeatureBadge: DocBadge,
+  MethodSignature,
+  FeatureBadge: SDKBadge,
 };

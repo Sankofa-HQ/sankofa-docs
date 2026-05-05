@@ -1,12 +1,11 @@
 import type { MetadataRoute } from "next";
-import { getAllDocPages } from "@/lib/docs";
+import { getAllPages } from "@/lib/content";
 import { docsUrl } from "@/lib/site";
 
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const pages = getAllDocPages();
-
+  const pages = getAllPages();
   return [
     {
       url: docsUrl,

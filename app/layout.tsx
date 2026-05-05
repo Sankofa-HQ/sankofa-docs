@@ -1,55 +1,42 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
-import { DocsFooter } from "@/components/docs/DocsFooter";
-import { DocsHeader } from "@/components/docs/DocsHeader";
+import { ThemeProvider, THEME_BOOTSTRAP_SCRIPT } from "@/components/layout/ThemeProvider";
+import { Nav } from "@/components/layout/Nav";
+import { Footer } from "@/components/layout/Footer";
 import { docsUrl } from "@/lib/site";
 import "./globals.css";
-
-const bodyFont = localFont({
-  src: "./fonts/dm-sans-latin.woff2",
-  variable: "--font-body",
-  weight: "100 1000",
-  display: "swap",
-});
-
-const headingFont = localFont({
-  src: "./fonts/space-grotesk-latin.woff2",
-  variable: "--font-heading",
-  weight: "300 700",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(docsUrl),
   title: {
     default: "Sankofa Docs",
-    template: "%s | Sankofa Docs",
+    template: "%s · Sankofa Docs",
   },
   description:
-    "Official Sankofa documentation covering usage, Android SDK, Flutter SDK, HTTP ingestion, self-hosting, and enterprise features.",
+    "Build, ship, observe, and roll back faster with Sankofa — one platform for Plan, Catch, Switch, Deploy, Analytics, Pulse, Remote Config, and A/B Switch.",
+  applicationName: "Sankofa Docs",
+  keywords: [
+    "Sankofa",
+    "product analytics",
+    "feature flags",
+    "remote config",
+    "session replay",
+    "crash detection",
+    "OTA deploy",
+    "experiments",
+  ],
   openGraph: {
     title: "Sankofa Docs",
     description:
-      "Usage, integrations, SDKs, and self-hosting guides for Sankofa.",
+      "Developer documentation for Sankofa — the unified platform for product, engineering, and growth teams.",
     url: docsUrl,
     siteName: "Sankofa Docs",
     locale: "en_US",
     type: "website",
-    images: [
-      {
-        url: "/logo-full.png",
-        width: 1200,
-        height: 630,
-        alt: "Sankofa Docs",
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Sankofa Docs",
-    description:
-      "Official Sankofa documentation for SDK usage, integrations, and self-hosting.",
-    images: ["/logo-full.png"],
+    description: "Developer documentation for Sankofa.",
   },
   icons: {
     icon: "/logo-icon.png",
@@ -59,20 +46,24 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${bodyFont.variable} ${headingFont.variable}`}>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          // Set data-theme before first paint to avoid FOUC.
+          dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
+        />
+      </head>
+      <body>
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
-        <div className="min-h-screen bg-[#f3f4f6] text-slate-950">
-          <DocsHeader />
+        <ThemeProvider>
+          <Nav />
           {children}
-          <DocsFooter />
-        </div>
+          <Footer />
+        </ThemeProvider>
       </body>
     </html>
   );

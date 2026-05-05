@@ -1,0 +1,218 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist+Mono:wght@500;600;700&display=swap");
+
+/* ============================================================
+   Align UI ✦ Design System — Colors & Type tokens
+   Sourced from Align UI Figma file (v2.0). All values are exact.
+   Synced from website-v2/app/tokens.css — keep in sync when editing there.
+   ============================================================ */
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.ttf") format("truetype-variations"),
+       url("/fonts/InterVariable.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable-Italic.ttf") format("truetype-variations"),
+       url("/fonts/InterVariable-Italic.ttf") format("truetype");
+}
+
+:root {
+  /* ---------- NEUTRAL / GRAY ---------- */
+  --gray-0:   #FFFFFF;
+  --gray-50:  #F7F7F7;
+  --gray-100: #F5F5F5;
+  --gray-200: #EBEBEB;
+  --gray-300: #D1D1D1;
+  --gray-400: #A3A3A3;
+  --gray-500: #7B7B7B;
+  --gray-600: #5C5C5C;
+  --gray-700: #333333;
+  --gray-800: #262626;
+  --gray-900: #1C1C1C;
+
+  /* ---------- NEUTRAL / SLATE ---------- */
+  --slate-0:   #FFFFFF;
+  --slate-50:  #F5F7FA;
+  --slate-100: #F2F5F8;
+  --slate-200: #E1E4EA;
+  --slate-300: #CACFD8;
+  --slate-400: #99A0AE;
+  --slate-500: #717784;
+  --slate-600: #525866;
+  --slate-700: #2B303B;
+  --slate-800: #222530;
+  --slate-900: #181B25;
+
+  /* ---------- BRAND / PRIMARY — Blue ---------- */
+  --blue-50:  #EBF1FF;
+  --blue-100: #D5E2FF;
+  --blue-200: #C0D5FF;
+  --blue-300: #97B6FF;
+  --blue-400: #6895FF;
+  --blue-500: #335CFF;
+  --blue-600: #2547D0;
+  --blue-700: #1F3BAD;
+  --blue-800: #182F8B;
+  --blue-900: #122368;
+
+  /* ---------- VIBRANTS ---------- */
+  --orange-50:  #FFF3EB; --orange-100: #FFE6D5; --orange-200: #FFD9C0;
+  --orange-300: #FFC197; --orange-400: #FFA468; --orange-500: #FA7319;
+  --orange-600: #E16614; --orange-700: #CE5E12; --orange-800: #B75310;
+  --orange-900: #96440D; --orange-950: #71330A;
+
+  --red-50:  #FFEBEC; --red-100: #FFD5D8; --red-200: #FFC0C5;
+  --red-300: #FF97A0; --red-400: #FF6875; --red-500: #FB3748;
+  --red-600: #E93544; --red-700: #D02533; --red-800: #AD1F2B;
+  --red-900: #8B1822; --red-950: #681219;
+
+  --green-50:  #E3F7EC; --green-100: #D0FBE9; --green-200: #C2F5DA;
+  --green-300: #84EBB4; --green-400: #3EE089; --green-500: #1FC16B;
+  --green-600: #1DAF61; --green-700: #178C4E; --green-800: #1A7544;
+  --green-900: #16643B; --green-950: #0B4627;
+
+  --yellow-50:  #FFFAEB; --yellow-100: #FFEFCC; --yellow-200: #FFECC0;
+  --yellow-300: #FFE097; --yellow-400: #FFD268; --yellow-500: #F6B51E;
+  --yellow-600: #E6A819; --yellow-700: #C99A2C; --yellow-800: #A78025;
+  --yellow-900: #86661D; --yellow-950: #624C18;
+
+  --purple-50:  #EFEBFF; --purple-100: #DCD5FF; --purple-200: #CAC0FF;
+  --purple-300: #A897FF; --purple-400: #8C71F6; --purple-500: #7D52F4;
+  --purple-600: #693EE0; --purple-700: #5B2CC9; --purple-800: #4C25A7;
+  --purple-900: #3D1D86; --purple-950: #351A75;
+
+  --sky-50:  #EBF8FF; --sky-100: #D5F1FF; --sky-200: #C0EAFF;
+  --sky-300: #97DCFF; --sky-400: #68CDFF; --sky-500: #47C2FF;
+  --sky-600: #35ADE9; --sky-700: #2597D0; --sky-800: #1F7EAD;
+  --sky-900: #18658B; --sky-950: #124B68;
+
+  --pink-50:  #FFEBF4; --pink-100: #FFD5EA; --pink-200: #FFC0DF;
+  --pink-300: #FF97CB; --pink-400: #FF68B3; --pink-500: #FB4BA3;
+  --pink-600: #E9358F; --pink-700: #D0257A; --pink-800: #AD1F66;
+  --pink-900: #8B1852; --pink-950: #68123D;
+
+  --teal-50:  #E4FBF8; --teal-100: #D0FBF5; --teal-200: #C2F5EE;
+  --teal-300: #84EBDD; --teal-400: #3FDEC9; --teal-500: #22D3BB;
+  --teal-600: #1DAF9C; --teal-700: #178C7D; --teal-800: #1A7569;
+  --teal-900: #16645A; --teal-950: #0B463E;
+
+  /* ---------- ALPHA ---------- */
+  --black-alpha-24: rgba(23,23,23,0.24);
+  --black-alpha-16: rgba(23,23,23,0.16);
+  --black-alpha-10: rgba(23,23,23,0.10);
+  --white-alpha-24: rgba(255,255,255,0.24);
+  --white-alpha-16: rgba(255,255,255,0.16);
+  --white-alpha-10: rgba(255,255,255,0.10);
+
+  /* ---------- SEMANTIC TOKENS ---------- */
+  --bg-strong-950: var(--gray-900);
+  --bg-surface-800: var(--gray-800);
+  --bg-sub-300: var(--gray-300);
+  --bg-soft-200: var(--gray-200);
+  --bg-weak-50:  var(--gray-50);
+  --bg-white-0:  var(--gray-0);
+
+  --text-strong-950: #171717;
+  --text-sub-600:    #5C5C5C;
+  --text-soft-400:   var(--gray-400);
+  --text-disabled-300: var(--gray-300);
+  --text-white-0:    #FFFFFF;
+
+  --stroke-strong-950: var(--gray-900);
+  --stroke-sub-300:    var(--gray-300);
+  --stroke-soft-200:   var(--gray-200);
+  --stroke-white-0:    #FFFFFF;
+
+  --primary-base:    var(--orange-500);
+  --primary-darker:  var(--orange-700);
+  --primary-dark:    var(--orange-600);
+  --primary-alpha-24: rgba(250,115,25,0.24);
+  --primary-alpha-16: rgba(250,115,25,0.16);
+  --primary-alpha-10: rgba(250,115,25,0.10);
+
+  --state-success: var(--green-500);
+  --state-warning: var(--yellow-500);
+  --state-error:   var(--red-500);
+  --state-information: var(--blue-500);
+  --state-feature: var(--purple-500);
+  --state-verified: var(--teal-500);
+  --state-highlighted: var(--orange-500);
+
+  /* ---------- TYPOGRAPHY ---------- */
+  --font-display: "Inter Variable", "Inter Display", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans:    "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:    "DM Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --title-h1:  600 56px/64px var(--font-display);
+  --title-h2:  500 48px/56px var(--font-display);
+  --title-h3:  500 40px/48px var(--font-display);
+  --title-h4:  500 32px/40px var(--font-display);
+  --title-h5:  500 24px/32px var(--font-display);
+  --title-h6:  500 20px/28px var(--font-display);
+
+  --label-lg: 500 18px/24px var(--font-sans);
+  --label-md: 500 16px/24px var(--font-sans);
+  --label-sm: 500 14px/20px var(--font-sans);
+  --label-xs: 500 12px/16px var(--font-sans);
+
+  --paragraph-lg: 400 18px/28px var(--font-sans);
+  --paragraph-md: 400 16px/26px var(--font-sans);
+  --paragraph-sm: 400 14px/22px var(--font-sans);
+  --paragraph-xs: 400 12px/18px var(--font-sans);
+
+  --subheading-md: 500 14px/20px var(--font-sans);
+  --subheading-sm: 500 12px/16px var(--font-sans);
+  --subheading-xs: 500 11px/12px var(--font-sans);
+
+  --docs-label:     500 16px/24px var(--font-sans);
+  --docs-paragraph: 400 17px/30px var(--font-sans);
+
+  /* ---------- CORNER RADIUS ---------- */
+  --radius-2:  2px;
+  --radius-4:  4px;
+  --radius-6:  6px;
+  --radius-8:  8px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-20: 20px;
+  --radius-24: 24px;
+  --radius-full: 9999px;
+
+  /* ---------- SHADOWS ---------- */
+  --shadow-xs:   0px 1px 2px 0px rgba(10,13,20,0.03);
+  --shadow-sm:   0px 2px 4px 0px rgba(27,28,29,0.04);
+  --shadow-md:   0px 16px 32px -12px rgba(14,18,27,0.10);
+  --shadow-lg:   0px 32px 32px -32px rgba(34,53,93,0.04), 0px 8px 12px -3px rgba(0,0,0,0.04), 0px 4px 8px -2px rgba(0,0,0,0.02);
+  --shadow-xl:   0px 96px 96px -32px rgba(51,51,51,0.06), 0px 48px 48px -24px rgba(51,51,51,0.04), 0px 24px 24px -12px rgba(51,51,51,0.04), 0px 12px 12px -6px rgba(51,51,51,0.04), 0px 6px 6px -3px rgba(51,51,51,0.04);
+
+  --shadow-button-primary-focus: 0px 0px 0px 4px rgba(250,115,25,0.16);
+  --shadow-button-error-focus:   0px 0px 0px 4px rgba(251,55,72,0.16);
+  --shadow-toggle: 0px 6px 10px 0px rgba(14,18,27,0.06), 0px 2px 4px 0px rgba(14,18,27,0.04);
+  --shadow-popover: 0px 0px 0px 1px rgba(23,23,23,0.04), 0px 1px 1px -0.5px rgba(23,23,23,0.04), 0px 3px 3px -1.5px rgba(23,23,23,0.04), 0px 6px 6px -3px rgba(23,23,23,0.04), 0px 10px 10px -5px rgba(23,23,23,0.04);
+}
+
+/* ---------- SEMANTIC ELEMENT MAPPING ---------- */
+html { font-family: var(--font-sans); color: var(--text-strong-950); background: var(--bg-white-0); }
+body { font: var(--paragraph-md); color: var(--text-strong-950); margin: 0; -webkit-font-smoothing: antialiased; }
+
+h1 { font: var(--title-h1); letter-spacing: -0.02em; color: var(--text-strong-950); margin: 0; }
+h2 { font: var(--title-h2); letter-spacing: -0.015em; color: var(--text-strong-950); margin: 0; }
+h3 { font: var(--title-h3); letter-spacing: -0.010em; color: var(--text-strong-950); margin: 0; }
+h4 { font: var(--title-h4); letter-spacing: -0.005em; color: var(--text-strong-950); margin: 0; }
+h5 { font: var(--title-h5); color: var(--text-strong-950); margin: 0; }
+h6 { font: var(--title-h6); color: var(--text-strong-950); margin: 0; }
+
+p     { font: var(--paragraph-md); letter-spacing: -0.011em; color: var(--text-sub-600); margin: 0; }
+small { font: var(--paragraph-sm); letter-spacing: -0.006em; color: var(--text-sub-600); }
+code, pre, kbd, samp { font: var(--paragraph-sm); font-family: var(--font-mono); color: var(--text-strong-950); }
+
+.subheading { font: var(--subheading-md); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-soft-400); }
+.label      { font: var(--label-md); letter-spacing: -0.011em; color: var(--text-strong-950); }
