@@ -1,0 +1,204 @@
+---
+title: "@sankofa/react"
+description: React hooks and a context provider for declarative flag, config, and experiment consumption. Works with React 18 and 19, including Next.js Server Components.
+toc: true
+sdks: [web]
+---
+
+`@sankofa/react` is the React-friendly layer on top of the other web packages. It exposes hooks that subscribe to flag and config changes with proper React lifecycle, plus a `<SankofaProvider>` context that handles SSR seeding for flicker-free server-rendered apps.
+
+You can use the underlying `@sankofa/browser`/`@sankofa/switch`/`@sankofa/config` APIs from React without this package — but the hooks are usually what you want.
+
+## Install
+
+<CodeBlock lang="bash" code={`npm install @sankofa/react`} />
+
+Peer dependencies: `react ^18 || ^19`. The package is itself bundler-agnostic — works in Next.js, Vite, Remix, and any modern React setup.
+
+## Quick start
+
+<CodeBlock lang="tsx" filename="app/SankofaSetup.tsx" code={`"use client";
+
+import { Sankofa } from "@sankofa/browser";
+import { switchPlugin } from "@sankofa/switch";
+import { configPlugin } from "@sankofa/config";
+import { SankofaProvider } from "@sankofa/react";
+
+if (typeof window !== "undefined") {
+  Sankofa.init({
+    apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+    endpoint: "https://api.sankofa.dev",
+    plugins: [switchPlugin(), configPlugin()],
+  });
+}
+
+export function SankofaSetup({ children }: { children: React.ReactNode }) {
+  return <SankofaProvider>{children}</SankofaProvider>;
+}`} />
+
+Wrap your app's root with `<SankofaSetup>` once. Every hook below works inside it.
+
+## Hooks
+
+### `useFlag(key, defaultValue?)`
+
+Returns the current value of a boolean feature flag and re-renders on change.
+
+<CodeBlock lang="tsx" code={`import { useFlag } from "@sankofa/react";
+
+function CheckoutButton() {
+  const useNewCheckout = useFlag("new_checkout", false);
+  return useNewCheckout ? <NewCheckout /> : <ClassicCheckout />;
+}`} />
+
+The hook handles subscription, cleanup, and SSR-safe rendering.
+
+### `useVariant(key, defaultValue?)`
+
+Returns the current variant string and re-renders on change.
+
+<CodeBlock lang="tsx" code={`import { useVariant } from "@sankofa/react";
+
+function CheckoutVariant() {
+  const variant = useVariant("checkout_redesign", "control");
+
+  switch (variant) {
+    case "treatment_a": return <CheckoutA />;
+    case "treatment_b": return <CheckoutB />;
+    default: return <ClassicCheckout />;
+  }
+}`} />
+
+### `useConfig(key, defaultValue, type?)`
+
+Reads a typed config value:
+
+<CodeBlock lang="tsx" code={`import { useConfig } from "@sankofa/react";
+
+function UploadForm() {
+  const maxMB = useConfig("max_upload_mb", 25, "int");
+
+  return <input type="file" data-max-size={maxMB * 1024 * 1024} />;
+}`} />
+
+The `type` argument disambiguates the getter to use under the hood (`getInt`, `getString`, `getBool`, `getNumber`, `getJSON`). Default is inferred from the type of `defaultValue`.
+
+### `useDecision(key)`
+
+Returns the full decision envelope, not just the value. Useful for logging or reason-aware UI:
+
+<CodeBlock lang="tsx" code={`import { useDecision } from "@sankofa/react";
+
+function ExperimentBanner() {
+  const decision = useDecision("checkout_redesign");
+
+  if (decision.reason === "halted") {
+    return <Banner>Reverted to classic checkout — incident in progress</Banner>;
+  }
+  if (decision.variant === "treatment_a") {
+    return <NewBanner />;
+  }
+  return null;
+}`} />
+
+### `useExperiment(key, options?)`
+
+A higher-level hook that combines variant fetching with manual exposure tracking. Use it when the SDK can't tell whether your variant render path actually ran:
+
+<CodeBlock lang="tsx" code={`import { useExperiment } from "@sankofa/react";
+
+function CheckoutPage() {
+  const { variant, reportExposure } = useExperiment("checkout_redesign", {
+    autoExpose: false,
+  });
+
+  // Only report exposure once the user reaches the actual checkout step.
+  useEffect(() => {
+    if (atStep === "review") reportExposure();
+  }, [atStep, reportExposure]);
+
+  // ...
+}`} />
+
+`autoExpose: true` (the default) reports an exposure on first render. `autoExpose: false` returns a `reportExposure` function you call manually when the render path is confirmed.
+
+### `useSankofa()`
+
+Returns the SDK client itself for advanced cases (manual track calls from a hook, identity reads, flush triggers):
+
+<CodeBlock lang="tsx" code={`import { useSankofa } from "@sankofa/react";
+
+function FormFooter() {
+  const sankofa = useSankofa();
+  const { distinctId, isIdentified } = sankofa.getUser();
+
+  return <p>Logged in as: {isIdentified ? distinctId : "guest"}</p>;
+}`} />
+
+## SSR + initial decisions
+
+For frameworks with server-side rendering (Next.js App Router, Remix), passing `initialDecisions` to the provider eliminates the post-hydration flicker:
+
+<CodeBlock lang="tsx" filename="app/page.tsx" code={`// Server component
+async function Page() {
+  const initialDecisions = await fetch("https://api.sankofa.dev/api/v1/decisions", {
+    method: "POST",
+    headers: { "x-api-key": process.env.SANKOFA_KEY!, "content-type": "application/json" },
+    body: JSON.stringify({ distinct_id: getCurrentUserId(), modules: ["switch", "config"] }),
+  }).then((r) => r.json());
+
+  return (
+    <SankofaProvider initialDecisions={initialDecisions}>
+      <CheckoutPage />
+    </SankofaProvider>
+  );
+}`} />
+
+When seeded with `initialDecisions`, hooks return the server-known value on the very first render. The first client-side decision handshake then refreshes the value in the background.
+
+## React Suspense
+
+`useFlag`, `useConfig`, etc. are synchronous and never suspend by default — they return the bundled default if the engine hasn't responded yet. For pages where you'd rather suspend until decisions land:
+
+<CodeBlock lang="tsx" code={`import { Suspense } from "react";
+import { useFlag } from "@sankofa/react";
+
+function CheckoutGate() {
+  // Throws a promise on first render until decisions arrive.
+  const enabled = useFlag("new_checkout", false, { suspend: true });
+  return enabled ? <NewCheckout /> : <ClassicCheckout />;
+}
+
+<Suspense fallback={<CheckoutSkeleton />}>
+  <CheckoutGate />
+</Suspense>`} />
+
+Use `suspend: true` sparingly — it adds latency. Most apps want the synchronous bundled-default fallback.
+
+## Server Components
+
+In Next.js App Router server components, the React hooks won't run (server components don't have hooks). Read decisions via the REST API as shown in the SSR section, then pass values down to client components as props.
+
+## TypeScript inference
+
+Hooks are fully typed:
+
+<CodeBlock lang="tsx" code={`const enabled = useFlag("new_checkout", false);  // boolean
+const variant = useVariant("checkout_redesign", "control");  // string
+const maxMB = useConfig("max_upload_mb", 25, "int");  // number
+const hero = useConfig<HomeHero>("home_hero", DEFAULT_HERO, "json");  // HomeHero
+`} />
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/packages/browser" eyebrow="Reference" title="@sankofa/browser">
+    The core API the hooks are built on.
+  </Card>
+  <Card href="/sdks/web/packages/switch" eyebrow="Reference" title="@sankofa/switch">
+    The flag client.
+  </Card>
+  <Card href="/sdks/web/packages/config" eyebrow="Reference" title="@sankofa/config">
+    The config client.
+  </Card>
+</CardGrid>
