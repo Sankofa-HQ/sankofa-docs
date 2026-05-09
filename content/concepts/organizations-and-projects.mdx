@@ -1,0 +1,89 @@
+---
+title: Organizations and projects
+description: Sankofa's multi-tenant hierarchy — one organization owns many projects, and projects are the boundary for events, billing, and RBAC.
+toc: true
+---
+
+Sankofa is multi-tenant by design. Every customer gets an **organization**, and every organization owns one or more **projects**. The project is the unit of isolation for almost everything that matters: events, people, cohorts, flags, configs, deploys, replays, billing, audit logs, and the API keys that authenticate your SDKs.
+
+This page explains how the hierarchy is laid out and how to think about modelling your team's setup against it.
+
+## The hierarchy at a glance
+
+<Steps>
+  <Step title="Organization">
+    The top-level container. Created when you sign up. Owns billing, plan tier, SSO config, audit log, and the list of teams + members. One organization per company is the norm; large enterprises sometimes run multiple organizations for legal / data-residency reasons (see [Data residency](/account/data-residency)).
+  </Step>
+  <Step title="Project">
+    The boundary for everything that gets queried. Each project has its own event stream, people store, cohorts, flags, configs, deploys, surveys, replays, and API keys. Two projects in the same organization share zero data.
+  </Step>
+  <Step title="Environment">
+    Each project has two environments — `live` and `test` — and each environment has its own API key. The engine routes ingestion to the correct environment based on the key on the request. See [Environments and API keys](/concepts/environments-and-api-keys).
+  </Step>
+  <Step title="Team">
+    A team is a named subset of organization members with the same project access. Teams are how you implement "the iOS team can only edit the Mobile project." See [RBAC and teams](/concepts/rbac-and-teams).
+  </Step>
+</Steps>
+
+## How to model your setup
+
+A good rule of thumb: **one project per shipped product surface.**
+
+<CardGrid cols={2}>
+  <Card eyebrow="Pattern" title="Single product, multiple platforms">
+    One project. Sankofa already labels every event with its source SDK (web, iOS, Android, etc.) so you can split by platform in any chart without splitting projects.
+  </Card>
+  <Card eyebrow="Pattern" title="Multiple products under one brand">
+    One project per product. A Web app, a mobile companion, and a separate marketing site each get their own project so error volumes, billing, and RBAC are clean.
+  </Card>
+  <Card eyebrow="Pattern" title="White-label / per-customer instances">
+    One organization, one project per tenant. Or one project plus a `tenant_id` property on every event, depending on whether your tenants need their own RBAC scope.
+  </Card>
+  <Card eyebrow="Pattern" title="Internal tools">
+    Often one project — the analytics surface area is small and the same eng team owns everything.
+  </Card>
+</CardGrid>
+
+<Callout tone="warning" title="Don't use environments to model dev vs prod across projects">
+The `live` / `test` environments inside a single project are for dev / staging vs. production traffic that flows from the **same code-base** through different keys. They are **not** the right tool for separating two unrelated apps. Use separate projects instead.
+</Callout>
+
+## What lives at each level
+
+| Concept | Organization | Project | Environment |
+|---|:---:|:---:|:---:|
+| Members + teams | ✓ | | |
+| Billing + plan | ✓ | | |
+| Audit log | ✓ | | |
+| SSO + SCIM | ✓ | | |
+| Data residency region | ✓ | | |
+| Events | | ✓ | ✓ (live/test split) |
+| People profiles | | ✓ | ✓ |
+| Cohorts | | ✓ | ✓ |
+| Flags + configs + surveys | | ✓ | ✓ |
+| Deploy releases | | ✓ | ✓ |
+| Replays | | ✓ | ✓ |
+| API keys | | | ✓ |
+| Webhooks + integrations | | ✓ | |
+
+The pattern: **identity + governance** is org-level; **product data** is project-level (with a live/test split per project); **credentials** are environment-level.
+
+## Limits
+
+- **Organizations per user**: unlimited — you can be a member of any number of organizations across companies.
+- **Projects per organization**: unlimited on every plan; some Free-tier limits apply on per-project event volume.
+- **Members per organization**: unlimited on Pro and above; Free has a soft cap of 5 (contact us if you need more for a small team).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/environments-and-api-keys" eyebrow="Next" title="Environments and API keys">
+    How `live` and `test` differ, and how to rotate keys safely.
+  </Card>
+  <Card href="/concepts/rbac-and-teams" eyebrow="Concepts" title="RBAC and teams">
+    The Viewer / Editor / Admin / Owner matrix.
+  </Card>
+  <Card href="/account/teams-and-members" eyebrow="Account" title="Manage teams">
+    Invite, remove, and assign members in the dashboard.
+  </Card>
+</CardGrid>

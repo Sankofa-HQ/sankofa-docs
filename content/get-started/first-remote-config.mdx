@@ -1,0 +1,176 @@
+---
+title: Your first remote config
+description: Define a typed config value in the dashboard, fetch it from any SDK with cohort targeting, and roll forward or back without an app release.
+badge: 10 min
+toc: true
+sdks: [web, flutter, react-native, ios, android, node, go, python, java]
+---
+
+Sankofa Remote Config (a.k.a. **Config**) gives you typed, versioned, cohort-targetable values you can change without redeploying your app. It shares the same decision-handshake plumbing as Switch, so reads are local and free after the first call.
+
+Use it for: feature toggles that need richer-than-boolean values, hardcoded magic numbers (timeouts, retry caps, thresholds), copy that needs to ship faster than your release cadence, or lightweight A/B parameter tuning that doesn't warrant a full experiment.
+
+## 1. Create a config item
+
+<Steps>
+  <Step title="Open Config → Items">
+    From the project nav, **Config → Items**, click **New item**.
+  </Step>
+  <Step title="Name the key in snake_case">
+    Examples: `max_upload_mb`, `support_email`, `home_hero_copy`, `retry_backoff_ms`.
+  </Step>
+  <Step title="Pick a type">
+    Sankofa supports `string`, `int`, `float`, `bool`, and `json`. Once published, the type is immutable — pick carefully.
+  </Step>
+  <Step title="Set a default value">
+    The default is what every user sees until you ship a cohort-specific override. For our example pick `int` with default `25`.
+  </Step>
+</Steps>
+
+## 2. Fetch from your SDK
+
+Reads are typed at the call site — pass the expected return type and a fallback. The fallback runs whenever the engine is unreachable, the snapshot is empty, or a key is missing.
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+import { configPlugin, getConfig } from "@sankofa/config";
+
+await Sankofa.init({
+  apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+  plugins: [configPlugin()],
+});
+
+const config = getConfig()!;
+const maxMB = config.getNumber("max_upload_mb", 25);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+final config = SankofaConfig(defaults: {'max_upload_mb': 25});
+
+await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+);
+
+final maxMB = config.get<int>('max_upload_mb', 25);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaConfig } from "@sankofa/react-native";
+
+const config = new SankofaConfig({ defaults: { max_upload_mb: 25 } });
+
+Sankofa.initialize("sk_live_...", {
+  endpoint: "https://api.sankofa.dev",
+});
+
+const maxMB = config.get<number>("max_upload_mb", 25);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`import Sankofa
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(endpoint: "https://api.sankofa.dev")
+)
+
+_ = SankofaRemoteConfig.shared.withDefaults(["max_upload_mb": 25])
+
+let maxMB: Int = SankofaRemoteConfig.shared.get("max_upload_mb", default: 25)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.remoteconfig.SankofaRemoteConfig
+
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Sankofa.init(this, "sk_live_...", SankofaConfig())
+        SankofaRemoteConfig.init(this, mapOf("max_upload_mb" to 25))
+    }
+}
+
+val maxMB: Int = SankofaRemoteConfig.get("max_upload_mb", 25)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/node";
+
+const maxMB = await Sankofa.config.getNumber("max_upload_mb", {
+  distinctId: req.user?.id ?? "anon",
+  defaultValue: 25,
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`maxMB, err := client.Config.GetInt(ctx, "max_upload_mb", sankofa.ConfigOptions{
+    DistinctID:   userID,
+    DefaultValue: 25,
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`max_mb = sankofa.config.get_int(
+    "max_upload_mb",
+    distinct_id=request.user.id,
+    default_value=25,
+)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="java" label="Java">
+<CodeBlock lang="java" code={`int maxMB = Sankofa.config().getInt("max_upload_mb",
+    ConfigOptions.builder()
+        .distinctId(user.getId())
+        .defaultValue(25)
+        .build());`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 3. Ship a cohort-specific override
+
+Open the item in the dashboard and click **Add override**.
+
+<Steps>
+  <Step title="Pick a cohort">
+    For example, `Pro plan customers` (cohorts are defined under **People → Cohorts**).
+  </Step>
+  <Step title="Set the override value">
+    For Pro customers, raise `max_upload_mb` to `200`.
+  </Step>
+  <Step title="Publish">
+    Within ≤ 30 seconds (next handshake) Pro users see `200`; everyone else stays on the default `25`. No code change, no app release.
+  </Step>
+</Steps>
+
+## 4. Version, audit, and roll back
+
+Every publish creates an immutable version with the actor, timestamp, and full diff captured.
+
+- **History** — open **Config → Items → \<your item\> → History** to see every change.
+- **Diff** — click any two versions to see what overrides changed.
+- **Roll back** — click **Restore** on a previous version. The next handshake reverts users to that payload.
+- **Schedule** — schedule a value to take effect at a specific UTC timestamp (Pro tier and above).
+
+## When to use Config vs. Switch
+
+| You need… | Use |
+|---|---|
+| an on/off toggle | [Switch](/products/switch/overview) |
+| a numeric, string, or JSON value | **Config** |
+| an A/B variant with stat-sig metrics | [A/B Switch](/products/ab-switch/overview) |
+| a value that depends on a cohort, but should never enable a new code path | **Config** |
+| a value that gates a code path | [Switch](/products/switch/overview) |
+
+Both share the same decision handshake, so using both costs the same as using one.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/config/overview" eyebrow="Config" title="Config deep dive">
+    Types, schema validation, version history, scheduled rollouts.
+  </Card>
+  <Card href="/products/switch/overview" eyebrow="Switch" title="Switch deep dive">
+    Feature flags, variants, A/B Switch, halt webhooks.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    Why Config and Switch share one ETag-cached snapshot.
+  </Card>
+</CardGrid>

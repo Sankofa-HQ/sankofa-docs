@@ -1,0 +1,174 @@
+---
+title: Install the web SDK
+description: Per-package install commands for npm, pnpm, yarn, bun, and CDN. Plus framework-specific notes for Next.js, Vite, Remix, and Astro.
+toc: true
+sdks: [web]
+---
+
+Every web SDK package can be installed independently. The only required one is `@sankofa/browser`; everything else (Catch, Switch, Config, Pulse, Replay, React hooks) layers on top.
+
+## Install the core
+
+<Tabs defaultValue="npm">
+  <Tab value="npm" label="npm">
+    <CodeBlock lang="bash" code={`npm install @sankofa/browser`} />
+  </Tab>
+  <Tab value="pnpm" label="pnpm">
+    <CodeBlock lang="bash" code={`pnpm add @sankofa/browser`} />
+  </Tab>
+  <Tab value="yarn" label="yarn">
+    <CodeBlock lang="bash" code={`yarn add @sankofa/browser`} />
+  </Tab>
+  <Tab value="bun" label="bun">
+    <CodeBlock lang="bash" code={`bun add @sankofa/browser`} />
+  </Tab>
+</Tabs>
+
+## Add product packages
+
+Install whichever extras you need. None of them require special peer-dependency setup.
+
+<CodeBlock lang="bash" code={`# Error tracking + breadcrumbs
+npm install @sankofa/catch
+
+# Feature flags + exposures
+npm install @sankofa/switch
+
+# Typed remote config
+npm install @sankofa/config
+
+# Behavior-triggered surveys
+npm install @sankofa/pulse
+
+# Session replay (rrweb)
+npm install @sankofa/replay-rrweb
+
+# React hooks (requires React 18 or 19)
+npm install @sankofa/react`} />
+
+If you install all seven at once: `npm install @sankofa/browser @sankofa/catch @sankofa/switch @sankofa/config @sankofa/pulse @sankofa/replay-rrweb @sankofa/react`. Total bundle (gzipped) for the worst case is ~50 KB.
+
+## CDN install
+
+For a bundler-free site, drop a single `<script>` in your HTML:
+
+<CodeBlock lang="html" filename="index.html" code={`<script
+  src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js"
+  defer
+></script>
+<script>
+  window.addEventListener("load", () => {
+    Sankofa.init({
+      apiKey: "sk_live_...",
+      endpoint: "https://api.sankofa.dev",
+    });
+  });
+</script>`} />
+
+The CDN bundle exposes a `Sankofa` global. Plugins on the CDN load from sub-paths:
+
+<CodeBlock lang="html" code={`<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/switch/dist/switch.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@sankofa/config/dist/config.min.js" defer></script>`} />
+
+For production, pin to a specific version (e.g. `@sankofa/browser@1.0.4`) so a future major release doesn't surprise you.
+
+## Framework recipes
+
+<CodeGroup>
+<CodeGroupItem tab="next" label="Next.js 14+">
+<CodeBlock lang="ts" filename="app/sankofa.client.ts" code={`"use client";
+
+import { Sankofa } from "@sankofa/browser";
+import { catchPlugin } from "@sankofa/catch";
+import { switchPlugin } from "@sankofa/switch";
+
+let initialized = false;
+
+export function ensureSankofa() {
+  if (initialized || typeof window === "undefined") return;
+  initialized = true;
+  Sankofa.init({
+    apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+    endpoint: "https://api.sankofa.dev",
+    plugins: [catchPlugin(), switchPlugin()],
+  });
+}`} />
+
+<CodeBlock lang="tsx" filename="app/layout.tsx" code={`import { ensureSankofa } from "./sankofa.client";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  if (typeof window !== "undefined") ensureSankofa();
+  return <html lang="en"><body>{children}</body></html>;
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vite" label="Vite + React">
+<CodeBlock lang="ts" filename="src/main.tsx" code={`import { Sankofa } from "@sankofa/browser";
+import { switchPlugin } from "@sankofa/switch";
+
+Sankofa.init({
+  apiKey: import.meta.env.VITE_SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+  plugins: [switchPlugin()],
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="remix" label="Remix">
+<CodeBlock lang="ts" filename="app/entry.client.tsx" code={`import { Sankofa } from "@sankofa/browser";
+
+Sankofa.init({
+  apiKey: window.ENV.SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+
+Pass the API key from server context via Remix's `loader → meta` pattern; never inline a live key in the bundle.
+</CodeGroupItem>
+<CodeGroupItem tab="astro" label="Astro">
+<CodeBlock lang="astro" filename="src/layouts/Base.astro" code={`---
+const SANKOFA_KEY = import.meta.env.PUBLIC_SANKOFA_KEY;
+---
+<script>
+  import { Sankofa } from "@sankofa/browser";
+  Sankofa.init({
+    apiKey: import.meta.env.PUBLIC_SANKOFA_KEY,
+    endpoint: "https://api.sankofa.dev",
+  });
+</script>`} />
+</CodeGroupItem>
+<CodeGroupItem tab="sveltekit" label="SvelteKit">
+<CodeBlock lang="ts" filename="src/hooks.client.ts" code={`import { Sankofa } from "@sankofa/browser";
+import { PUBLIC_SANKOFA_KEY } from "$env/static/public";
+
+Sankofa.init({
+  apiKey: PUBLIC_SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## TypeScript
+
+Every package ships TypeScript types — no `@types/...` package needed. The types are strict (`noImplicitAny`, `strictNullChecks`) and documented inline.
+
+<CodeBlock lang="ts" code={`import { Sankofa, type SankofaInitConfig } from "@sankofa/browser";
+
+const config: SankofaInitConfig = {
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  flushIntervalMs: 5000,
+};
+
+Sankofa.init(config);`} />
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/packages/browser" eyebrow="Reference" title="@sankofa/browser">
+    The core API — init, track, identify, flush, reset.
+  </Card>
+  <Card href="/sdks/web/packages/react" eyebrow="Reference" title="@sankofa/react">
+    React hooks and provider for declarative integration.
+  </Card>
+  <Card href="/get-started/first-event" eyebrow="Hands-on" title="Send your first event">
+    From init to a row in the dashboard.
+  </Card>
+</CardGrid>

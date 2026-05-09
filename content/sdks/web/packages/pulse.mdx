@@ -1,0 +1,149 @@
+---
+title: "@sankofa/pulse"
+description: Behavior-triggered surveys rendered in-app. Trigger evaluation, custom rendering, and post-submit hooks for the web.
+toc: true
+sdks: [web]
+---
+
+`@sankofa/pulse` runs the survey logic for the Pulse product in the browser. It evaluates triggers (e.g. "show after 5 sessions and 3 minutes on the pricing page"), shows a survey when one fires, and posts responses back to the engine.
+
+It ships a default modal renderer so you can be running surveys in 5 minutes, but you can also bring your own rendering — the package exposes the trigger / response API for full customization.
+
+## Install
+
+<CodeBlock lang="bash" code={`npm install @sankofa/pulse`} />
+
+## Register the plugin
+
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+import { pulsePlugin } from "@sankofa/pulse";
+
+Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  plugins: [pulsePlugin()],
+});`} />
+
+By default, `pulsePlugin()` renders a built-in modal whenever a trigger fires. The modal's design uses CSS variables you can override.
+
+## How triggers work
+
+A Pulse survey has a **trigger rule** defined in the dashboard. Examples:
+
+- "After the user has fired `checkout_completed` and is in cohort `Pro plan customers`."
+- "On every 5th session start, where the user has been active for 30+ days."
+- "After a route change to `/pricing`, on weekdays only."
+
+Triggers are evaluated **client-side** by `@sankofa/pulse`, against:
+
+- the user's current session events;
+- their decision-handshake-cached cohort membership;
+- their default properties (geo, OS, etc.).
+
+When a trigger matches, the package shows the matching survey. There's a per-survey cooldown (e.g. "don't show this survey again for 30 days"), enforced client-side using `localStorage`.
+
+## Default rendering
+
+The default modal:
+
+- mounts to `document.body` as a fixed-position dialog;
+- supports keyboard navigation (Esc closes, Tab through inputs);
+- styles itself from CSS variables that match Sankofa's brand by default — you can override them globally:
+
+<CodeBlock lang="css" code={`:root {
+  --sankofa-pulse-bg: #fff;
+  --sankofa-pulse-fg: #171717;
+  --sankofa-pulse-accent: #0070f3;
+  --sankofa-pulse-border: #e5e5e5;
+  --sankofa-pulse-radius: 12px;
+  --sankofa-pulse-z-index: 9999;
+}`} />
+
+For tighter brand integration, bring your own renderer (next section).
+
+## Custom rendering
+
+If you want full control over how surveys appear, register a renderer:
+
+<CodeBlock lang="tsx" code={`import { pulsePlugin, type PulseSurvey } from "@sankofa/pulse";
+
+Sankofa.init({
+  apiKey: "sk_live_...",
+  plugins: [pulsePlugin({
+    renderer: "custom",
+    onSurveyFired: (survey, controller) => {
+      // \`survey\` has the questions, type, and metadata.
+      // \`controller\` has methods to submit a response.
+      myReactStore.dispatch(showSurveyAction({ survey, controller }));
+    },
+  })],
+});`} />
+
+Inside your custom UI, when the user submits:
+
+<CodeBlock lang="ts" code={`controller.submit({
+  responses: [
+    { question_id: "q_satisfaction", value: 4 },
+    { question_id: "q_feedback", value: "Love the new checkout" },
+  ],
+});
+
+// Or, if the user dismisses without answering:
+controller.dismiss({ reason: "user_dismissed" });`} />
+
+`controller.submit` and `controller.dismiss` both close the survey on the engine and fire the cooldown.
+
+## Manually trigger a survey
+
+For surveys that don't have a rule-based trigger ("show this survey when the user clicks the feedback button in our settings"):
+
+<CodeBlock lang="ts" code={`import { getPulse } from "@sankofa/pulse";
+
+const pulse = getPulse()!;
+const surveyId = "srv_post_purchase_feedback";
+
+pulse.show(surveyId);`} />
+
+The cooldown still applies. Pass `{ ignoreCooldown: true }` to bypass it for testing.
+
+## Listing pending triggers
+
+For QA / debug:
+
+<CodeBlock lang="ts" code={`const pending = pulse.listPending();
+// [{ surveyId, ruleSummary, eligibleAt }, ...]`} />
+
+Each entry tells you which surveys are *eligible* for the current user — they'd fire if their rule matched, and they're not in cooldown.
+
+## Privacy
+
+Survey responses are user-attributable: they're posted with the current `distinctId`. To submit anonymously even when the user is identified:
+
+<CodeBlock lang="ts" code={`controller.submit({
+  responses: [{ question_id: "q_anon_feedback", value: "..." }],
+  attribution: "anonymous",
+});`} />
+
+The submission uses a synthetic anonymous ID and detaches from the user's profile.
+
+## Cooldown management
+
+By default, every survey has a 30-day cooldown after dismissal or submission. Override per survey in the dashboard. Test environments default to 5-minute cooldowns so you can iterate quickly.
+
+To clear cooldowns programmatically (e.g. for QA):
+
+<CodeBlock lang="ts" code={`pulse.clearCooldown("srv_post_purchase_feedback");`} />
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/pulse/overview" eyebrow="Pulse" title="Pulse product">
+    Trigger rules, survey types, targeting, response analysis.
+  </Card>
+  <Card href="/api/pulse/submissions" eyebrow="Reference" title="Submissions API">
+    The wire format the SDK posts to.
+  </Card>
+  <Card href="/sdks/web/packages/react" eyebrow="React" title="@sankofa/react">
+    React-friendly survey rendering with the provider pattern.
+  </Card>
+</CardGrid>

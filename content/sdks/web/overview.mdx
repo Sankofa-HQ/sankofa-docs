@@ -1,0 +1,152 @@
+---
+title: Web SDK overview
+description: A multi-package monorepo — install only what you use. Bundle-size table, plugin architecture, and how the seven web packages compose into a single Sankofa surface.
+toc: true
+sdks: [web]
+---
+
+The Sankofa Web SDK is the only SDK in the matrix that ships as multiple packages. Every other platform bundles all eight Sankofa products into a single artifact; web splits them apart so your users only download the bytes for the products you actually use.
+
+If you only need analytics, you install one package and pay for one bundle. If you want feature flags too, you install another. This page explains the philosophy, lists the packages, and shows the bundle sizes so you can plan accordingly.
+
+## The seven packages
+
+| Package | Bundle (gzipped) | Purpose |
+|---|---:|---|
+| `@sankofa/browser` | ~6.5 KB | Core analytics — `init`, `track`, `identify`, `setPerson`, `flush`, `reset`. The base every other package extends. |
+| `@sankofa/catch` | ~4 KB | Error capture, breadcrumbs, source-mapped stack traces. |
+| `@sankofa/switch` | ~3 KB | Feature flags + variant assignment + per-call exposure tracking. |
+| `@sankofa/config` | ~2.5 KB | Typed remote config — `getString`, `getBool`, `getInt`, `getNumber`, `getJSON`. |
+| `@sankofa/pulse` | ~5 KB | Behavior-triggered surveys with in-app rendering. |
+| `@sankofa/replay-rrweb` | ~28 KB | rrweb-powered DOM replay with input masking. |
+| `@sankofa/react` | ~2 KB | React hooks — `useFlag`, `useConfig`, `useExperiment`, plus the `<SankofaProvider>` context. |
+
+`@sankofa/browser` is required. Everything else is optional.
+
+A typical small app installing analytics + flags + config lands in ~12 KB gzipped — comparable to or smaller than other SaaS analytics SDKs in the same space.
+
+## The plugin architecture
+
+Every non-core package is a **plugin** that you register at init time:
+
+<CodeBlock lang="ts" filename="src/sankofa.ts" code={`import { Sankofa } from "@sankofa/browser";
+import { catchPlugin } from "@sankofa/catch";
+import { switchPlugin } from "@sankofa/switch";
+import { configPlugin } from "@sankofa/config";
+
+await Sankofa.init({
+  apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+  plugins: [
+    catchPlugin(),
+    switchPlugin({ defaults: { new_checkout: false } }),
+    configPlugin({ defaults: { max_upload_mb: 25 } }),
+  ],
+});`} />
+
+Plugins are evaluated in registration order. Each plugin gets exclusive ownership of its own decision-handshake module (Switch owns flags, Config owns config items) — there's no namespace collision.
+
+You can register plugins after init too, but they won't participate in the first decision handshake. Best practice: register every plugin at init.
+
+## Tree-shaking
+
+Every package exports named symbols only. Dead-code elimination in modern bundlers (esbuild, Vite, Rollup, Webpack 5+) drops the unused parts of the SDK at build time.
+
+A practical example: if you import `Sankofa` from `@sankofa/browser` but never call `setPerson`, the people-profile code is dropped from your bundle. Same for never-used flag variants, etc.
+
+## ESM vs CJS
+
+Every package ships dual entry points:
+
+- **ESM** — the `.mjs` build, the recommended default. Used automatically by Vite, Next.js, Remix, and any bundler that respects the `exports` field.
+- **CJS** — the `.cjs` build, for legacy Node tooling and older bundlers.
+
+There's no separate `@sankofa/browser/esm` import path — the bundler picks the right one from `package.json`'s `exports` map.
+
+## Browser support
+
+| Feature | Required browser |
+|---|---|
+| `@sankofa/browser` core | Last 2 versions of Chrome, Firefox, Safari, Edge; modern mobile browsers. |
+| `@sankofa/replay-rrweb` | Chrome 70+, Firefox 65+, Safari 13+. (rrweb dependency.) |
+| Service-worker offline queue | Browsers with `IndexedDB` and Service Workers — the same matrix as core. |
+
+We don't ship polyfills. If you target IE11 or pre-2019 browsers, you'll need to polyfill `Promise`, `Map`, and `fetch` yourself. We test against the latest two stable releases of every supported browser on every commit.
+
+## Initialize patterns by framework
+
+<CodeGroup>
+<CodeGroupItem tab="next" label="Next.js (App Router)">
+<CodeBlock lang="ts" filename="app/sankofa.ts" code={`"use client";
+
+import { Sankofa } from "@sankofa/browser";
+
+let initialized = false;
+export function ensureSankofa() {
+  if (initialized || typeof window === "undefined") return;
+  initialized = true;
+  Sankofa.init({
+    apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+    endpoint: "https://api.sankofa.dev",
+  });
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vite" label="Vite / React">
+<CodeBlock lang="ts" filename="src/main.tsx" code={`import { Sankofa } from "@sankofa/browser";
+
+Sankofa.init({
+  apiKey: import.meta.env.VITE_SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="remix" label="Remix">
+<CodeBlock lang="ts" filename="app/entry.client.tsx" code={`import { Sankofa } from "@sankofa/browser";
+
+Sankofa.init({
+  apiKey: window.ENV.SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vanilla" label="Vanilla / HTML">
+<CodeBlock lang="html" code={`<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js"></script>
+<script>
+  Sankofa.init({
+    apiKey: "sk_live_...",
+    endpoint: "https://api.sankofa.dev",
+  });
+</script>`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## Once initialized, every package shares the same client
+
+You only call `Sankofa.init` once. Every plugin you register at init time runs against that single shared client — they share the queue, the session, the identity, and the decision handshake. There's no cross-package state synchronization to worry about.
+
+## Where to go next
+
+<CardGrid cols={4}>
+  <Card href="/sdks/web/install" eyebrow="Setup" title="Install">
+    Install commands per package manager and CDN.
+  </Card>
+  <Card href="/sdks/web/packages/browser" eyebrow="Package" title="@sankofa/browser">
+    The core API — init, track, identify, flush, reset.
+  </Card>
+  <Card href="/sdks/web/packages/catch" eyebrow="Package" title="@sankofa/catch">
+    Error capture, breadcrumbs, source maps.
+  </Card>
+  <Card href="/sdks/web/packages/switch" eyebrow="Package" title="@sankofa/switch">
+    Feature flags + per-call exposures.
+  </Card>
+  <Card href="/sdks/web/packages/config" eyebrow="Package" title="@sankofa/config">
+    Typed remote config.
+  </Card>
+  <Card href="/sdks/web/packages/pulse" eyebrow="Package" title="@sankofa/pulse">
+    Behavior-triggered surveys.
+  </Card>
+  <Card href="/sdks/web/packages/replay-rrweb" eyebrow="Package" title="@sankofa/replay-rrweb">
+    Session replay.
+  </Card>
+  <Card href="/sdks/web/packages/react" eyebrow="Package" title="@sankofa/react">
+    React hooks and provider.
+  </Card>
+</CardGrid>

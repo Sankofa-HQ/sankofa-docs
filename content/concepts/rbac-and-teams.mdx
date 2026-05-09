@@ -1,0 +1,91 @@
+---
+title: RBAC and teams
+description: Viewer, Editor, Admin, Owner — what each role can do, how teams scope access, and how RBAC works under SSO.
+toc: true
+---
+
+Role-based access control on Sankofa is intentionally simple: four roles per project, with a single Owner role at the organization level. Teams group people together so you can assign a project to a team in one click instead of inviting each member separately.
+
+## The four project roles
+
+Every member that has access to a project holds exactly one of these roles. Roles are project-scoped — a member can be `Viewer` on one project and `Editor` on another, in the same organization.
+
+<ParameterTable
+  params={[
+    { name: "Viewer", type: "role", description: "Read-only. Can browse events, dashboards, flags, configs, replays, and the audit log. Cannot edit anything, cannot create flags, cannot rotate keys." },
+    { name: "Editor", type: "role", description: "Viewer plus everything that affects user-visible behavior — create / edit / archive flags, configs, surveys, deploys, cohorts, dashboards. Cannot manage members, billing, or API keys." },
+    { name: "Admin", type: "role", description: "Editor plus member management for the project, API key rotation, integration configuration, and audit-log export." },
+    { name: "Owner", type: "role", description: "Organization-level role — there can be multiple Owners but they're scoped to the organization, not a project. Owners control billing, plan tier, SSO, SCIM, data-residency region, and can delete projects. Every project Admin reports up to the Owner." },
+  ]}
+/>
+
+## Permission matrix
+
+| Action | Viewer | Editor | Admin | Owner |
+|---|:---:|:---:|:---:|:---:|
+| View events / dashboards | ✓ | ✓ | ✓ | ✓ |
+| Run queries / build cohorts | ✓ | ✓ | ✓ | ✓ |
+| Watch session replays | ✓ | ✓ | ✓ | ✓ |
+| Read flags / configs / surveys | ✓ | ✓ | ✓ | ✓ |
+| Create / edit flags + configs | | ✓ | ✓ | ✓ |
+| Halt a flag (incl. via webhook) | | ✓ | ✓ | ✓ |
+| Create / publish deploys | | ✓ | ✓ | ✓ |
+| Manage cohorts and dashboards | | ✓ | ✓ | ✓ |
+| Manage project members | | | ✓ | ✓ |
+| Rotate API keys | | | ✓ | ✓ |
+| Configure integrations | | | ✓ | ✓ |
+| Export audit log | | | ✓ | ✓ |
+| Manage billing + plan | | | | ✓ |
+| Manage SSO / SCIM | | | | ✓ |
+| Set data-residency region | | | | ✓ |
+| Delete project | | | | ✓ |
+
+`Owner` is the only role at the organization level; the other three are project-scoped.
+
+## Teams
+
+A team is a named group of organization members. Teams have two purposes:
+
+<Steps>
+  <Step title="Bulk project assignment">
+    Add a member to the `iOS` team, and they automatically inherit access to every project the `iOS` team has been granted access to. When you spin up a new mobile project and want the same crew on it, you assign the team — no per-member invites.
+  </Step>
+  <Step title="Default role per team">
+    A team has a default role (e.g. `iOS team → Editor on Mobile project`). Individual member overrides on specific projects still work — the team default is just the starting point.
+  </Step>
+</Steps>
+
+Teams are managed from **Account → Teams** in the dashboard. They don't grant any access on their own — they're a convenience layer over project membership.
+
+## SSO and SCIM
+
+For organizations on the Enterprise plan:
+
+- **SSO (SAML 2.0)** — every login goes through your IdP. We support Okta, Azure AD / Entra ID, Google Workspace, and any generic SAML 2.0 provider. Just-in-time provisioning is supported when paired with SCIM. See [SSO setup](/account/sso).
+- **SCIM 2.0** — SCIM-managed organizations push membership and team assignments from the IdP. Adding a user to the `iOS` group in your IdP automatically adds them to the `iOS` team in Sankofa with the team's default role.
+
+When SCIM is on, the dashboard's **Account → Members** page becomes read-only — the IdP is the source of truth. To remove a member, deactivate them in the IdP.
+
+## Audit log
+
+Every action that changes user-visible behavior is logged: flag toggles, config publishes, deploy promotions, key rotations, member adds / removes, and access-grant changes. The audit log is visible to Admins and Owners and can be exported to CSV or streamed to a SIEM via webhook (Pro tier and above). See [Audit log](/account/audit-log).
+
+## What Sankofa does NOT do
+
+- **Granular per-flag access.** A project Editor can edit any flag in the project. If you need finer separation, split into multiple projects.
+- **Time-boxed access.** Roles are persistent — there's no built-in "grant access for 24 hours then auto-revoke." Build that on top of the [Members API](/api/overview) if you need it.
+- **Field-level redaction in the dashboard.** A Viewer sees the same event payload as an Editor. If you need to hide PII from some viewers, redact at ingest with allow/deny lists. See [Events](/concepts/events).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/teams-and-members" eyebrow="Hands-on" title="Manage teams">
+    Invite, remove, and assign members.
+  </Card>
+  <Card href="/account/sso" eyebrow="Account" title="SSO setup">
+    SAML and SCIM provisioning recipes.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Account" title="Audit log">
+    What's logged, retention, and export targets.
+  </Card>
+</CardGrid>

@@ -1,0 +1,128 @@
+---
+title: SDKs overview
+description: One platform, ten SDKs. The web ships as a multi-package monorepo so you can pick what you need; every other platform ships as a single SDK that bundles every product.
+toc: true
+---
+
+Sankofa speaks to your code through SDKs. Every official SDK calls into the same engine using the same two protocols — [event ingestion](/concepts/ingestion-model) and the [decision handshake](/concepts/decision-handshake) — so a flag change, a config publish, or a survey trigger reaches every platform identically.
+
+This page is the bird's-eye view of the SDK matrix. Pick the platform you want and follow its dedicated guide.
+
+## The asymmetric matrix
+
+Web is split into **seven small packages**. Every other platform is **one SDK** that bundles all eight products.
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/overview" eyebrow="Multi-package" title="Web">
+    `@sankofa/browser` (core), plus optional packages for Catch, Switch, Config, Pulse, Replay, and React hooks. Tree-shakeable.
+  </Card>
+  <Card href="/sdks/flutter/overview" eyebrow="Single SDK" title="Flutter">
+    `sankofa_flutter` on pub.dev. iOS, Android, web, and desktop targets.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="Single SDK" title="React Native">
+    `@sankofa/react-native`. Bare RN and Expo. Config plugin auto-applies native setup.
+  </Card>
+  <Card href="/sdks/ios/overview" eyebrow="Single SDK" title="iOS">
+    Native Swift, with Objective-C interop. Swift Package Manager and CocoaPods.
+  </Card>
+  <Card href="/sdks/android/overview" eyebrow="Single SDK" title="Android">
+    Kotlin-first, Java-compatible. Maven Central. Auto-registered lifecycle.
+  </Card>
+  <Card href="/sdks/node/overview" eyebrow="Single SDK" title="Node">
+    `@sankofa/node`. Express + Fastify subpath exports. ESM and CommonJS.
+  </Card>
+  <Card href="/sdks/go/overview" eyebrow="Single SDK" title="Go">
+    `github.com/sankofa-hq/sankofa_sdk_go`. `net/http` middleware, context-aware.
+  </Card>
+  <Card href="/sdks/java/overview" eyebrow="Single SDK" title="Java">
+    JVM + Spring Boot starter + Servlet filter. Gradle and Maven.
+  </Card>
+  <Card href="/sdks/python/overview" eyebrow="Single SDK" title="Python">
+    `sankofa-catch` on PyPI. Django, Flask, FastAPI, Celery integrations.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
+    `sankofa init`, `release`, `flags`, `config`, `demo`. Detects your stack.
+  </Card>
+</CardGrid>
+
+## Feature × platform matrix
+
+The table below shows what's currently shipped per platform. `✓` = full support; `◐` = partial support (some sub-features missing); `—` = not yet shipped.
+
+<PlatformMatrix
+  rows={[
+    { feature: "Analytics — events, identify", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
+    { feature: "Catch — error capture", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "yes" } },
+    { feature: "Switch — feature flags", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
+    { feature: "Remote Config", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "no" } },
+    { feature: "Pulse — surveys", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Deploy — OTA", support: { Web: "no", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Session replay", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Per-call exposures", support: { Web: "yes", Flutter: "partial", RN: "partial", iOS: "partial", Android: "partial", Node: "partial", Go: "partial", Python: "no" } },
+    { feature: "Distributed tracing", support: { Web: "no", Flutter: "no", RN: "no", iOS: "no", Android: "no", Node: "yes", Go: "yes", Python: "yes" } },
+  ]}
+/>
+
+The "no" cells aren't permanent — they're roadmap. Most are scheduled for the next two minor releases.
+
+## Where they're hosted
+
+| SDK | Registry | Source |
+|---|---|---|
+| `@sankofa/browser`, `@sankofa/catch`, `@sankofa/config`, `@sankofa/switch`, `@sankofa/pulse`, `@sankofa/replay-rrweb`, `@sankofa/react` | npmjs.com | github.com/sankofa-hq/sankofa-web |
+| `sankofa_flutter` | pub.dev | github.com/sankofa-hq/sankofa-flutter |
+| `@sankofa/react-native` | npmjs.com | github.com/sankofa-hq/sankofa-react-native |
+| `Sankofa` (iOS) | Swift Package Manager + CocoaPods | github.com/sankofa-hq/sankofa-ios |
+| `dev.sankofa:sankofa-android` | Maven Central | github.com/sankofa-hq/sankofa-android |
+| `dev.sankofa:sankofa-java` | Maven Central | github.com/sankofa-hq/sankofa-java |
+| `github.com/sankofa-hq/sankofa_sdk_go` | Go modules | github.com/sankofa-hq/sankofa_sdk_go |
+| `sankofa-catch` | PyPI | github.com/sankofa-hq/sankofa-python |
+| `@sankofa/cli` | npmjs.com | github.com/sankofa-hq/sankofa-cli |
+
+All SDKs are **open source under permissive licenses** (MIT or Apache-2.0 per repo). The Sankofa platform — engine, dashboard, admin — is proprietary; only the SDKs are open.
+
+## Common ground across all SDKs
+
+Every official SDK shares the same surface for the things that matter:
+
+<Steps>
+  <Step title="Initialize once, as early as possible">
+    Every SDK has an `init` (or `initialize`) call that takes an `apiKey` and an optional `endpoint`. Subsequent calls are no-ops. Initialize before you fire any tracking calls.
+  </Step>
+  <Step title="Track events with `track`">
+    Every SDK exposes `track(eventName, properties?)` (mobile/web) or `Track(ctx, Event{...})` (Go) — same shape, same semantics, same wire format.
+  </Step>
+  <Step title="Identify users with `identify`">
+    Every SDK exposes `identify(userId, traits?)` to stitch anonymous traffic onto a known user. The `alias` HTTP transport is shared.
+  </Step>
+  <Step title="Reset on logout">
+    Every SDK exposes `reset()` — rotates the session, clears the cached identity, generates a fresh anonymous ID.
+  </Step>
+  <Step title="Flush before exit">
+    Every SDK exposes `flush()` — drains the queue synchronously. Call it from your shutdown handler in long-running processes.
+  </Step>
+</Steps>
+
+## Common ground across all client SDKs (web + mobile)
+
+Client-side SDKs (web, Flutter, RN, iOS, Android) share three more things:
+
+- **Offline-first event queue** — events are durable across app restarts and survive network failures.
+- **Decision handshake at session start** — one snapshot per session covers Switch, Config, Pulse, A/B Switch.
+- **Default property collection** — geo, OS, device, browser, app version, session — added automatically.
+
+Server SDKs (Node, Go, Python, Java) have an in-memory queue, no decision handshake (they fetch flags per call with their own short-TTL cache), and a smaller default-property set focused on runtime + request context.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/versioning-policy" eyebrow="Next" title="Versioning policy">
+    Semver, breaking-change cadence, LTS line, deprecation windows.
+  </Card>
+  <Card href="/sdks/web/overview" eyebrow="Web" title="Web SDK overview">
+    The multi-package philosophy, bundle sizes, and how the seven web packages compose.
+  </Card>
+  <Card href="/get-started/quickstart" eyebrow="Hands-on" title="Quickstart">
+    Start with whichever platform you're integrating today.
+  </Card>
+</CardGrid>

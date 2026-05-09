@@ -1,0 +1,118 @@
+---
+title: Data retention
+description: How long Sankofa keeps events, replays, and decision logs — per-tier retention windows, PII redaction, legal hold, and how to delete data on request.
+toc: true
+---
+
+Sankofa keeps every byte you ingest until the configured retention window elapses, then deletes it. Different data classes have different windows — events live longer than replays, which live longer than raw exposure logs — and the windows themselves are tier-dependent.
+
+This page is the canonical reference for what's stored, how long it lives, what you can configure, and how to honour deletion requests.
+
+## What gets stored
+
+| Data class | Description |
+|---|---|
+| Events | Every row written by `track`, `identify`, `setPerson`, `alias`. |
+| People profiles | Latest snapshot of every user's traits set via `setPerson`. |
+| Cohorts | Computed membership lists, refreshed on schedule. |
+| Decision logs | Per-session record of which flag / config / variant the user saw and why. |
+| Exposure logs | Per-call (web) or per-session (mobile/server) record of when a flag/variant was evaluated. |
+| Session replays | rrweb (web) or screenshot/wireframe (mobile) recording bundles. |
+| Crash bundles | Stack traces, breadcrumbs, source maps, and crash artifacts from Catch. |
+| Survey responses | Pulse submissions tied to a user. |
+| Audit log | Org-level record of who changed what (flags, configs, deploys, members, keys). |
+
+## Retention by tier
+
+| Data class | Free | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Events | 30 days | 365 days | 730 days | Custom (up to indefinite) |
+| People profiles | Indefinite | Indefinite | Indefinite | Indefinite |
+| Cohort definitions | Indefinite | Indefinite | Indefinite | Indefinite |
+| Cohort materializations | 7 days | 30 days | 90 days | Custom |
+| Decision logs | 14 days | 90 days | 180 days | Custom |
+| Exposure logs | 14 days | 90 days | 180 days | Custom |
+| Session replays | 7 days | 30 days | 90 days | Custom |
+| Crash bundles (Catch) | 30 days | 90 days | 180 days | Custom |
+| Survey responses (Pulse) | 90 days | 365 days | 730 days | Custom |
+| Audit log | 90 days | 1 year | 2 years | 7 years (SOX-compliant) |
+
+Custom retention is configurable per data class on Enterprise — anything from "delete after 24 hours" to "keep indefinitely." Each window is per-project; raising or lowering retention takes effect on new data immediately and on existing data within 24 hours of the change.
+
+## Where retention is enforced
+
+Retention runs as a background sweeper on ClickHouse:
+
+<Steps>
+  <Step title="Per-table TTL clauses">
+    Every event / replay / log table has a `TTL ingested_at + INTERVAL <retention> DAY` clause. ClickHouse automatically drops parts older than the TTL during merges.
+  </Step>
+  <Step title="Daily sweeper">
+    A daily job force-merges any partition whose newest row is past TTL, ensuring the disk is reclaimed on schedule (ClickHouse's lazy TTL can otherwise leave older data around for a few days).
+  </Step>
+  <Step title="Aggregate preservation">
+    Daily / monthly aggregates (the kind that power retention curves and long-range trend lines) are computed before the underlying events are deleted, so your charts stay correct even after the raw events are gone.
+  </Step>
+</Steps>
+
+## PII redaction
+
+Sankofa does not collect PII unless you send it. The defaults shipped by every SDK (`$os`, `$browser`, geo, app version) are non-personal. You're free to attach PII to events and people profiles — `email`, `phone_number`, `address` — but you don't have to.
+
+For projects that explicitly do not want PII to land:
+
+- **Allow / deny lists** at the property level (Settings → Data → Properties) drop PII fields at ingest. The property name is dropped before the row is written; there's no recovery.
+- **PII-tagged fields** can be configured to be hashed at ingest (Pro tier and above). The plaintext value is replaced with `sha256(salt || value)`.
+- **GeoIP precision** can be capped to country-only on Enterprise — useful for jurisdictions where city-level geolocation is regulated.
+
+## Right-to-be-forgotten / deletion requests
+
+Per GDPR Article 17 and similar regulations, every Sankofa customer needs a way to erase a specific user's data. Two paths:
+
+<Tabs defaultValue="api">
+  <Tab value="api" label="Via API">
+    <CodeBlock lang="bash" code={`curl -X DELETE https://api.sankofa.dev/api/v1/people/user_123 \\
+  -H "x-api-key: sk_live_..."`} />
+
+    The endpoint deletes:
+
+    - All events with `distinct_id = user_123` or `anon_id` matching any prior alias.
+    - The People profile.
+    - Any cohort memberships.
+    - Decision and exposure logs for that user.
+    - Session replays for that user.
+    - Survey responses by that user.
+
+    The deletion completes asynchronously — within 30 days for events, faster for everything else. The endpoint returns 202 immediately with a deletion job ID you can poll.
+  </Tab>
+  <Tab value="dashboard" label="Via Dashboard">
+    1. Open **People** → search by `distinct_id`, email, or any indexed property.
+    2. Click the user → **Delete user data**.
+    3. Confirm with typed input.
+    4. The system queues the same async deletion as the API path.
+  </Tab>
+</Tabs>
+
+We do **not** offer "soft delete" — once initiated, deletion is permanent and unrecoverable.
+
+## Legal hold
+
+Enterprise customers can place a project (or specific users within a project) on **legal hold**: retention TTLs are paused, deletion endpoints return a guarded response, and the audit log records every read against the held data. This is the right tool for active litigation or regulatory holds. Contact your CSM to enable it.
+
+## Backups and disaster recovery
+
+We back up production ClickHouse continuously to encrypted object storage in the same region as the project. RPO is 5 minutes; RTO from a region outage is 4 hours. Backups follow the same retention windows as the source data — there's no path through "we accidentally over-retained because backups."
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/events" eyebrow="Concepts" title="Events">
+    What's stored on each event row.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Account" title="Data residency">
+    Where data is stored geographically and how to pin a region.
+  </Card>
+  <Card href="/resources/compliance" eyebrow="Resources" title="Compliance">
+    SOC 2, ISO 27001, GDPR posture and certifications.
+  </Card>
+</CardGrid>

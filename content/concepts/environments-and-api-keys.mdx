@@ -1,0 +1,94 @@
+---
+title: Environments and API keys
+description: Each project ships traffic through two environments — live and test — resolved by the API key on every request. Here's how that routing works and how to operate it safely.
+toc: true
+---
+
+Every Sankofa project has two environments: `live` for production traffic and `test` for everything else (development, CI, staging, internal review apps). They share the same dashboard, the same flags, and the same configs — but their event streams are completely separate, and the engine routes a request to the correct one based on the **API key** the SDK sends.
+
+That single design choice is why your code path is identical between dev and prod, and why you don't need a config flag to "switch environments." You just use the right key.
+
+## Two keys per project
+
+Open any project in the dashboard and navigate to **Settings → API keys**. Every project has, at minimum:
+
+| Key prefix | Environment | What it routes to |
+|---|---|---|
+| `sk_live_…` | `live` | Production-tier event store, dashboard's **Live events** view, billed against your monthly events quota. |
+| `sk_test_…` | `test` | Test-tier event store with reduced retention; **Test events** view; not billed. |
+
+You can mint additional keys per environment (e.g. one per service or per CI pipeline) so that you can revoke a leaked key without disrupting unrelated workloads. The prefix always tells you which environment a key is bound to.
+
+## How routing works
+
+Every SDK call sends `x-api-key: sk_…`. On the engine:
+
+<Steps>
+  <Step title="Key lookup">
+    The engine does an O(1) cache lookup on the key. The cache lives in Redis with a 30-second TTL, so a revoked key stops authenticating within 30 seconds globally — no engine restart required.
+  </Step>
+  <Step title="Environment resolution">
+    The cached entry contains `(project_id, environment, plan_tier, allowed_features)`. The engine writes the event row with `environment = "live"` or `"test"` directly from this lookup, no client trust involved.
+  </Step>
+  <Step title="Quota check + ingest">
+    For `live` traffic, the engine increments your monthly events counter against the project's plan limits. `test` traffic is exempt from quota. Then the row is written to ClickHouse and the SDK gets a 200.
+  </Step>
+</Steps>
+
+The implication: an SDK can never accidentally cross environments. Even if your production code somehow gets a `sk_test_…` key, every event lands in the test stream — no contamination of the live data.
+
+## Choosing the right key
+
+| Scenario | Use |
+|---|---|
+| Local development | `sk_test_…` |
+| CI integration tests | `sk_test_…` |
+| Internal review apps / staging | `sk_test_…` |
+| Production builds | `sk_live_…` |
+| Server-side cron / batch jobs in prod | `sk_live_…` |
+| Open-source example apps | a dedicated `sk_test_…` key, never your default |
+
+<Callout tone="warning" title="Don't ship live keys in client bundles you can't rotate quickly">
+Web and mobile bundles ship keys to the public internet. That's expected — a leaked key can only ingest data into your own project. But if you're rotating keys on a schedule (e.g. quarterly), make sure your build pipeline can roll the key without an app-store review cycle. Use a key per release channel if needed.
+</Callout>
+
+## Rotating a key
+
+Rotation is non-disruptive if you do it in this order:
+
+<Steps>
+  <Step title="Mint the new key">
+    In the dashboard, **Settings → API keys → New key**. Copy it once — you won't be able to see the secret part again.
+  </Step>
+  <Step title="Roll your apps to the new key">
+    Deploy with the new key. Both old and new keys are valid simultaneously — there's no traffic gap.
+  </Step>
+  <Step title="Wait for rollout to finish">
+    For mobile apps, wait until your store-rollout window completes (often 7–14 days for a forced upgrade).
+  </Step>
+  <Step title="Revoke the old key">
+    **Settings → API keys → Revoke** on the old key. Within 30 seconds, any remaining clients on the old key start getting 401s. They'll auto-retry; if they're still on the old build, those events drop on the floor (which is what you want when retiring a leaked key).
+  </Step>
+</Steps>
+
+## Inspecting events by environment
+
+The dashboard's **Live events** view shows production traffic; **Test events** shows test traffic. Every chart, funnel, and cohort lets you pick the environment in the filter bar. You can't query both at once — that's by design, since the volumes are different orders of magnitude.
+
+## Region pinning (data residency)
+
+If your organization has data-residency requirements (EU, US, regional), you can pin a project to a specific region at creation time. The API key for a regional project encodes the region into its prefix (`sk_live_eu_…`, `sk_live_us_…`), and the SDK's endpoint must match. See [Data residency](/account/data-residency).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/rbac-and-teams" eyebrow="Next" title="RBAC and teams">
+    Roles, permissions, and how teams scope access to projects.
+  </Card>
+  <Card href="/concepts/ingestion-model" eyebrow="Concepts" title="Ingestion model">
+    What happens to an event after the engine accepts it.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Account" title="Data residency">
+    EU, US, and regional pinning for compliance-bound workloads.
+  </Card>
+</CardGrid>

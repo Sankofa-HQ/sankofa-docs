@@ -1,0 +1,139 @@
+---
+title: Sessions
+description: How Sankofa defines a session, when it rotates, and how sessions correlate replays, exposures, and decision snapshots into a single user-visible unit.
+toc: true
+sdks: [web, flutter, react-native, ios, android]
+---
+
+A session in Sankofa is a contiguous block of activity from one user, scoped to one device. Sessions are how the dashboard groups events into "this person did X, then Y, then Z, then closed the app" — and they're the unit that replays and exposure-tracking decisions ride on.
+
+Unlike many analytics tools, Sankofa sessions are **client-defined**. The SDK decides when one starts and ends, which means session boundaries respect the user's actual app behaviour (foregrounded for 20 minutes, then closed) instead of being approximated server-side from event timestamps.
+
+## When a session starts
+
+A new session begins when:
+
+<Steps>
+  <Step title="The app cold-starts">
+    First open after install, or after the OS has fully terminated the process. The SDK generates a fresh `session_id` (UUID).
+  </Step>
+  <Step title="The app foregrounds after long enough idle">
+    Default: 30 minutes of background time triggers a new session on the next foreground. Configurable via `sessionTimeoutMs` (web) / `sessionTimeoutSeconds` (mobile).
+  </Step>
+  <Step title="`reset()` is called">
+    Logging out also rotates the session. The SDK clears identity and mints a new `session_id`.
+  </Step>
+  <Step title="A session reaches a hard cap">
+    Default: 4 hours. Even an actively used app gets a fresh session every four hours so individual sessions stay queryable. Configurable via `maxSessionDurationMs`.
+  </Step>
+</Steps>
+
+## When a session ends
+
+A session ends when one of the conditions above starts a new one. There's no explicit "end" event — sessions implicitly close at their last activity timestamp.
+
+For replays and surveys that need to know "the session is over now," the SDK fires an internal `$session_end` event on backgrounding. You don't need to handle this — Sankofa's products consume it for you.
+
+## What gets stamped onto a session
+
+Every event during a session carries:
+
+| Field | Purpose |
+|---|---|
+| `$session_id` | UUID identifying the session. The same ID for every event in the session. |
+| `$session_start_ts` | When the session began. Useful for calculating "time-to-first-action" metrics. |
+| `$session_index` | Counter — `1` for the user's first session, `2` for the second, etc. Resets on `reset()`. |
+
+These show up under `default_properties` on every event and are queryable in cohort filters, charts, and the API.
+
+## Sessions and replays
+
+Session replay (the rrweb-based product on web, native capture on mobile) writes one replay file per session. Click an event in the dashboard's **Live events** view → **Watch replay** and the dashboard scrubs to the moment of the event in the matching session.
+
+Replays are session-scoped on purpose — a single replay file representing eight hours of activity would be too large to load. The 4-hour hard cap keeps replays under ~30 MB even for heavy sessions.
+
+## Sessions and decisions
+
+The decision handshake (the unified Switch / Config / Pulse / A/B Switch endpoint) fires once per session at session start. Every flag, config, and survey trigger evaluated during the session uses the same snapshot, so a flag can never flip mid-session — it can only change between sessions or via the explicit halt webhook.
+
+This is why `reset()` after a logout is non-negotiable: without it, the new user would inherit the old user's flag assignments and cohort memberships for the rest of that long session.
+
+See [The decision handshake](/concepts/decision-handshake).
+
+## Session timeout configuration
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  // Time the tab can sit idle before the next foreground starts a new session.
+  sessionTimeoutMs: 30 * 60 * 1000, // default 30 min
+  // Hard cap on a single session's duration.
+  maxSessionDurationMs: 4 * 60 * 60 * 1000, // default 4 hours
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+  sessionTimeoutSeconds: 1800, // 30 min
+  maxSessionDurationSeconds: 14400, // 4 hours
+);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`Sankofa.initialize("sk_live_...", {
+  endpoint: "https://api.sankofa.dev",
+  sessionTimeoutSeconds: 1800,
+  maxSessionDurationSeconds: 14400,
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(
+        endpoint: "https://api.sankofa.dev",
+        sessionTimeoutSeconds: 1800,
+        maxSessionDurationSeconds: 14400
+    )
+)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`Sankofa.init(
+    context = this,
+    apiKey = "sk_live_...",
+    config = SankofaConfig(
+        endpoint = "https://api.sankofa.dev",
+        sessionTimeoutSeconds = 1800,
+        maxSessionDurationSeconds = 14400,
+    ),
+)`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## Default values
+
+| Platform | `sessionTimeout` default | `maxSessionDuration` default |
+|---|---|---|
+| Web | 30 minutes (background tab) | 4 hours |
+| Mobile (Flutter / RN / iOS / Android) | 30 minutes (backgrounded) | 4 hours |
+
+These defaults match common UX expectations — most users either use an app continuously for under an hour or come back the next day. Tune them down if your product has high-frequency short sessions (a chat app); leave them as-is for almost everything else.
+
+<Callout tone="warning" title="Don't crank session timeout too high">
+A 24-hour timeout sounds harmless until you realise it means a single session can hold one decision snapshot, one replay, and one continuous flag assignment for the whole day. That breaks gradual rollouts and makes replays unwieldy. Stick close to defaults unless you have a specific reason.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    How one snapshot per session powers Switch, Config, Pulse, and A/B Switch together.
+  </Card>
+  <Card href="/concepts/exposure-tracking" eyebrow="Concepts" title="Exposure tracking">
+    Why per-call exposures matter even when decisions don't change mid-session.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Replays and crashes">
+    How sessions correlate with replays and crash bundles.
+  </Card>
+</CardGrid>

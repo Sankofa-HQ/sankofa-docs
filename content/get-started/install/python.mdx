@@ -1,0 +1,143 @@
+---
+title: Install on Python
+description: Install the Sankofa Python SDK and integrate with Django, Flask, FastAPI, or any WSGI/ASGI server.
+badge: 5 min
+toc: true
+sdks: [python]
+---
+
+The Sankofa Python SDK is published to PyPI as `sankofa-catch`. It captures events, errors, and request traces, and ships first-class integrations for Django, Flask, FastAPI, and any WSGI or ASGI application.
+
+## Requirements
+
+- **Python 3.9+**
+- pip 22+ (older versions can install but won't honor the `extras` matrix below)
+
+## 1. Install the package
+
+Install the core, then add an extra for whichever framework you're using:
+
+<Tabs defaultValue="bare">
+  <Tab value="bare" label="Core only">
+    <CodeBlock lang="bash" code={`pip install sankofa-catch`} />
+  </Tab>
+  <Tab value="django" label="Django">
+    <CodeBlock lang="bash" code={`pip install 'sankofa-catch[django]'`} />
+  </Tab>
+  <Tab value="flask" label="Flask">
+    <CodeBlock lang="bash" code={`pip install 'sankofa-catch[flask]'`} />
+  </Tab>
+  <Tab value="fastapi" label="FastAPI">
+    <CodeBlock lang="bash" code={`pip install 'sankofa-catch[fastapi]'`} />
+  </Tab>
+</Tabs>
+
+## 2. Initialize at startup
+
+Call `sankofa.init` once, before any imports that may throw — typically the very first thing in your `wsgi.py`, `asgi.py`, or `manage.py`.
+
+<CodeBlock lang="python" filename="app.py" code={`import os
+import sankofa
+
+sankofa.init(
+    api_key=os.environ["SANKOFA_KEY"],
+    endpoint="https://api.sankofa.dev",
+    release=os.environ.get("RELEASE_SHA"),
+    environment=os.environ.get("ENV", "production"),
+)`} />
+
+### Common init options
+
+<ParameterTable
+  params={[
+    { name: "api_key", type: "str", required: true, description: "Your project's server-side API key." },
+    { name: "endpoint", type: "str", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "release", type: "str", description: "Commit SHA or version tag — used to group source-mapped errors." },
+    { name: "environment", type: "str", default: "production", description: "Free-form label (development, staging, production)." },
+    { name: "traces_sample_rate", type: "float", default: "0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
+    { name: "ignore_logger_names", type: "list[str]", description: "Logger namespaces to drop without sending." },
+  ]}
+/>
+
+## 3. Wire your framework
+
+<CodeGroup>
+<CodeGroupItem tab="django" label="Django">
+<CodeBlock lang="python" filename="settings.py" code={`MIDDLEWARE = [
+    "sankofa.contrib.django.SankofaMiddleware",
+    # ... the rest of your middleware
+]`} />
+
+<CodeBlock lang="python" filename="manage.py" code={`import sankofa
+
+sankofa.init(api_key=os.environ["SANKOFA_KEY"])
+
+if __name__ == "__main__":
+    main()`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flask" label="Flask">
+<CodeBlock lang="python" filename="app.py" code={`from flask import Flask
+from sankofa.contrib.flask import sankofa_flask
+import sankofa
+
+sankofa.init(api_key=os.environ["SANKOFA_KEY"])
+
+app = Flask(__name__)
+sankofa_flask(app)
+
+@app.route("/")
+def home():
+    sankofa.track("homepage_visited")
+    return "ok"`} />
+</CodeGroupItem>
+<CodeGroupItem tab="fastapi" label="FastAPI">
+<CodeBlock lang="python" filename="main.py" code={`from fastapi import FastAPI
+from sankofa.contrib.fastapi import SankofaMiddleware
+import sankofa
+
+sankofa.init(api_key=os.environ["SANKOFA_KEY"])
+
+app = FastAPI()
+app.add_middleware(SankofaMiddleware)
+
+@app.get("/")
+async def home():
+    sankofa.track("homepage_visited")
+    return {"ok": True}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vanilla" label="Vanilla / WSGI">
+<CodeBlock lang="python" filename="worker.py" code={`import sankofa
+
+sankofa.init(api_key=os.environ["SANKOFA_KEY"])
+
+try:
+    do_work()
+except Exception as exc:
+    sankofa.capture_exception(exc)
+    raise`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 4. Verify the install
+
+<CodeBlock lang="python" code={`sankofa.track("install_check", {"from": "python-quickstart"})`} />
+
+Open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. The event should appear with a `python` source label and the interpreter version captured under default properties.
+
+<Callout tone="warning" title="Flush on graceful shutdown">
+Long-running processes (Celery workers, batch jobs) should call `sankofa.flush()` before exiting. Web frameworks integrated above flush automatically on response; uvicorn / gunicorn workers flush on shutdown signal.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/python/overview" eyebrow="Reference" title="Python SDK reference">
+    All APIs, decorators, framework hooks.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Server error tracking">
+    Capture exceptions, breadcrumbs, and unhandled rejections.
+  </Card>
+</CardGrid>

@@ -1,0 +1,78 @@
+---
+title: Concepts
+description: The data model and protocols that every SDK and product on Sankofa builds on — tenancy, identity, events, sessions, decisions, retention.
+toc: true
+---
+
+This section explains the concepts every Sankofa SDK and product is built on. You don't need to read it in order — pick the topic relevant to what you're building. The pages here describe **what** a concept is and **why** it works the way it does. The product and SDK sections describe **how** to use them in practice.
+
+## Account model
+
+How your team's data is organized inside Sankofa.
+
+<CardGrid cols={3}>
+  <Card href="/concepts/organizations-and-projects" eyebrow="Tenancy" title="Organizations and projects">
+    The boundary for events, billing, RBAC, and API keys. One organization, many projects.
+  </Card>
+  <Card href="/concepts/environments-and-api-keys" eyebrow="Tenancy" title="Environments and API keys">
+    Live vs. test environments per project; how the engine routes traffic via the key on each request.
+  </Card>
+  <Card href="/concepts/rbac-and-teams" eyebrow="Tenancy" title="RBAC and teams">
+    Viewer, Editor, Admin, Owner — what each role can do, and how teams scope access to projects.
+  </Card>
+</CardGrid>
+
+## Data model
+
+How user behavior turns into rows in ClickHouse.
+
+<CardGrid cols={3}>
+  <Card href="/concepts/events" eyebrow="Data model" title="Events">
+    The atomic unit. Naming conventions, properties, and how events flow through every product.
+  </Card>
+  <Card href="/concepts/identity-and-aliases" eyebrow="Data model" title="Identity and aliases">
+    Anonymous-to-known stitching. How `identify` and `alias` work, and what gets rewritten server-side.
+  </Card>
+  <Card href="/concepts/sessions" eyebrow="Data model" title="Sessions">
+    Session boundaries, foreground/background detection, and how sessions correlate with replays.
+  </Card>
+  <Card href="/concepts/default-properties" eyebrow="Data model" title="Default properties">
+    Device, OS, geo, and app metadata the SDK adds for free. Which fields get promoted to indexed columns.
+  </Card>
+  <Card href="/concepts/cohorts" eyebrow="Data model" title="Cohorts">
+    Static and dynamic cohorts, refresh cadence, and how cohorts feed Switch / Config / Pulse decisions.
+  </Card>
+</CardGrid>
+
+## Ingestion and decisions
+
+The two protocols every SDK speaks to the engine.
+
+<CardGrid cols={3}>
+  <Card href="/concepts/ingestion-model" eyebrow="Protocol" title="Ingestion model">
+    Client → engine → ClickHouse. Batching, backpressure, retries, and how the engine acks events.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Protocol" title="The decision handshake">
+    One ETag-cached snapshot per session powers Switch, Config, Pulse triggers, and A/B Switch — together.
+  </Card>
+  <Card href="/concepts/exposure-tracking" eyebrow="Protocol" title="Exposure tracking">
+    Per-call vs handshake-level exposures and why the distinction matters for experiment math.
+  </Card>
+  <Card href="/concepts/data-retention" eyebrow="Protocol" title="Data retention">
+    How long events, replays, and decision logs live. Per-tier retention, PII redaction, and legal hold.
+  </Card>
+</CardGrid>
+
+## Where to go from here
+
+<CardGrid cols={3}>
+  <Card href="/get-started/quickstart" eyebrow="Hands-on" title="Quickstart">
+    Send your first event in under five minutes if you haven't already.
+  </Card>
+  <Card href="/products/overview" eyebrow="Product" title="Product overview">
+    See how each of the eight products consumes these concepts.
+  </Card>
+  <Card href="/api/overview" eyebrow="Reference" title="API reference">
+    The REST surface that every SDK is implemented against.
+  </Card>
+</CardGrid>

@@ -1,0 +1,114 @@
+---
+title: Cohorts
+description: Static and dynamic user segments — how cohorts are computed, when they refresh, and how Switch, Config, and Pulse target users by cohort.
+toc: true
+---
+
+A cohort is a named set of users that match a query you define. Cohorts power most of what makes Sankofa feel personalised — flag rollouts targeted to "Pro plan customers in the EU," configs overridden for "trial users in their second week," surveys triggered for "users who hit a 5xx on checkout in the last 24 hours."
+
+Cohorts come in two flavours — **static** and **dynamic** — and they refresh on a schedule you can reason about.
+
+## Static vs dynamic cohorts
+
+| | Static | Dynamic |
+|---|---|---|
+| Membership rule | A list of `distinct_id`s you supply | A query against events / properties / people fields |
+| Updated when | Only when you replace the list | On the cohort's refresh schedule (default every 5 min) |
+| Use for | Beta lists, internal staff, manually-curated test cohorts | "Power users", "free tier", "EU + Pro plan", anything rule-based |
+| Maximum size | 100k members | Unlimited |
+| Created via | Dashboard upload (CSV) or [Cohorts API](/api/overview) | Dashboard cohort builder or [Cohorts API](/api/overview) |
+
+The same cohort interface targets both — Switch, Config, and Pulse don't care whether a cohort is static or dynamic.
+
+## Building a dynamic cohort
+
+The cohort builder in **People → Cohorts → New cohort** combines:
+
+- **Property filters** — `country = "GH"`, `plan = "pro"`, `signup_date > "2025-01-01"`. These match against the user's most recent **People profile** (set via `setPerson` / `peopleSet`).
+- **Behavior filters** — "performed `checkout_completed` at least 3 times in the last 30 days," "did NOT perform `signup_completed` in the last 7 days," etc.
+- **Cohort filters** — "is in cohort X but not in cohort Y" — for layering.
+
+The builder generates a query that the engine runs on a refresh schedule. The result is a materialized list of `distinct_id`s stored against the cohort, ready for fast O(1) lookups during decision handshakes.
+
+## Refresh cadence
+
+Dynamic cohorts refresh in the background, not in real time:
+
+| Tier | Refresh interval |
+|---|---|
+| Free | 30 minutes |
+| Pro | 5 minutes |
+| Growth | 1 minute |
+| Enterprise | 30 seconds, with optional event-driven recompute |
+
+The engine doesn't refresh every cohort on every tick — it stagger-refreshes so the work is spread evenly across the project. A cohort scheduled at 5 minutes will refresh somewhere within a 5-minute window.
+
+<Callout tone="warning" title="Real-time cohort entry is a roadmap item">
+Today, a user entering a cohort like "high-error-rate users in the last 60 seconds" sees their cohort-targeted decision within ~5 minutes (Pro tier) of the next refresh. Real-time entry — where the cohort recomputes on the same event that should trigger entry — is on the V2 roadmap. For Pulse-style triggers that need millisecond-fresh triggering, use direct event triggers instead of cohort-based triggers.
+</Callout>
+
+## How decisions consume cohorts
+
+When the engine evaluates a flag, config item, or survey trigger for a user, it does:
+
+<Steps>
+  <Step title="Identity lookup">
+    Resolve the user's current `distinct_id` (post-alias, post-identify).
+  </Step>
+  <Step title="Cohort membership lookup">
+    Look up which cohorts the `distinct_id` is currently in. This is an O(1) read against the materialized cohort table — no event-store scan involved.
+  </Step>
+  <Step title="Decision evaluation">
+    For each rule (e.g. "Pro plan customers get rollout 100%"), check whether the user's cohorts match. The first matching rule wins.
+  </Step>
+</Steps>
+
+This is why cohort-targeted decisions are fast — the heavy lifting (running the cohort query) happens out-of-band on the refresh schedule, not in the request path.
+
+## Identity stitching and cohorts
+
+When a user goes from anonymous to identified, the engine forwards the `anon_id` on the next decision handshake. If the now-identified user matches a cohort that wasn't matched anonymously (because membership requires an email property, say), the next handshake routes the cohort-targeted decision to them.
+
+This means: **cohort-targeted experiments are continuous across the login boundary.** A user in the "got the new checkout variant" arm before sign-in stays in that arm after sign-in.
+
+## Cohort lifecycle
+
+| State | What it means |
+|---|---|
+| `building` | First materialization is running. Decisions can't query the cohort yet. |
+| `active` | Materialized and queryable. Refreshes on schedule. |
+| `paused` | The query is intact but won't refresh. Membership is frozen at last refresh. |
+| `archived` | Soft-deleted. Not visible in the UI. Decisions referencing it fall back to the rule's default. |
+
+Archive cohorts you no longer use rather than deleting them — every decision that ever referenced an archived cohort still resolves cleanly to the default.
+
+## Practical patterns
+
+<Accordion>
+<AccordionItem title="Beta cohort that grows with explicit invites">
+Use a static cohort uploaded from the dashboard or pushed via the API on every invite. Append-only. Roll out a flag to `100%` of the cohort.
+</AccordionItem>
+<AccordionItem title="Power-user cohort that auto-recomputes">
+Dynamic cohort: "performed `core_action_*` at least 30 times in the last 7 days." Refreshes every 5 minutes (Pro). New users entering the cohort see the targeted experience within minutes.
+</AccordionItem>
+<AccordionItem title="Geo-restricted rollout">
+Dynamic cohort filtering on `$country IN ['GH','NG','KE']`. Pair with a Switch flag at 100% rollout for that cohort, 0% rollout for everyone else.
+</AccordionItem>
+<AccordionItem title="Negative cohort (exclude internal staff)">
+Static cohort of internal employee `distinct_id`s. In every flag's rule list, add an explicit "if in `internal_staff`, decision = `default`" rule above the rollout rule.
+</AccordionItem>
+</Accordion>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/switch/overview" eyebrow="Switch" title="Targeting flags by cohort">
+    The most common use of cohorts.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Pulse" title="Targeting surveys by cohort">
+    Trigger surveys when users enter or leave a cohort.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    How cohort lookups fit into the per-session decision payload.
+  </Card>
+</CardGrid>

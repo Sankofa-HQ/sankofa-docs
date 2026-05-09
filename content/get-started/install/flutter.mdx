@@ -1,0 +1,110 @@
+---
+title: Install on Flutter
+description: Install the Sankofa Flutter SDK from pub.dev and initialize it before runApp — works on iOS, Android, web, and desktop targets.
+badge: 5 min
+toc: true
+sdks: [flutter]
+---
+
+The `sankofa_flutter` package on pub.dev bundles all eight Sankofa products in a single SDK — analytics, error capture, feature flags, remote config, surveys, OTA deploy, and session replay. There are no separate add-on packages on Flutter.
+
+## 1. Add the dependency
+
+Add `sankofa_flutter` to your `pubspec.yaml`:
+
+<CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
+  flutter:
+    sdk: flutter
+  sankofa_flutter: ^1.0.0`} />
+
+Then fetch it:
+
+<CodeBlock lang="bash" code={`flutter pub get`} />
+
+## 2. Platform setup
+
+The native SDKs underneath have light platform requirements that must be satisfied for the build to succeed.
+
+<Steps>
+  <Step title="iOS — bump the minimum platform">
+    Open `ios/Podfile` and ensure the iOS target is at least **13.0**:
+
+    <CodeBlock lang="ruby" filename="ios/Podfile" code={`platform :ios, '13.0'`} />
+
+    Then run:
+
+    <CodeBlock lang="bash" code={`cd ios && pod install`} />
+  </Step>
+  <Step title="Android — bump minSdk to 24">
+    In `android/app/build.gradle.kts` (or `build.gradle`):
+
+    <CodeBlock lang="kotlin" filename="android/app/build.gradle.kts" code={`android {
+    defaultConfig {
+        minSdk = 24
+        targetSdk = 35
+    }
+}`} />
+  </Step>
+  <Step title="Web (optional)">
+    Web targets work out of the box; no extra step is needed.
+  </Step>
+</Steps>
+
+<Callout tone="note" title="Flutter version">
+We test against Flutter 3.19+ and Dart 3.3+. Older versions may build but are unsupported — please upgrade if you can.
+</Callout>
+
+## 3. Initialize before runApp
+
+Initialize the SDK in `main()` **before** the first frame so device metadata is captured from the very first event.
+
+<CodeBlock lang="dart" filename="lib/main.dart" code={`import 'package:flutter/material.dart';
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Sankofa.instance.init(
+    apiKey: const String.fromEnvironment('SANKOFA_KEY'),
+    endpoint: 'https://api.sankofa.dev',
+    debug: !const bool.fromEnvironment('dart.vm.product'),
+  );
+  runApp(const MyApp());
+}`} />
+
+Pass the API key at build time with `--dart-define`:
+
+<CodeBlock lang="bash" code={`flutter run --dart-define=SANKOFA_KEY=sk_test_...`} />
+
+### Common init flags
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "String", required: true, description: "Your project's API key (live or test). The engine resolves the environment from the key on every request." },
+    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL. Use a regional endpoint to pin data residency." },
+    { name: "debug", type: "bool", default: "false", description: "Verbose logging during development. Disable in production." },
+    { name: "trackLifecycleEvents", type: "bool", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
+    { name: "enableSessionReplay", type: "bool", default: "false", description: "Wrap your app in <SankofaReplayBoundary> to enable. See the replay guide." },
+  ]}
+/>
+
+## 4. Verify the install
+
+Drop one `track` call somewhere reachable — for example in `main()` after `init`, or behind a button:
+
+<CodeBlock lang="dart" code={`await Sankofa.instance.track('install_check', {'from': 'flutter-quickstart'});`} />
+
+Open [app.sankofa.dev](https://app.sankofa.dev) → your project → **Live events**. You should see the event within a few seconds, with a `flutter` source label.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    The full first-event guide, with multi-platform parity.
+  </Card>
+  <Card href="/sdks/flutter/overview" eyebrow="Reference" title="Flutter SDK reference">
+    All eight products' APIs as exposed in the Flutter SDK.
+  </Card>
+  <Card href="/concepts/sessions" eyebrow="Concepts" title="Sessions">
+    How session boundaries are computed and correlated with replays.
+  </Card>
+</CardGrid>

@@ -1,0 +1,118 @@
+---
+title: Ingestion model
+description: The full path an event takes from `track()` to a queryable row in ClickHouse — batching, retries, backpressure, and the guarantees the engine provides.
+toc: true
+---
+
+This page describes what happens between `Sankofa.track(...)` returning to your code and the resulting row being available in a query. Read this when you're debugging a missing event, sizing your event volume against a plan tier, or designing a custom HTTP-only ingestion pipeline.
+
+## The five-stage path
+
+<Steps>
+  <Step title="Stage 1 — Capture">
+    Your call site fires `track`, `identify`, `setPerson`, or `alias`. The SDK builds a payload (event name, properties, default properties, identity), assigns a client-side timestamp, and returns immediately. Your code is unblocked within a few microseconds — there's no synchronous network call.
+  </Step>
+  <Step title="Stage 2 — Queue">
+    The payload goes onto the SDK's offline-first queue. On web that's `IndexedDB`; on mobile it's SQLite (GRDB on iOS, the SDK's own table on Android, `sqflite` on Flutter). Server SDKs use an in-memory ring buffer with a configurable max queue size. The queue persists across app restarts on every client SDK — events fired offline survive a force-quit and replay on next launch.
+  </Step>
+  <Step title="Stage 3 — Flush">
+    The queue flushes to the engine on whichever of these comes first:
+
+    - the configured `flushInterval` (default 30 s on mobile, 5 s on web, 5 s on server SDKs);
+    - the queue reaches `batchSize` (default 50 on mobile, 100 on web, 200 on server);
+    - the app is backgrounded / suspended;
+    - a manual `flush()` call;
+    - the SDK is shutting down.
+
+    Flushes hit `POST /api/v1/batch` with up to `batchSize` items. The connection is reused across flushes (HTTP keep-alive) so per-flush latency stays low.
+  </Step>
+  <Step title="Stage 4 — Engine ingest">
+    On the engine:
+
+    1. **Auth** — O(1) Redis lookup on the API key. 30s TTL.
+    2. **Environment + project resolution** — derived from the key, never trusted from the client.
+    3. **Allow / deny lists** — applied to property names.
+    4. **GeoIP** — country / region / city / timezone resolved from the source IP if not already provided.
+    5. **Promotion** — the nine promoted defaults are extracted and written to indexed columns; the rest goes into a JSON column.
+    6. **Write** — a single ClickHouse INSERT batches the events into the project's events table.
+    7. **Ack** — the engine returns 200 to the SDK with the count of events accepted.
+  </Step>
+  <Step title="Stage 5 — Query availability">
+    Events are visible in **Live events** within ~1 second of the engine ack (ClickHouse's part replication is fast). Funnels, cohorts, retention, and other aggregate views refresh on their own cadence — typically 30 s on Pro, near-real-time on Enterprise.
+  </Step>
+</Steps>
+
+## Guarantees
+
+| Property | What Sankofa guarantees |
+|---|---|
+| **At-least-once delivery** | An event you tracked will reach the engine eventually, unless the device's storage is wiped first. Deduplication uses the SDK-assigned `event_id` UUID — duplicate sends are dropped server-side. |
+| **Order within a session** | Events from a single session preserve their client timestamp ordering even if they arrive out of order on the wire. |
+| **Order across sessions** | Not guaranteed. Two events from different sessions can land in any order on the engine. |
+| **Causal consistency with `identify`** | Events fired *after* `identify` are guaranteed to be attributed to the new ID once the alias takes effect (typically within seconds, up to a few minutes for full historical re-attribution). |
+| **No data loss on graceful shutdown** | If you call `Sankofa.flush()` (or `Close()` on Go) before exit, the queue is drained synchronously. |
+| **Bounded data loss on hard kill** | If a process is killed (`SIGKILL`, OS OOM), in-flight HTTP requests can be lost. The next start picks up the persisted queue and re-sends. |
+
+## Backpressure
+
+The engine protects itself with a bounded ingestion buffer. When the buffer is at capacity:
+
+- **At the engine** — the engine returns `503` with a `Retry-After` header. The SDK's HTTP client backs off and retries (exponential, capped at 60 s).
+- **At the SDK queue** — if the queue exceeds `maxQueueSize` (default 1024 on mobile, 5000 on web), the oldest events are dropped on overflow. A `$queue_overflow` event is fired the next time the queue successfully flushes, telling you how many were lost.
+
+`maxQueueSize` is tunable per init. Bump it for offline-heavy workloads (field-service apps, ferries, anywhere with weeks of intermittent connectivity).
+
+## Retries
+
+The SDK retries on every transient failure: timeouts, 5xx responses, network down. Retries are exponential with jitter, capped at 60s. Permanent failures (`401`, `403`, `400`) abort the retry loop and report into your debug log.
+
+The engine itself doesn't retry — it accepts or rejects. Idempotency comes from the SDK-supplied `event_id`: if the engine receives an event with an ID it's already seen in the last 24 hours, it's a no-op.
+
+## Common ingestion failure modes
+
+<Accordion>
+<AccordionItem title="Events arrive but the timestamps are wrong">
+The SDK timestamps events with the device clock at capture time. If the device clock is wrong (off-grid hardware, factory-reset phones), event timestamps will be off too. The engine doesn't override them.
+
+For server SDKs in synchronized environments this is rarely a problem. For mobile SDKs, set `correctClockSkew: true` to have the SDK detect skew on first flush and offset all subsequent timestamps to UTC.
+</AccordionItem>
+<AccordionItem title="Events drop silently">
+Three common causes:
+
+1. **Wrong API key environment** — events landed in `test` instead of `live`. Filter the dashboard by environment.
+2. **Allow list dropped your properties** — check **Settings → Data → Properties**.
+3. **Quota exhausted on Free tier** — events past the monthly quota are 429'd at ingest. Check your usage card on the dashboard.
+</AccordionItem>
+<AccordionItem title="Events arrive but identity is wrong">
+You probably called `identify` after `track`. The right order is:
+
+1. `track` anonymously while user is not signed in.
+2. On sign-in, call `identify(user_id)` first.
+3. Then `track` more events.
+
+Anonymous events fired in step 1 are stitched server-side; they'll appear under `user_id` within minutes.
+</AccordionItem>
+<AccordionItem title="Server SDK loses events on shutdown">
+Always call `Sankofa.flush()` (or `client.Close(ctx)` on Go) in your shutdown handler. Long-running web servers usually flush automatically on `SIGTERM` if the SDK's framework integration is wired; standalone scripts and Celery workers must do it explicitly.
+</AccordionItem>
+</Accordion>
+
+## Custom HTTP ingestion
+
+If you need to ingest from an environment Sankofa doesn't provide an SDK for (mainframes, embedded systems, weird shells), POST events directly to the engine. See [API → Ingestion](/api/ingestion/track) for the full payload reference.
+
+The same allow / deny lists, environment routing, and identity stitching apply — `/api/v1/track` is exactly what every SDK ends up calling.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/events" eyebrow="Concepts" title="Events">
+    What an event is and how its properties are structured.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    The other protocol every SDK speaks — for flags, configs, surveys.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Reference" title="Track API">
+    The HTTP endpoint that backs every `track` call.
+  </Card>
+</CardGrid>

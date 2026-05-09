@@ -1,0 +1,111 @@
+---
+title: Install on React Native
+description: Install the Sankofa React Native SDK in bare RN or Expo, with auto-applied native configuration via the Sankofa CLI.
+badge: 5 min
+toc: true
+sdks: [react-native]
+---
+
+The `@sankofa/react-native` package wraps the native iOS and Android Sankofa SDKs and exposes a single JavaScript surface. It bundles all eight Sankofa products and ships an Expo Config Plugin that applies the native setup at prebuild time.
+
+<Callout tone="warning" title="Development build required">
+React Native SDKs touch native modules, so this package will not run inside Expo Go. Use a development build (`expo run:ios` / `expo run:android`) or a bare React Native project.
+</Callout>
+
+## 1. Install the package
+
+<Tabs defaultValue="expo">
+  <Tab value="expo" label="Expo">
+    <CodeBlock lang="bash" code={`npx expo install @sankofa/react-native`} />
+  </Tab>
+  <Tab value="npm" label="npm (bare)">
+    <CodeBlock lang="bash" code={`npm install @sankofa/react-native`} />
+  </Tab>
+  <Tab value="yarn" label="yarn (bare)">
+    <CodeBlock lang="bash" code={`yarn add @sankofa/react-native`} />
+  </Tab>
+  <Tab value="pnpm" label="pnpm (bare)">
+    <CodeBlock lang="bash" code={`pnpm add @sankofa/react-native`} />
+  </Tab>
+</Tabs>
+
+## 2. Wire native projects
+
+The fastest path uses the Sankofa CLI, which detects your project type and applies the right configuration:
+
+<CodeBlock lang="bash" code={`npx sankofa init`} />
+
+This:
+
+- adds `@sankofa/react-native` to the `expo.plugins` array in `app.json` (Expo), or
+- patches `MainApplication.kt` and `AppDelegate.swift` (bare React Native);
+- creates `.sankofa.json` with the API key, project ID, and endpoint;
+- updates `.gitignore` to exclude credentials and build artifacts.
+
+After running it, verify everything is wired correctly:
+
+<CodeBlock lang="bash" code={`npx sankofa check`} />
+
+### Manual setup (Expo)
+
+Skip `sankofa init` and edit `app.json` yourself:
+
+<CodeBlock lang="json" filename="app.json" code={`{
+  "expo": {
+    "plugins": ["@sankofa/react-native"]
+  }
+}`} />
+
+Then regenerate native projects so the plugin applies:
+
+<CodeBlock lang="bash" code={`npx expo prebuild --clean`} />
+
+## 3. Initialize once at app entry
+
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { Sankofa } from "@sankofa/react-native";
+
+Sankofa.initialize(process.env.EXPO_PUBLIC_SANKOFA_KEY!, {
+  endpoint: "https://api.sankofa.dev",
+  recordSessions: true,
+  maskAllInputs: true,
+  debug: __DEV__,
+});`} />
+
+For Expo Router, this lives in `app/_layout.tsx`. For bare React Native, place it in your root `App.tsx` or `index.js` before the first render.
+
+### Common init options
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "string", required: true, description: "Your project's API key. Use a test key in development." },
+    { name: "endpoint", type: "string", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "recordSessions", type: "boolean", default: "true", description: "Enable session replay capture." },
+    { name: "maskAllInputs", type: "boolean", default: "true", description: "Auto-mask all <TextInput> components in replays." },
+    { name: "trackLifecycleEvents", type: "boolean", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
+    { name: "debug", type: "boolean", default: "false", description: "Verbose logging — leave on in development with __DEV__." },
+  ]}
+/>
+
+## 4. Verify the install
+
+Add a single `track` call in your root component:
+
+<CodeBlock lang="tsx" code={`import { Sankofa } from "@sankofa/react-native";
+
+Sankofa.track("install_check", { from: "react-native-quickstart" });`} />
+
+Reload the app and open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. The event should appear within seconds with a `react-native` source label and either an `ios` or `android` platform tag.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="Reference" title="React Native SDK reference">
+    All APIs, OTA deploy hooks, and the `useSankofaScreen` hook.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Deploy" title="OTA releases">
+    Ship JavaScript updates without an App Store review.
+  </Card>
+</CardGrid>

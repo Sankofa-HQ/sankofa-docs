@@ -1,0 +1,159 @@
+---
+title: The decision handshake
+description: One ETag-cached payload per session powers Switch, Config, Pulse triggers, and A/B Switch — together. Here's how the protocol works and why we built it this way.
+toc: true
+---
+
+Most analytics SDKs evaluate feature flags by polling a single endpoint per flag, per call. That works at small scale and falls apart fast — every render becomes a network request, every flag adds latency, and there's no shared truth across products.
+
+Sankofa's solution is the **decision handshake**: a single endpoint, called once per session, that returns the user's complete decision state across **every** product Sankofa runs — feature flags (Switch), remote config (Config), survey triggers (Pulse), and experiment assignments (A/B Switch). The SDK caches the response, evaluates everything locally for the rest of the session, and refreshes via ETag so unchanged state never re-hits the network.
+
+This is the seam that makes "one binary, zero glue code" possible.
+
+## The endpoint
+
+<EndpointBadge method="POST" path="/api/v1/decisions" />
+
+A decision request includes everything the engine needs to evaluate every rule against the current user:
+
+<CodeBlock lang="json" code={`{
+  "distinct_id": "user_123",
+  "anon_id": "anon_a3b9ff",
+  "default_properties": {
+    "$country": "GH",
+    "$os": "ios",
+    "$app_version": "2.4.1"
+  },
+  "lib": "@sankofa/react-native",
+  "lib_version": "1.0.4",
+  "modules": ["switch", "config", "pulse", "abswitch"]
+}`} />
+
+The response is the full decision payload for every module the SDK supports:
+
+<CodeBlock lang="json" code={`{
+  "etag": "W/\\"7d4f...\\"",
+  "switch": {
+    "new_checkout": { "value": true, "variant": null, "reason": "rollout" },
+    "dark_mode_default": { "value": false, "reason": "default" }
+  },
+  "config": {
+    "max_upload_mb": { "value": 200, "version": 7, "reason": "cohort:pro" },
+    "support_email": { "value": "help@sankofa.dev", "version": 12, "reason": "default" }
+  },
+  "pulse": {
+    "triggers": [
+      { "id": "trg_nps_30d", "rule": "session_count >= 5", "ttl_s": 600 }
+    ]
+  },
+  "abswitch": {
+    "checkout_redesign_test": { "variant": "treatment_b", "reason": "variant_assigned" }
+  }
+}`} />
+
+## When the handshake fires
+
+<Steps>
+  <Step title="On app launch / cold start">
+    First open after install — the SDK has no cached snapshot, so it fires a handshake before the first frame. If the network is slow or unreachable, the SDK proceeds with bundled defaults.
+  </Step>
+  <Step title="On session resume after a long background">
+    If `sessionTimeout` has elapsed since last foreground (default 30 min), the SDK rotates the session and refires the handshake.
+  </Step>
+  <Step title="On `identify()` transition">
+    When a user signs in, the SDK refires the handshake with the new `distinct_id` so cohort-targeted decisions update immediately.
+  </Step>
+  <Step title="On the configured refresh interval">
+    While the app is foregrounded, the SDK polls every 30 s with the previous response's `If-None-Match: <etag>` header. When nothing has changed (the common case), the engine returns `304 Not Modified` and the SDK uses its cached payload — zero bandwidth past the request line.
+  </Step>
+  <Step title="On halt-webhook trigger">
+    If the engine has flipped a flag's `halted` state since the last handshake, the SDK is push-notified (Server-Sent Events on web; long-poll on mobile). The next decision lookup uses the fresh halted state.
+  </Step>
+</Steps>
+
+## ETag-based refresh
+
+This is the reason the protocol works at scale.
+
+<Steps>
+  <Step title="First handshake">
+    Engine computes the full decision payload, hashes it into a strong ETag, returns the body + `ETag: W/"7d4f..."` header. The SDK caches the body and the ETag.
+  </Step>
+  <Step title="Refresh tick">
+    SDK sends `If-None-Match: W/"7d4f..."`. The engine recomputes the user's decision payload — but **does not serialize it**. It just compares the new payload's hash to the supplied ETag.
+  </Step>
+  <Step title="304 Not Modified">
+    If the hashes match, the engine returns `304` with no body. The SDK keeps using its cached payload. No JSON, no parse, no allocation.
+  </Step>
+  <Step title="200 with new body">
+    If the hashes differ (a flag was toggled, a config was published, the user entered a new cohort), the engine returns 200 with the fresh body and a new ETag. The SDK swaps the cache.
+  </Step>
+</Steps>
+
+In normal operation, the steady-state network usage of a fully-instrumented Sankofa app is one ~200-byte 304 every 30 s — vanishingly small.
+
+## Bundled defaults
+
+Every SDK lets you ship **bundled defaults** at init time:
+
+<CodeBlock lang="ts" code={`Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  plugins: [
+    switchPlugin({
+      defaults: { new_checkout: false, dark_mode_default: false },
+    }),
+    configPlugin({
+      defaults: { max_upload_mb: 25, support_email: "help@example.com" },
+    }),
+  ],
+});`} />
+
+Bundled defaults are returned synchronously by `flags.getFlag(...)` / `config.get(...)` even before the first handshake lands. They're also the fallback when the network is down or a key is missing in the engine's response. This is why the right pattern is: **ship safe defaults in code, override on the server.**
+
+## Reason tags — a stable contract
+
+Every decision in the response includes a `reason` field. This is a documented stable string that the dashboard, the SDK, and your own analytics can rely on:
+
+| Reason | Meaning |
+|---|---|
+| `default` | The flag/config wasn't found, or no rule matched. The SDK's bundled default (or code-side default) applied. |
+| `rollout` | A percentage rollout matched the user's stable bucket. |
+| `cohort:<name>` | A cohort-targeted rule matched (`cohort:pro`, `cohort:internal_staff`). |
+| `variant_assigned` | An A/B Switch experiment assigned the user to a variant via stable hashing. |
+| `halted` | The flag was halted (manually or via webhook). The default applied. |
+| `dependency_unmet` | A flag this one depends on evaluated to off. |
+| `cohort_lookup_failed` | The cohort table was unreachable. The default applied (graceful degradation). |
+| `kill_switch` | The engine globally disabled this flag (admin action). |
+
+Treat reasons as a public API. They surface in the dashboard's flag-decision log, in webhook payloads, and in your own analytics if you log them.
+
+## Anon-id forwarding
+
+The SDK sends both `distinct_id` and `anon_id` on every handshake. After `identify`, the `anon_id` is the previous anonymous ID; the engine uses both to:
+
+- evaluate any rule that targets users who were in the cohort *before* signing in;
+- emit experiment exposure events under the post-identify ID, while preserving cohort-based variant assignment from before;
+- maintain a continuous experiment arm across the login boundary.
+
+This is why someone who got `treatment_b` while anonymous keeps `treatment_b` after signing in — the variant assignment is keyed off `anon_id` until `distinct_id` is known, then the engine forwards it.
+
+## What you don't have to think about
+
+- **No per-flag latency** — flags resolve from the cached snapshot in microseconds.
+- **No race conditions** — handshake and event ingest are decoupled, so a slow handshake doesn't block tracking.
+- **No partial state** — every product's decisions land together. You can't have stale flags but fresh configs.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/exposure-tracking" eyebrow="Concepts" title="Exposure tracking">
+    Why per-call exposures still matter even when decisions don't change mid-session.
+  </Card>
+  <Card href="/products/switch/overview" eyebrow="Switch" title="Feature flags">
+    The most common consumer of the decision handshake.
+  </Card>
+  <Card href="/api/switch/decision" eyebrow="Reference" title="Decision API">
+    The full request / response shape, headers, and status codes.
+  </Card>
+</CardGrid>

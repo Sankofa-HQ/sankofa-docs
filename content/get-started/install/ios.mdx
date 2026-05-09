@@ -1,0 +1,125 @@
+---
+title: Install on iOS
+description: Add the Sankofa iOS SDK to your Xcode project via Swift Package Manager or CocoaPods, with first-class Swift and Objective-C support.
+badge: 5 min
+toc: true
+sdks: [ios]
+---
+
+The Sankofa iOS SDK is a native Swift library with Objective-C interop. It includes all eight Sankofa products and uses GRDB for thread-safe SQLite-backed offline queueing. Apple Privacy Manifest support is built in.
+
+## Requirements
+
+- **Xcode 15+** (Swift 5.9+)
+- **iOS 13+** deployment target
+- **Privacy Manifest** support (Apple 2024 requirement) — bundled with the SDK
+
+## 1. Add the SDK
+
+<Tabs defaultValue="spm">
+  <Tab value="spm" label="Swift Package Manager">
+    In Xcode:
+
+    1. Open **File → Add Package Dependencies…**
+    2. Enter the URL: `https://github.com/sankofa-hq/sankofa-ios`
+    3. Pick **Up to Next Major Version** from `1.0.0`.
+    4. Add the `Sankofa` library to your app target.
+
+    Or pin in `Package.swift`:
+
+    <CodeBlock lang="swift" filename="Package.swift" code={`.package(url: "https://github.com/sankofa-hq/sankofa-ios.git", from: "1.0.0")`} />
+  </Tab>
+  <Tab value="cocoapods" label="CocoaPods">
+    <CodeBlock lang="ruby" filename="Podfile" code={`platform :ios, '13.0'
+
+target 'YourApp' do
+  use_frameworks!
+  pod 'Sankofa', '~> 1.0'
+end`} />
+
+    <CodeBlock lang="bash" code={`pod install`} />
+  </Tab>
+</Tabs>
+
+## 2. Initialize at app launch
+
+Initialize early — in `@main`'s `init()` or `application(_:didFinishLaunchingWithOptions:)` — so device metadata flows into every event from the first frame.
+
+<CodeGroup>
+<CodeGroupItem tab="ios" label="Swift">
+<CodeBlock lang="swift" filename="App.swift" code={`import SwiftUI
+import Sankofa
+
+@main
+struct YourApp: App {
+    init() {
+        Sankofa.shared.initialize(
+            apiKey: ProcessInfo.processInfo.environment["SANKOFA_KEY"] ?? "",
+            config: SankofaConfig(
+                endpoint: "https://api.sankofa.dev",
+                recordSessions: true,
+                maskAllInputs: true
+            )
+        )
+    }
+
+    var body: some Scene {
+        WindowGroup { ContentView() }
+    }
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios-objc" label="Objective-C">
+<CodeBlock lang="objective-c" filename="AppDelegate.m" code={`#import <Sankofa/Sankofa-Swift.h>
+
+- (BOOL)application:(UIApplication *)application
+        didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    SankofaConfig *config = [[SankofaConfig alloc] initWithEndpoint:@"https://api.sankofa.dev"
+                                                              debug:NO
+                                                trackLifecycleEvents:YES
+                                                flushIntervalSeconds:30
+                                                          batchSize:50
+                                                     recordSessions:YES
+                                                      maskAllInputs:YES];
+    [[Sankofa shared] initializeWithApiKey:@"sk_live_..." config:config];
+    return YES;
+}`} />
+</CodeGroupItem>
+</CodeGroup>
+
+### Common config options
+
+<ParameterTable
+  params={[
+    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "recordSessions", type: "Bool", default: "true", description: "Enable session replay (Ghost Masking engine)." },
+    { name: "maskAllInputs", type: "Bool", default: "true", description: "Automatically mask all UITextField/UITextView views in replays." },
+    { name: "debug", type: "Bool", default: "false", description: "Verbose console logging during development." },
+    { name: "trackLifecycleEvents", type: "Bool", default: "true", description: "Auto-track $app_opened, foreground/background." },
+    { name: "flushIntervalSeconds", type: "TimeInterval", default: "30", description: "How often the queued events are uploaded while the app is foregrounded." },
+    { name: "batchSize", type: "Int", default: "50", description: "Maximum events per upload batch." },
+  ]}
+/>
+
+## 3. Verify the install
+
+<CodeBlock lang="swift" code={`Sankofa.shared.track("install_check", properties: ["from": "ios-quickstart"])`} />
+
+Build and run in the simulator or on a device. Open [app.sankofa.dev](https://app.sankofa.dev) → **Live events** — the event should appear with an `ios` source label within a few seconds.
+
+<Callout tone="tip" title="Privacy Manifest is included">
+The SDK bundles its `PrivacyInfo.xcprivacy` declaration. App Store Connect will surface it in the privacy report alongside your own. No extra action required.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/ios/overview" eyebrow="Reference" title="iOS SDK reference">
+    Singleton APIs, replay, identity, and Objective-C interop.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Crash detection">
+    Symbolicated stack traces and automatic rollback hooks.
+  </Card>
+</CardGrid>

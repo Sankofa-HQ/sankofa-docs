@@ -48,10 +48,13 @@ test("sidebar surfaces full IA with shipping status", () => {
   assert.equal(overview!.status, "shipped");
   assert.ok(quickstart);
   assert.equal(quickstart!.status, "shipped");
-  // Planned items are included so users see the structure
-  const installWeb = allItems.find((i) => i.href === "/get-started/install/web");
-  assert.ok(installWeb, "install/web should be in sidebar even though MDX is not shipped");
-  assert.equal(installWeb!.status, "planned");
+  // Planned items are still included so users see the structure
+  const sdks = getSidebar("sdks");
+  assert.ok(sdks);
+  const sdksItems = sdks!.groups.flatMap((g) => g.items);
+  const webOverview = sdksItems.find((i) => i.href === "/sdks/web/overview");
+  assert.ok(webOverview, "sdks/web/overview should be in sidebar even though MDX is not shipped");
+  assert.equal(webOverview!.status, "planned");
 });
 
 test("adjacency: overview -> quickstart", () => {

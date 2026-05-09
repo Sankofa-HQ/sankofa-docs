@@ -1,0 +1,177 @@
+---
+title: "@sankofa/catch"
+description: Error capture, breadcrumbs, source-mapped stack traces, and custom fingerprinting for the web. Layers on @sankofa/browser via the plugin protocol.
+toc: true
+sdks: [web]
+---
+
+`@sankofa/catch` is the web error-tracking package. It hooks into the browser's `window.onerror` / `unhandledrejection` events, captures structured stack traces, batches breadcrumbs leading up to the error, and uploads everything to the Catch product on the engine.
+
+It's a plugin to `@sankofa/browser` — once registered, error capture happens automatically. You only write code when you want to capture custom errors or refine fingerprinting.
+
+## Install
+
+<CodeBlock lang="bash" code={`npm install @sankofa/catch`} />
+
+## Register the plugin
+
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+import { catchPlugin } from "@sankofa/catch";
+
+Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  release: process.env.GIT_SHA,
+  plugins: [catchPlugin()],
+});`} />
+
+The `release` option is critical for source-map matching — it's the bundle identifier Catch uses to look up your source maps. Pass your commit SHA, build number, or version tag.
+
+## What gets captured automatically
+
+Once `catchPlugin()` is registered, all of these route to Catch with no further wiring:
+
+| Source | Behavior |
+|---|---|
+| Uncaught exceptions | `window.onerror` listener captures, fingerprints, uploads. |
+| Unhandled promise rejections | `window.unhandledrejection` listener does the same. |
+| Console errors | `console.error` calls become breadcrumbs (not their own crash report — see below). |
+| Failed `fetch` / `XHR` requests | 4xx and 5xx responses become breadcrumbs. |
+| Page navigations | `$pageview` events become breadcrumbs. |
+| Custom events | Any `Sankofa.track(...)` call becomes a breadcrumb on the next error. |
+
+## Capture an error manually
+
+For caught exceptions you want to report:
+
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+
+try {
+  await chargeCard(amount);
+} catch (err) {
+  Sankofa.captureException(err, {
+    tags: { feature: "billing" },
+    extra: { amount, currency: "USD" },
+    fingerprint: ["billing-charge-failed"],
+  });
+}`} />
+
+### Parameters
+
+<ParameterTable
+  params={[
+    { name: "error", type: "Error | unknown", required: true, description: "The error to capture. Plain strings and `Error` subclasses both work." },
+    { name: "options.tags", type: "Record<string, string>", description: "Searchable, indexed key/values. Use for feature, route, tenant_id." },
+    { name: "options.extra", type: "Record<string, unknown>", description: "Free-form context. Indexed by event ID; not searchable." },
+    { name: "options.fingerprint", type: "string[]", description: "Override the default fingerprint algorithm. Errors with the same fingerprint are grouped into one issue." },
+    { name: "options.level", type: "'error' | 'warning' | 'info'", default: "'error'", description: "Severity. Warnings and info don't trigger alerts." },
+  ]}
+/>
+
+## Capture a message (no exception)
+
+For "this happened and we want to know" events that aren't actually errors:
+
+<CodeBlock lang="ts" code={`Sankofa.captureMessage("Payment retry attempted", {
+  level: "info",
+  extra: { retry_count: 3 },
+});`} />
+
+## Breadcrumbs
+
+A breadcrumb is a low-noise record of "something happened." When an error fires, the last 50 breadcrumbs are attached to the report. You can add custom ones:
+
+<CodeBlock lang="ts" code={`Sankofa.addBreadcrumb({
+  category: "user-action",
+  message: "Clicked the submit button",
+  level: "info",
+  data: { form_id: "checkout-form" },
+});`} />
+
+Breadcrumbs aren't uploaded on their own — they only ride attached to the next error or message capture.
+
+## Fingerprinting
+
+By default, Catch generates a fingerprint from the error's normalized stack trace + message. Errors with the same fingerprint are grouped into one **issue**, so the dashboard shows you "this issue has fired 423 times across 187 users" instead of 423 individual rows.
+
+Override the fingerprint when:
+
+- The default groups things you want separate. E.g. errors at a generic util keep merging different upstream crashes into one issue. Override with a key from your call site.
+- The default keeps things separate that should be grouped. E.g. dynamically-named functions create unique stacks. Override with a static string.
+
+<CodeBlock lang="ts" code={`Sankofa.captureException(err, {
+  // Force grouping by user-facing action, not technical stack.
+  fingerprint: ["checkout-payment-failed", err.code],
+});`} />
+
+## Source maps
+
+Production bundles are minified. To get readable stack traces in the dashboard:
+
+<Steps>
+  <Step title="Generate source maps with your bundler">
+    Vite, Next.js, Remix all support `sourcemap: true` (or equivalent) in production builds. The `.map` file should sit next to the bundle.
+  </Step>
+  <Step title="Upload source maps with the CLI">
+    <CodeBlock lang="bash" code={`npx @sankofa/cli sourcemaps upload \\
+  --release "$GIT_SHA" \\
+  --dist-folder ./dist`} />
+
+    The CLI walks `./dist`, finds every `.map` file, and uploads them tagged with the release. Run this in CI after the build, before deploying.
+  </Step>
+  <Step title="Verify in the dashboard">
+    Trigger an error in production. The dashboard's stack trace should show your original source files and line numbers, not minified gibberish.
+  </Step>
+</Steps>
+
+## Filtering noise
+
+Two ways to drop noisy errors before they leave the browser:
+
+<CodeBlock lang="ts" code={`Sankofa.init({
+  // ...
+  plugins: [catchPlugin({
+    // Drop errors whose message matches any of these.
+    ignoreErrors: [
+      /ResizeObserver loop limit/,
+      /Non-Error promise rejection captured/,
+    ],
+    // Drop errors fired from these origins.
+    ignoreUrls: [
+      /chrome-extension:\\/\\//,
+      /^moz-extension:/,
+    ],
+    // Per-error final filter.
+    beforeSend: (event) => {
+      if (event.tags?.tenant === "stress-test") return null;
+      return event;
+    },
+  })],
+});`} />
+
+`beforeSend` returning `null` drops the report. Use it for tenant-aware redaction, PII scrubbing, or rate-limiting client-side.
+
+## Privacy
+
+`captureException` sends the error message and stack trace. **Don't put PII in error messages.** If your code does (`new Error("user@example.com not found")`), use `beforeSend` to redact:
+
+<CodeBlock lang="ts" code={`catchPlugin({
+  beforeSend: (event) => {
+    event.message = event.message?.replace(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/g, "[email]");
+    return event;
+  },
+});`} />
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Catch product overview">
+    Auto-rollback, alerting, issue management.
+  </Card>
+  <Card href="/api/catch/events" eyebrow="Reference" title="Catch events API">
+    The wire that captureException posts to.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
+    Source-map upload, release tagging, and more.
+  </Card>
+</CardGrid>

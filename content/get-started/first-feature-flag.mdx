@@ -1,0 +1,211 @@
+---
+title: Your first feature flag
+description: Create a flag in the dashboard, evaluate it from any SDK with cohort targeting and exposure tracking, and ship a 1% → 100% rollout.
+badge: 12 min
+toc: true
+sdks: [web, flutter, react-native, ios, android, node, go, python, java]
+---
+
+Sankofa Switch is the feature-flag system shared by every SDK. Flags evaluate locally against a **decision snapshot** — a single payload returned by the engine on app launch — so reads are free and there's no per-flag round trip. Targeting (cohort, % rollout, variants, dependencies) all happens server-side; the SDK just looks up the answer.
+
+This guide takes you through the full lifecycle: create → evaluate → roll out → halt.
+
+## 1. Create the flag in the dashboard
+
+<Steps>
+  <Step title="Open Switch → Flags">
+    From the project nav, open **Switch → Flags** and click **New flag**.
+  </Step>
+  <Step title="Pick a stable key">
+    Use snake_case. The key is the contract you'll reference from code: `new_checkout`, `dark_mode_default`, `pricing_v2`.
+  </Step>
+  <Step title="Choose a flag type">
+    For your first flag, pick **Boolean**. Variants and JSON values come later — see the [Switch overview](/products/switch/overview).
+  </Step>
+  <Step title="Save with rollout = 0%">
+    The flag now exists, evaluates to `false` for everyone, and is ready to be referenced from code without changing user-visible behavior.
+  </Step>
+</Steps>
+
+## 2. Evaluate the flag from your SDK
+
+The first call to a flag triggers a handshake with the engine, which returns the full decision snapshot. Subsequent calls are cache reads — no network. The snapshot is refreshed on app launch, on resume, and via ETag every 30 seconds while the app is foregrounded.
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" filename="checkout.tsx" code={`import { Sankofa } from "@sankofa/browser";
+import { switchPlugin, getSwitch } from "@sankofa/switch";
+
+await Sankofa.init({
+  apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+  plugins: [switchPlugin()],
+});
+
+const flags = getSwitch()!;
+
+if (flags.getFlag("new_checkout")) {
+  renderNewCheckout();
+} else {
+  renderClassicCheckout();
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+final flags = SankofaSwitch(defaults: {'new_checkout': false});
+
+await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+);
+
+if (flags.getFlag('new_checkout')) {
+  showNewCheckout();
+} else {
+  showClassicCheckout();
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaSwitch } from "@sankofa/react-native";
+
+const flags = new SankofaSwitch({ defaults: { new_checkout: false } });
+
+Sankofa.initialize("sk_live_...", {
+  endpoint: "https://api.sankofa.dev",
+});
+
+if (flags.getFlag("new_checkout")) {
+  // ...
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`import Sankofa
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(endpoint: "https://api.sankofa.dev")
+)
+
+_ = SankofaSwitch.shared.withDefaults(["new_checkout": false])
+
+if SankofaSwitch.shared.getFlag("new_checkout") {
+    showNewCheckout()
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.switchmod.SankofaSwitch
+
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Sankofa.init(this, "sk_live_...", SankofaConfig())
+        SankofaSwitch.init(this, mapOf("new_checkout" to false))
+    }
+}
+
+if (SankofaSwitch.getFlag("new_checkout")) {
+    showNewCheckout()
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/node";
+
+Sankofa.init({ apiKey: process.env.SANKOFA_KEY! });
+
+const enabled = await Sankofa.flags.get("new_checkout", {
+  distinctId: req.user?.id ?? "anon",
+  defaultValue: false,
+});
+
+if (enabled) {
+  // ...
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`enabled, err := client.Flags.Get(ctx, "new_checkout", sankofa.FlagOptions{
+    DistinctID:   userID,
+    DefaultValue: false,
+})
+if err == nil && enabled {
+    // ...
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`enabled = sankofa.flags.get(
+    "new_checkout",
+    distinct_id=request.user.id,
+    default_value=False,
+)
+
+if enabled:
+    ...`} />
+</CodeGroupItem>
+<CodeGroupItem tab="java" label="Java">
+<CodeBlock lang="java" code={`boolean enabled = Sankofa.flags().get("new_checkout",
+    FlagOptions.builder()
+        .distinctId(user.getId())
+        .defaultValue(false)
+        .build());
+
+if (enabled) {
+    // ...
+}`} />
+</CodeGroupItem>
+</CodeGroup>
+
+<Callout tone="tip" title="Always pass a default">
+Defaults run if the flag fails to fetch (no network, fresh install with no cached snapshot, key revoked). On every SDK the default is the value you ship in code, so a code-default of `false` keeps a half-built feature dark even when the dashboard is unreachable.
+</Callout>
+
+## 3. Roll it out gradually
+
+Open the flag in the dashboard and bump rollout from `0%` upward.
+
+<Steps>
+  <Step title="Pick a target audience">
+    By default, rollout applies to everyone. Restrict to internal staff first by adding a **cohort filter**: `email ends_with "@yourcompany.com"`. The next handshake (≤ 30 seconds) routes the new payload only to matched users.
+  </Step>
+  <Step title="Stage 1 — 5% canary">
+    Lift rollout to **5%** within the cohort. Sankofa hashes the distinct ID into a stable bucket, so the same user gets the same answer across sessions and devices.
+  </Step>
+  <Step title="Stage 2 — 25%, 50%, 100%">
+    Watch the **Exposures** chart and the **Catch** crash rate. If both stay healthy, climb to 100%. If error rate jumps, halt the flag (next step).
+  </Step>
+</Steps>
+
+## 4. Halt on a bad signal
+
+A flag can be halted in three ways:
+
+- **Manually** — flip the **Halt** switch in the dashboard. Every SDK reverts to defaults on the next handshake (≤ 30 seconds).
+- **Auto, from Catch** — wire a halt rule in the dashboard: "if `checkout_error_rate > 1%` for the last 5 minutes, halt `new_checkout`." Catch posts to the halt webhook automatically.
+- **Programmatically** — POST to `/api/switch/halt-webhook` from CI, PagerDuty, or any external system. See the [halt-webhook reference](/api/switch/halt-webhook).
+
+When halted, the SDK returns the **default value** you passed in step 2 — that's why shipping a safe default matters.
+
+## What you just shipped
+
+You now have a flag that:
+
+- evaluates locally with zero per-call latency;
+- routes via a stable cohort + percentage bucket;
+- reports per-call exposures so the dashboard can show real adoption;
+- halts globally on a bad signal in under a minute.
+
+That's the foundation Switch builds on for variants, A/B experiments, and scheduled rollouts.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-remote-config" eyebrow="Next" title="Your first remote config">
+    Type a config item, fetch it from any SDK, and version it.
+  </Card>
+  <Card href="/products/switch/overview" eyebrow="Switch" title="Switch deep dive">
+    Variants, A/B Switch, scheduled rollouts, dependencies, exposure tracking.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    How Switch, Config, Pulse, and A/B Switch share one snapshot per app session.
+  </Card>
+</CardGrid>

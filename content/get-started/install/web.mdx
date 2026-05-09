@@ -1,0 +1,129 @@
+---
+title: Install on Web
+description: Install the Sankofa Web SDK in any framework — Next.js, Vite, Remix, or plain HTML — via npm or a single CDN script tag.
+badge: 5 min
+toc: true
+sdks: [web]
+---
+
+The Sankofa Web SDK ships as a multi-package monorepo so you only pay for what you use. The core is `@sankofa/browser`; every other product (Catch, Switch, Config, Pulse, Replay, React) is an optional plugin package.
+
+This guide installs the **core** package. To add error tracking, feature flags, surveys, replay, or React hooks, install the matching package after this and follow the linked package guide.
+
+## 1. Install the package
+
+<Tabs defaultValue="npm">
+  <Tab value="npm" label="npm">
+    <CodeBlock lang="bash" code={`npm install @sankofa/browser`} />
+  </Tab>
+  <Tab value="pnpm" label="pnpm">
+    <CodeBlock lang="bash" code={`pnpm add @sankofa/browser`} />
+  </Tab>
+  <Tab value="yarn" label="yarn">
+    <CodeBlock lang="bash" code={`yarn add @sankofa/browser`} />
+  </Tab>
+  <Tab value="bun" label="bun">
+    <CodeBlock lang="bash" code={`bun add @sankofa/browser`} />
+  </Tab>
+  <Tab value="cdn" label="CDN">
+    <CodeBlock lang="html" filename="index.html" code={`<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js"></script>
+<script>
+  Sankofa.init({
+    apiKey: "sk_live_...",
+    endpoint: "https://api.sankofa.dev"
+  });
+</script>`} />
+  </Tab>
+</Tabs>
+
+The bundled CDN exposes `Sankofa` as a global — no further setup required. For production we recommend the npm route so your bundler can tree-shake unused modules.
+
+## 2. Initialize once at app entry
+
+Initialize the SDK exactly once, as early as possible in your app's lifecycle. Subsequent `init` calls are no-ops, so it's safe to load the module from anywhere.
+
+<CodeGroup>
+<CodeGroupItem tab="next" label="Next.js (App Router)">
+<CodeBlock lang="ts" filename="app/sankofa.ts" code={`import { Sankofa } from "@sankofa/browser";
+
+if (typeof window !== "undefined") {
+  Sankofa.init({
+    apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
+    endpoint: "https://api.sankofa.dev",
+  });
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vite" label="Vite / React">
+<CodeBlock lang="ts" filename="src/main.tsx" code={`import { Sankofa } from "@sankofa/browser";
+
+Sankofa.init({
+  apiKey: import.meta.env.VITE_SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="remix" label="Remix">
+<CodeBlock lang="ts" filename="app/entry.client.tsx" code={`import { Sankofa } from "@sankofa/browser";
+
+Sankofa.init({
+  apiKey: window.ENV.SANKOFA_KEY,
+  endpoint: "https://api.sankofa.dev",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vanilla" label="Vanilla / HTML">
+<CodeBlock lang="html" code={`<script src="https://cdn.jsdelivr.net/npm/@sankofa/browser/dist/sankofa.min.js"></script>
+<script>
+  Sankofa.init({ apiKey: "sk_live_...", endpoint: "https://api.sankofa.dev" });
+</script>`} />
+</CodeGroupItem>
+</CodeGroup>
+
+<Callout tone="warning" title="Keep your live key out of public bundles">
+Use a `test` API key during local development and at preview environments. Production deployments should use `live` keys injected at build or runtime — never hard-code keys into the source.
+</Callout>
+
+## 3. Verify the install
+
+Drop a single `track` call somewhere reachable — a button click, a route change, or the bottom of your entry file — and reload.
+
+<CodeBlock lang="ts" code={`Sankofa.track("install_check", { from: "web-quickstart" });`} />
+
+Open the [Sankofa dashboard](https://app.sankofa.dev) → your project → **Live events**. The event should appear within a few seconds, with a `web` source label. If it's missing, see [Troubleshooting](/get-started/quickstart#5-verify-the-path).
+
+## 4. Optional: add product packages
+
+Each Sankofa product is a separate web package. Install only what you need.
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/packages/catch" eyebrow="@sankofa/catch" title="Error tracking">
+    Capture crashes, breadcrumbs, and source-mapped stack traces.
+  </Card>
+  <Card href="/sdks/web/packages/switch" eyebrow="@sankofa/switch" title="Feature flags">
+    Variant assignment with cohort targeting and exposure tracking.
+  </Card>
+  <Card href="/sdks/web/packages/config" eyebrow="@sankofa/config" title="Remote Config">
+    Typed values, version history, cohort-targeted payloads.
+  </Card>
+  <Card href="/sdks/web/packages/pulse" eyebrow="@sankofa/pulse" title="Surveys">
+    Behavior-triggered surveys rendered in-app.
+  </Card>
+  <Card href="/sdks/web/packages/replay-rrweb" eyebrow="@sankofa/replay-rrweb" title="Session replay">
+    rrweb-powered DOM replay with automatic input masking.
+  </Card>
+  <Card href="/sdks/web/packages/react" eyebrow="@sankofa/react" title="React hooks">
+    `useFlag`, `useConfig`, `useExperiment`, and a context provider.
+  </Card>
+</CardGrid>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    A guided walkthrough from one `track` call to seeing the data in the dashboard.
+  </Card>
+  <Card href="/concepts/events" eyebrow="Concepts" title="Events deep dive">
+    Naming conventions, default properties, sampling, allow/deny lists.
+  </Card>
+  <Card href="/sdks/web/overview" eyebrow="Reference" title="Web SDK reference">
+    Every method, every option, every package documented.
+  </Card>
+</CardGrid>

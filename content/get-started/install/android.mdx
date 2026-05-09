@@ -1,0 +1,136 @@
+---
+title: Install on Android
+description: Add the Sankofa Android SDK to your app via Maven Central, with auto-registered lifecycle tracking and offline-first event queueing.
+badge: 5 min
+toc: true
+sdks: [android]
+---
+
+The Sankofa Android SDK is a single Kotlin-first library, distributed through Maven Central. It bundles every Sankofa product, auto-registers across all Activities, and uses WorkManager for reliable background flushing.
+
+## Requirements
+
+- **Android Studio Hedgehog or newer**
+- **`minSdk 24`** (Android 7.0)
+- **`compileSdk 34+`** recommended
+- **Kotlin 1.9+** (Java 8 is also supported)
+
+## 1. Add the dependency
+
+<Tabs defaultValue="kts">
+  <Tab value="kts" label="Gradle (Kotlin DSL)">
+    <CodeBlock lang="kotlin" filename="app/build.gradle.kts" code={`dependencies {
+    implementation("dev.sankofa:sankofa-android:1.0.0")
+}`} />
+  </Tab>
+  <Tab value="groovy" label="Gradle (Groovy)">
+    <CodeBlock lang="groovy" filename="app/build.gradle" code={`dependencies {
+    implementation 'dev.sankofa:sankofa-android:1.0.0'
+}`} />
+  </Tab>
+  <Tab value="maven" label="Maven">
+    <CodeBlock lang="xml" code={`<dependency>
+    <groupId>dev.sankofa</groupId>
+    <artifactId>sankofa-android</artifactId>
+    <version>1.0.0</version>
+    <type>aar</type>
+</dependency>`} />
+  </Tab>
+</Tabs>
+
+Make sure `mavenCentral()` is in your repositories list (the default for new Android Studio projects).
+
+## 2. Bump minSdk and enable Java 8
+
+The SDK targets `minSdk 24` and uses Java 8 features. Update your module's Gradle config if needed:
+
+<CodeBlock lang="kotlin" filename="app/build.gradle.kts" code={`android {
+    namespace = "com.example.app"
+    compileSdk = 35
+
+    defaultConfig {
+        minSdk = 24
+        targetSdk = 35
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}`} />
+
+## 3. Initialize in Application.onCreate
+
+The SDK must initialize before the first Activity, so place the call in your `Application` subclass.
+
+<CodeBlock lang="kotlin" filename="MyApplication.kt" code={`import android.app.Application
+import dev.sankofa.sdk.Sankofa
+import dev.sankofa.sdk.SankofaConfig
+
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Sankofa.init(
+            context = this,
+            apiKey = BuildConfig.SANKOFA_KEY,
+            config = SankofaConfig(
+                endpoint = "https://api.sankofa.dev",
+                recordSessions = true,
+                maskAllInputs = true,
+                debug = BuildConfig.DEBUG,
+            ),
+        )
+    }
+}`} />
+
+Register the application class in your manifest:
+
+<CodeBlock lang="xml" filename="AndroidManifest.xml" code={`<application
+    android:name=".MyApplication"
+    android:label="@string/app_name">
+    ...
+</application>`} />
+
+Pass the API key through `BuildConfig` (recommended) or via `local.properties` so it never lands in version control.
+
+### Common config options
+
+<ParameterTable
+  params={[
+    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "recordSessions", type: "Boolean", default: "true", description: "Enable high-fidelity session replay." },
+    { name: "maskAllInputs", type: "Boolean", default: "true", description: "Auto-mask all EditText views in replays." },
+    { name: "debug", type: "Boolean", default: "false", description: "Verbose Logcat output during development." },
+    { name: "trackLifecycleEvents", type: "Boolean", default: "true", description: "Auto-track $app_opened, foregrounded, backgrounded." },
+    { name: "flushIntervalSeconds", type: "Int", default: "30", description: "Foreground flush cadence." },
+    { name: "batchSize", type: "Int", default: "50", description: "Maximum events per batch upload." },
+  ]}
+/>
+
+## 4. Verify the install
+
+<CodeBlock lang="kotlin" code={`Sankofa.track("install_check", mapOf("from" to "android-quickstart"))`} />
+
+Run the app, then open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. The event should appear with an `android` source label.
+
+<Callout tone="tip" title="ProGuard / R8">
+The SDK ships consumer ProGuard rules — no extra configuration is needed when minification is enabled.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/android/overview" eyebrow="Reference" title="Android SDK reference">
+    All public APIs, replay masking patterns, and Compose integration.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Crash detection">
+    ANR detection, fatal/non-fatal capture, ProGuard mapping upload.
+  </Card>
+</CardGrid>

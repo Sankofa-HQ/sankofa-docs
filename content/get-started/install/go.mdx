@@ -1,0 +1,113 @@
+---
+title: Install on Go
+description: Install the Sankofa Go SDK and instrument net/http or any framework with context-aware tracking.
+badge: 5 min
+toc: true
+sdks: [go]
+---
+
+The Sankofa Go SDK is a thin, allocation-conscious client for the Sankofa engine. It works with the standard `net/http` package and any framework on top of it (Echo, Gin, Fiber, Chi).
+
+## Requirements
+
+- **Go 1.22+**
+- Module-aware project (`go.mod` present)
+
+## 1. Add the package
+
+<CodeBlock lang="bash" code={`go get github.com/sankofa-hq/sankofa_sdk_go@latest`} />
+
+Verify the import path resolves:
+
+<CodeBlock lang="bash" code={`go list -m github.com/sankofa-hq/sankofa_sdk_go`} />
+
+## 2. Construct a client
+
+The SDK does not use a global singleton by default — you construct a client and inject it where it's needed. This makes it straightforward to use in tests and shared libraries.
+
+<CodeBlock lang="go" filename="main.go" code={`package main
+
+import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/sankofa-hq/sankofa_sdk_go/sankofa"
+)
+
+func main() {
+    client, err := sankofa.New(sankofa.Config{
+        APIKey:      os.Getenv("SANKOFA_KEY"),
+        Endpoint:    "https://api.sankofa.dev",
+        Release:     os.Getenv("RELEASE_SHA"),
+        Environment: os.Getenv("ENV"),
+    })
+    if err != nil {
+        log.Fatalf("sankofa init: %v", err)
+    }
+    defer client.Close(context.Background())
+
+    // ... start the server
+}`} />
+
+`client.Close` flushes the queue and waits for in-flight uploads — call it from a graceful-shutdown handler so events aren't dropped on exit.
+
+### Config options
+
+<ParameterTable
+  params={[
+    { name: "APIKey", type: "string", required: true, description: "Your project's server-side API key." },
+    { name: "Endpoint", type: "string", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "Release", type: "string", description: "Commit SHA or version tag — used to group source-mapped errors." },
+    { name: "Environment", type: "string", default: "production", description: "Free-form label (development, staging, production)." },
+    { name: "FlushInterval", type: "time.Duration", default: "5s", description: "How often queued events are uploaded." },
+    { name: "MaxQueueSize", type: "int", default: "1024", description: "Maximum events queued in memory before dropping." },
+    { name: "HTTPClient", type: "*http.Client", description: "Override the underlying HTTP client (for proxies, custom TLS, etc.)." },
+  ]}
+/>
+
+## 3. Wire HTTP middleware
+
+The package exposes a `net/http` middleware that captures request context (method, path, status) and attaches it to every event emitted while serving the request.
+
+<CodeBlock lang="go" filename="main.go" code={`mux := http.NewServeMux()
+mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    client.Track(r.Context(), sankofa.Event{
+        Name: "homepage_visited",
+        Properties: map[string]any{"path": r.URL.Path},
+    })
+    fmt.Fprintln(w, "ok")
+})
+
+handler := sankofa.HTTPMiddleware(client)(mux)
+http.ListenAndServe(":3000", handler)`} />
+
+The middleware is framework-agnostic — wrap any `http.Handler` with it. Echo, Gin, Chi, and Fiber all expose adapters that fit the `http.Handler` shape.
+
+## 4. Verify the install
+
+<CodeBlock lang="go" code={`client.Track(context.Background(), sankofa.Event{
+    Name:       "install_check",
+    DistinctID: "test-user",
+    Properties: map[string]any{"from": "go-quickstart"},
+})`} />
+
+Open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. Within a few seconds you'll see the event with a `go` source label and the runtime version captured under default properties.
+
+<Callout tone="tip" title="Context propagation">
+Every Track / CaptureException call takes a `context.Context`. Pass the request context through and Sankofa will automatically attach the correlated trace ID, request path, and user identifier.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/go/overview" eyebrow="Reference" title="Go SDK reference">
+    All public types, middleware adapters, and tracing helpers.
+  </Card>
+  <Card href="/concepts/identity-and-aliases" eyebrow="Concepts" title="Identity">
+    How distinct IDs and aliases stitch anonymous traffic to identified users.
+  </Card>
+</CardGrid>

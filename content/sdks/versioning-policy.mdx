@@ -1,0 +1,125 @@
+---
+title: Versioning policy
+description: Sankofa SDKs follow semver, ship LTS for major versions, and never break the wire. Here's the cadence, the deprecation window, and what counts as a breaking change.
+toc: true
+---
+
+Sankofa SDKs follow semantic versioning strictly. We commit to a public versioning policy because integrating an SDK is an investment of your engineering time — you should be able to pin a version and trust that it won't suddenly require a rewrite.
+
+This page documents the rules. Use it to plan upgrades, choose pinning strategy, and understand what each release type means for your code.
+
+## The semver contract
+
+Every Sankofa SDK ships under `MAJOR.MINOR.PATCH` versioning. Across all SDKs, we hold the same line on what each part means.
+
+<ParameterTable
+  params={[
+    { name: "MAJOR", type: "X.0.0", description: "Breaking change to a documented public API. Bumped at most once per year per SDK. Always accompanied by a migration guide and a deprecation window of ≥ 90 days on the prior major." },
+    { name: "MINOR", type: "0.X.0", description: "Backwards-compatible feature additions: new methods, new options, new modules. Released roughly monthly across the matrix; never breaks code on the prior minor." },
+    { name: "PATCH", type: "0.0.X", description: "Bug fixes, performance improvements, dependency bumps. Released as needed. Never changes the public API." },
+  ]}
+/>
+
+## What counts as a breaking change
+
+A change is **breaking** (and forces a major bump) only if it does at least one of:
+
+- removes a documented public method, type, option, or event;
+- changes the parameter shape or return type of a documented public method;
+- changes the default value of a documented option in a way user code can observe;
+- removes support for a runtime, OS, or framework version listed in the SDK's README;
+- bumps a peer dependency past a major version (e.g. requires React 19+ when the prior version supported 18+).
+
+A change is **non-breaking** (minor or patch) if it:
+
+- adds a new method, option, package, or event;
+- adds a new permitted value to an enum (you can ignore unknown values);
+- changes internal implementation while preserving the documented surface;
+- improves error messages, logs, or debug output;
+- bumps a transitive dependency within its semver range.
+
+When we're uncertain, we default to "breaking" and ship a major.
+
+## The wire is permanent
+
+The HTTP API the SDK calls — `/api/v1/track`, `/api/v1/decisions`, etc. — is **versioned independently of the SDK**. The `v1` in the URL is part of the contract. We have not broken `v1` since launch and we don't intend to. When we eventually need an incompatible change to the wire, we'll ship `v2` alongside `v1` and run both in parallel for at least 18 months.
+
+This means an old SDK on a current engine will keep working; a current SDK on an older engine release will keep working. You can pin SDKs and engine releases independently.
+
+## Release cadence
+
+| Cadence | Trigger |
+|---|---|
+| Patches | As bugs are found and fixed. Multiple per month is normal. |
+| Minor | Roughly monthly per SDK. Tied to engine feature releases. |
+| Major | At most once per year per SDK. Synchronized across the SDK matrix when possible — e.g. all SDKs go from `1.x` to `2.x` within a single quarter so the docs stay coherent. |
+
+Patch releases are auto-published from CI when their PR merges. Minor and major releases require a release manager sign-off.
+
+## LTS
+
+Each major version goes into **Long-Term Support** when its successor ships. Two LTS lines are guaranteed at any time: the current major (for new feature work) and the previous major (for fixes-only).
+
+| Major | Status | Receives |
+|---|---|---|
+| Current | Active | Features, fixes, perf |
+| Previous | LTS | Security fixes, P0 bug fixes |
+| Older than previous | EOL | Nothing — pin at your own risk |
+
+For example, when SDK 3.0 ships, SDK 2.x enters LTS for at least 12 months. SDK 1.x goes EOL.
+
+## Deprecation policy
+
+Before we remove anything, we deprecate it through three release stages:
+
+<Steps>
+  <Step title="Stage 1 — soft deprecation">
+    A minor release marks a method or option `@deprecated`. Existing callers see no behavior change. The deprecation lands in the changelog with a link to the replacement.
+  </Step>
+  <Step title="Stage 2 — runtime warning">
+    The next minor release prints a runtime console warning the first time the deprecated path runs. Production builds aren't spammed (warnings dedupe per process).
+  </Step>
+  <Step title="Stage 3 — removal in next major">
+    The deprecated path is removed in the next major version. The migration guide for that major version lists every removal with a copy-paste replacement.
+  </Step>
+</Steps>
+
+The full deprecation window is therefore at least two minor releases, plus the major bump — typically 6+ months. You'll never wake up to a removed API.
+
+## Versioning per SDK
+
+Every SDK hits its own milestones independently — but the public majors are aligned. When we bump from 2.x to 3.x in the rollout below, the engine behavior change that prompted it is the same across every SDK; the SDKs just take a few weeks to all ship 3.0 because each release manager owns their own publishing.
+
+| Action | Expected timeline |
+|---|---|
+| Engine ships v3-flavor wire (still backwards-compat with v2 SDKs) | T+0 |
+| Web SDK 3.0 (the highest-velocity one) | T+0 to T+2 weeks |
+| Mobile SDKs 3.0 (Flutter, RN, iOS, Android) | T+2 to T+8 weeks |
+| Server SDKs 3.0 (Node, Go, Python, Java) | T+4 to T+12 weeks |
+
+Until your platform's 3.0 ships, you stay on the 2.x line — which is in active LTS, getting fixes.
+
+## Recommended pinning strategy
+
+| Project type | Recommended pin |
+|---|---|
+| Production app, frequent releases | `^X.Y.Z` (minor + patch updates auto) |
+| Production app, infrequent releases | `~X.Y.Z` (patch updates only) |
+| Library you publish to others | `^X.Y.Z` peer dep + a CI matrix against the latest two minors |
+| Internal tool, hobby project | `latest` is fine |
+
+Avoid pinning to a specific patch (`X.Y.Z` exactly) unless you have a known regression — you'll miss security and bug fixes.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/resources/changelog" eyebrow="Resources" title="Changelog">
+    Per-SDK release notes, with deprecations and migrations called out.
+  </Card>
+  <Card href="/sdks/overview" eyebrow="SDKs" title="SDK matrix">
+    The full feature × platform matrix.
+  </Card>
+  <Card href="/api/overview" eyebrow="Reference" title="API reference">
+    The wire that every SDK is implemented against.
+  </Card>
+</CardGrid>

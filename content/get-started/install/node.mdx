@@ -1,0 +1,137 @@
+---
+title: Install on Node
+description: Install the Sankofa Node SDK and wire it into Express, Fastify, or any HTTP server with first-class subpath imports.
+badge: 5 min
+toc: true
+sdks: [node]
+---
+
+The `@sankofa/node` package is the official server-side SDK for Node.js. It captures events, errors, distributed traces, and integrates with Express and Fastify via dedicated subpath imports.
+
+## Requirements
+
+- **Node.js 18+** (we test 18, 20, and 22)
+- **TypeScript 5+** (optional but recommended)
+- ESM and CommonJS are both supported
+
+## 1. Install the package
+
+<Tabs defaultValue="npm">
+  <Tab value="npm" label="npm">
+    <CodeBlock lang="bash" code={`npm install @sankofa/node`} />
+  </Tab>
+  <Tab value="pnpm" label="pnpm">
+    <CodeBlock lang="bash" code={`pnpm add @sankofa/node`} />
+  </Tab>
+  <Tab value="yarn" label="yarn">
+    <CodeBlock lang="bash" code={`yarn add @sankofa/node`} />
+  </Tab>
+  <Tab value="bun" label="bun">
+    <CodeBlock lang="bash" code={`bun add @sankofa/node`} />
+  </Tab>
+</Tabs>
+
+## 2. Initialize at process start
+
+Call `Sankofa.init` once, as early as possible — typically in your server entry file before any imports that might throw.
+
+<CodeBlock lang="ts" filename="server.ts" code={`import { Sankofa } from "@sankofa/node";
+
+Sankofa.init({
+  apiKey: process.env.SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+  release: process.env.RELEASE_SHA ?? "dev",
+  environment: process.env.NODE_ENV ?? "development",
+});`} />
+
+### Common init options
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "string", required: true, description: "Your project's server-side API key. Never expose this in a client bundle." },
+    { name: "endpoint", type: "string", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "release", type: "string", description: "Build identifier (commit SHA, version tag) — used for source-mapped error grouping." },
+    { name: "environment", type: "string", default: "production", description: "Free-form label (development, staging, production)." },
+    { name: "tracesSampleRate", type: "number", default: "0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
+    { name: "ignoreErrors", type: "RegExp[]", description: "Patterns of error messages to drop without sending." },
+  ]}
+/>
+
+## 3. Wire your framework
+
+The Node SDK ships subpath exports for Express and Fastify so the same package serves both.
+
+<CodeGroup>
+<CodeGroupItem tab="express" label="Express">
+<CodeBlock lang="ts" filename="server.ts" code={`import express from "express";
+import { Sankofa } from "@sankofa/node";
+import { sankofaRequestHandler, sankofaErrorHandler } from "@sankofa/node/express";
+
+Sankofa.init({ apiKey: process.env.SANKOFA_KEY! });
+
+const app = express();
+
+// Must be the first middleware — captures request context for every event.
+app.use(sankofaRequestHandler());
+
+app.get("/", (req, res) => {
+  Sankofa.track("homepage_visited", {}, { distinctId: req.user?.id ?? "anon" });
+  res.send("ok");
+});
+
+// Must be the last middleware — captures uncaught errors.
+app.use(sankofaErrorHandler());`} />
+</CodeGroupItem>
+<CodeGroupItem tab="fastify" label="Fastify">
+<CodeBlock lang="ts" filename="server.ts" code={`import Fastify from "fastify";
+import { Sankofa } from "@sankofa/node";
+import { sankofaPlugin } from "@sankofa/node/fastify";
+
+Sankofa.init({ apiKey: process.env.SANKOFA_KEY! });
+
+const app = Fastify({ logger: true });
+await app.register(sankofaPlugin);
+
+app.get("/", async (request) => {
+  Sankofa.track("homepage_visited", {}, { distinctId: request.user?.id ?? "anon" });
+  return { ok: true };
+});
+
+await app.listen({ port: 3000 });`} />
+</CodeGroupItem>
+<CodeGroupItem tab="vanilla" label="Plain Node">
+<CodeBlock lang="ts" filename="worker.ts" code={`import { Sankofa } from "@sankofa/node";
+
+Sankofa.init({ apiKey: process.env.SANKOFA_KEY! });
+
+process.on("uncaughtException", (err) => {
+  Sankofa.captureException(err);
+});
+
+await Sankofa.track("worker_started", { version: process.version });`} />
+</CodeGroupItem>
+</CodeGroup>
+
+## 4. Verify the install
+
+<CodeBlock lang="ts" code={`await Sankofa.track("install_check", { from: "node-quickstart" });`} />
+
+Open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. You should see the event with a `node` source label and the runtime version captured under default properties.
+
+<Callout tone="warning" title="Always flush on graceful shutdown">
+Server processes can exit before the event queue drains. Call `await Sankofa.flush()` in your `SIGINT`/`SIGTERM` handler to guarantee in-flight events ship before the process exits.
+</Callout>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-event" eyebrow="Next" title="Send your first event">
+    Multi-platform first-event walkthrough.
+  </Card>
+  <Card href="/sdks/node/overview" eyebrow="Reference" title="Node SDK reference">
+    All APIs, framework hooks, distributed tracing.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Server error tracking">
+    Captured exceptions, breadcrumbs, source-map upload.
+  </Card>
+</CardGrid>

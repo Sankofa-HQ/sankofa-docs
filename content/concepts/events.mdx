@@ -1,0 +1,155 @@
+---
+title: Events
+description: The atomic unit of every Sankofa product. Naming conventions, properties, default enrichment, allow/deny lists, and how events flow into ClickHouse.
+toc: true
+sdks: [web, flutter, react-native, ios, android, node, go, python, java]
+---
+
+An event is a named action with optional structured properties. Sankofa builds funnels, cohorts, retention charts, replays, surveys, and experiments by querying events — so the way you model them determines what you can analyse later. Once you ship `checkout_started` in v1, you can never rename it without breaking every downstream view.
+
+This page covers naming conventions, property modelling, default enrichment, what gets indexed, and what happens to an event after `track` returns.
+
+## Anatomy of an event
+
+A single event row in ClickHouse looks like this (simplified):
+
+<CodeBlock lang="json" code={`{
+  "event_name": "checkout_started",
+  "distinct_id": "user_123",
+  "anon_id": "anon_6b87f2",
+  "session_id": "sess_abc123",
+  "timestamp": "2026-05-09T14:32:01.482Z",
+  "ingested_at": "2026-05-09T14:32:01.612Z",
+  "environment": "live",
+  "properties": {
+    "cart_value": 49.99,
+    "item_count": 3,
+    "currency": "USD"
+  },
+  "default_properties": {
+    "$os": "ios",
+    "$os_version": "17.4",
+    "$device_model": "iPhone 15 Pro",
+    "$app_version": "2.4.1",
+    "$country": "GH",
+    "$city": "Accra",
+    "$timezone": "Africa/Accra"
+  },
+  "lib": "@sankofa/react-native",
+  "lib_version": "1.0.4"
+}`} />
+
+`event_name`, `distinct_id`, and `timestamp` are required; everything else is filled in by the SDK or the engine.
+
+## Naming conventions
+
+Good event names are stable, descriptive, and predictable. Three rules go a long way:
+
+<Steps>
+  <Step title="Use snake_case, present tense, verb-noun">
+    `signup_completed` ✓ &nbsp; `checkoutStarted` ✗ &nbsp; `Checkout started` ✗
+
+    Past tense is the convention because every event represents a thing that just happened. Verb-noun is grep-friendly — when you're hunting for "everything checkout-related," `^checkout_` matches.
+  </Step>
+  <Step title="Be specific enough to be useful, vague enough to last">
+    `payment_failed` ✓ &nbsp; `payment_failed_visa` ✗ (use a `card_brand` property) &nbsp; `event` ✗ (too vague)
+
+    The card brand is a property dimension that varies; the event itself is "a payment failed."
+  </Step>
+  <Step title="One event per discrete action">
+    `signup_completed` ✓ &nbsp; `signup_started_then_completed` ✗
+
+    Two distinct moments in a user flow are two events. They get joined into a funnel server-side; you don't need to compress them into one name.
+  </Step>
+</Steps>
+
+A few well-chosen events from real Sankofa customers:
+
+- `signup_completed` — the moment account creation succeeds.
+- `checkout_started`, `checkout_completed`, `checkout_abandoned` — the funnel triplet.
+- `payment_failed` — with `failure_code`, `card_brand`, `amount` properties.
+- `invite_accepted` — workspace + role attached as properties.
+- `api_request_failed` — server-side; `endpoint`, `status_code`, `latency_ms` properties.
+- `feature_used` — when something fine-grained doesn't yet warrant its own name.
+
+## Properties: what to put on the event
+
+Use properties for the dimensions that vary. Examples:
+
+- `plan` — `"free"`, `"pro"`, `"growth"`, `"enterprise"`
+- `currency` — `"USD"`, `"GHS"`, `"EUR"`
+- `screen` — the screen the action happened on
+- `source` — referrer, campaign, traffic origin
+- `failure_code` — for error events
+- `experiment_variant` — auto-attached if you use Switch's exposure tracking; manually set otherwise
+
+Properties accept strings, numbers, booleans, JSON arrays, and JSON objects. Dates are stringified to ISO 8601. BigInt is stringified.
+
+<Callout tone="tip" title="Don't put PII in event properties">
+Event properties end up in the dashboard, in cohorts, and (if you export) in your data warehouse. Redact PII at the SDK boundary using allow / deny lists (below) so it never leaves the device.
+</Callout>
+
+## Default properties
+
+Every SDK adds **default properties** to every event for free — geo, OS, device, app metadata. The engine **promotes** the highest-value defaults into indexed columns so you can break down or filter by them at query time without paying a JSON-decode cost.
+
+<ParameterTable
+  params={[
+    { name: "$country", type: "string", description: "Resolved from GeoIP at ingest, or explicitly from SDK context where available." },
+    { name: "$region", type: "string", description: "Subdivision (state, province) from GeoIP." },
+    { name: "$city", type: "string", description: "City from GeoIP." },
+    { name: "$timezone", type: "string", description: "Resolved from GeoIP, or from the device locale on mobile SDKs." },
+    { name: "$os", type: "string", description: "Operating system family — `web`, `ios`, `android`, `linux`, `darwin`, `windows`." },
+    { name: "$os_version", type: "string", description: "OS version string." },
+    { name: "$device_model", type: "string", description: "Hardware identifier (mobile only)." },
+    { name: "$browser", type: "string", description: "Browser family (web only)." },
+    { name: "$app_version", type: "string", description: "Your app's user-facing version string." },
+    { name: "$session_id", type: "string", description: "Stable session identifier; correlates with replays." },
+  ]}
+/>
+
+See [Default properties](/concepts/default-properties) for the complete list and per-platform behaviour.
+
+## Allow and deny lists
+
+Configure per-project allow / deny lists at **Settings → Data → Properties**:
+
+- **Allow list** — only properties named here are persisted. Everything else is dropped at ingest. Use this when you have a strict PII policy.
+- **Deny list** — properties named here are dropped, everything else is persisted. Use this for quick redaction of fields you've identified as PII (`email`, `phone_number`, `ssn`).
+
+Allow / deny apply to property names only — not values. To redact specific values (e.g. mask all-but-last-four-digits), do it at the SDK call site.
+
+## Event ingestion path
+
+After your SDK calls `track`:
+
+<Steps>
+  <Step title="The SDK queues">
+    Events go onto the SDK's offline-first queue. On web that's `IndexedDB`; on mobile that's SQLite (via GRDB on iOS, the Android SDK's queue table on Android, `sqflite` on Flutter). On server SDKs the queue is in-memory.
+  </Step>
+  <Step title="Flush on schedule">
+    The queue flushes on `flushIntervalSeconds` cadence (default 30s on mobile, 5s on web), on app suspend / background, on `flush()` call, or on shutdown.
+  </Step>
+  <Step title="Engine ingests">
+    The flush hits `POST /api/v1/batch` with up to `batchSize` events. The engine validates the API key, fills in `environment`, applies allow / deny rules, runs the GeoIP lookup, and writes a row to ClickHouse.
+  </Step>
+  <Step title="Available in queries">
+    Events are visible in **Live events** within ~1 second of ingest. Funnels, cohorts, and retention queries pick them up on the next refresh window (typically 30 s on Pro, near-realtime on Enterprise).
+  </Step>
+</Steps>
+
+See [Ingestion model](/concepts/ingestion-model) for the full path including backpressure and retry semantics.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/identity-and-aliases" eyebrow="Next" title="Identity and aliases">
+    How `distinct_id` resolves and how anonymous traffic is stitched onto known users.
+  </Card>
+  <Card href="/concepts/default-properties" eyebrow="Concepts" title="Default properties">
+    Every default property and how it's promoted.
+  </Card>
+  <Card href="/concepts/ingestion-model" eyebrow="Concepts" title="Ingestion model">
+    What happens to events after the engine accepts them.
+  </Card>
+</CardGrid>

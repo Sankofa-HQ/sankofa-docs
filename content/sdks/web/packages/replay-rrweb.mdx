@@ -1,0 +1,168 @@
+---
+title: "@sankofa/replay-rrweb"
+description: rrweb-powered DOM session replay for the web. Privacy-first masking, session correlation, and bandwidth-conscious capture.
+toc: true
+sdks: [web]
+---
+
+`@sankofa/replay-rrweb` records DOM mutations, mouse moves, clicks, scrolls, and form interactions using the [rrweb](https://www.rrweb.io/) library, then uploads chunks to the engine where they're correlated to events for one-click playback from the dashboard.
+
+This package is heavier than the others (~28 KB gzipped) because it embeds rrweb. Only register it when you need session replay — most apps don't need it on every page.
+
+## Install
+
+<CodeBlock lang="bash" code={`npm install @sankofa/replay-rrweb`} />
+
+## Register the plugin
+
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+import { rrwebReplayPlugin } from "@sankofa/replay-rrweb";
+
+Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  plugins: [
+    rrwebReplayPlugin({
+      flushIntervalMs: 5000,
+      maxEventsPerChunk: 250,
+    }),
+  ],
+});`} />
+
+Recording starts as soon as `Sankofa.init` resolves. Each session generates one replay file; sessions correlate to replays via `$session_id`.
+
+### Plugin options
+
+<ParameterTable
+  params={[
+    { name: "flushIntervalMs", type: "number", default: "5000", description: "How often replay chunks are uploaded. Lower = closer to real-time playback, higher = fewer requests." },
+    { name: "maxEventsPerChunk", type: "number", default: "250", description: "Maximum rrweb events per chunk. Smaller chunks = faster playback start but more requests." },
+    { name: "blockSelector", type: "string", description: "CSS selector for elements to completely remove from the recording." },
+    { name: "maskSelector", type: "string", description: "CSS selector for elements whose text content gets replaced with generic characters." },
+    { name: "ignoreSelector", type: "string", description: "CSS selector for elements whose interaction events (clicks, hovers) are ignored." },
+    { name: "maskAllInputs", type: "boolean", default: "true", description: "Auto-mask all `<input>` and `<textarea>` text values." },
+    { name: "samplingRate", type: "number", default: "1.0", description: "Fraction of sessions to record (0.0–1.0). Use 0.1 to record 10% of sessions." },
+  ]}
+/>
+
+## Privacy and masking
+
+Session replay captures everything the user sees and does — that includes everything your app shows, including PII, payment forms, and authenticated content. Mask aggressively:
+
+### Mask sensitive elements
+
+Add the `data-sankofa-mask` attribute or use the `maskSelector` option:
+
+<CodeBlock lang="html" code={`<!-- Text content of this element gets replaced with asterisks in the replay. -->
+<div data-sankofa-mask>
+  Account balance: $4,238.14
+</div>
+
+<!-- Inputs are masked by default. -->
+<input type="text" name="email" />`} />
+
+Or via the plugin option:
+
+<CodeBlock lang="ts" code={`rrwebReplayPlugin({
+  maskSelector: "[data-pii], .credit-card, .ssn, [data-sensitive]",
+});`} />
+
+### Block elements entirely
+
+For elements that should not appear in the replay at all (not even as a placeholder):
+
+<CodeBlock lang="html" code={`<div data-sankofa-block>
+  <!-- This entire subtree is replaced with a placeholder rectangle. -->
+  <CreditCardForm />
+</div>`} />
+
+Or:
+
+<CodeBlock lang="ts" code={`rrwebReplayPlugin({
+  blockSelector: "[data-secret], iframe[src*='checkout-iframe']",
+});`} />
+
+### Ignore interactions
+
+For elements where interactions shouldn't be captured (passwords, etc):
+
+<CodeBlock lang="html" code={`<input type="password" data-sankofa-ignore />`} />
+
+<Callout tone="warning" title="Default safety nets">
+By default, every `<input>` and `<textarea>` has its value masked, every `<input type="password">` is ignored entirely, and every `<canvas>` and `<video>` element is replaced with a placeholder. You can override these defaults but the safer path is to opt-in to *less* masking, not opt-out.
+</Callout>
+
+## Session-replay correlation
+
+Every replay carries:
+
+- `$session_id` — same as the events from that session.
+- `start_ts`, `end_ts` — bounds of the replay file.
+- `event_count` — number of rrweb events captured.
+
+In the dashboard, clicking any event in **Live events** → **Watch replay** scrubs to the moment of that event in the matching session replay. There's no manual stitching to do.
+
+## Sampling for cost control
+
+For high-volume sites, recording every session is expensive. Sample to a fraction:
+
+<CodeBlock lang="ts" code={`rrwebReplayPlugin({
+  samplingRate: 0.1, // record 10% of sessions
+});`} />
+
+Sampling is per-session, not per-event. Once a session is selected, it's recorded fully. The selection is hashed off the session ID so it's stable for the session's duration (you don't get half a recording).
+
+## Force-record a specific session
+
+For QA, support flows, or specific user investigations, you can force-record a session that wouldn't otherwise be sampled:
+
+<CodeBlock lang="ts" code={`import { getReplay } from "@sankofa/replay-rrweb";
+
+const replay = getReplay()!;
+replay.startRecording({ reason: "support_ticket_4523" });`} />
+
+The reason is logged with the replay for searchability in the dashboard.
+
+## Pause / resume
+
+For sensitive flows where you don't want replay even with masking:
+
+<CodeBlock lang="ts" code={`replay.pause();
+// ... user enters payment details ...
+replay.resume();`} />
+
+Paused chunks are not captured. The replay file shows a "paused" marker for the duration.
+
+## Stop recording entirely
+
+For users who opt out of recording (cookie consent, EU privacy preferences):
+
+<CodeBlock lang="ts" code={`replay.stop();`} />
+
+Stopped sessions don't generate any replay; the session events still flow as normal.
+
+## Performance impact
+
+rrweb is built for low overhead — typically 1–3% CPU on modern desktop browsers, slightly higher on low-end mobile. The package adds ~28 KB to your bundle. If page-load performance is critical, defer recording until after first contentful paint:
+
+<CodeBlock lang="ts" code={`if (document.readyState === "complete") {
+  Sankofa.init({ /* ... */, plugins: [rrwebReplayPlugin()] });
+} else {
+  window.addEventListener("load", () => {
+    Sankofa.init({ /* ... */, plugins: [rrwebReplayPlugin()] });
+  });
+}`} />
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Catch + replays">
+    Replays auto-attach to crash reports for one-click reproduction.
+  </Card>
+  <Card href="/concepts/sessions" eyebrow="Concepts" title="Sessions">
+    How session boundaries determine replay file scope.
+  </Card>
+  <Card href="/concepts/data-retention" eyebrow="Concepts" title="Data retention">
+    How long replays live by tier.
+  </Card>
+</CardGrid>

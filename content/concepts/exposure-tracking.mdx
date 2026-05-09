@@ -1,0 +1,115 @@
+---
+title: Exposure tracking
+description: Why Sankofa records every flag and variant evaluation, the difference between per-call and handshake-level exposures, and how this powers honest experiment math.
+toc: true
+---
+
+A decision in Sankofa is one thing — *what value did this user get?* An **exposure** is something different — *did this user actually see this decision applied?* Exposure tracking is the difference between "this user is in the `treatment_b` cohort" and "this user actually rendered the treatment B UI." Without exposures, your A/B tests measure the population you targeted; with exposures, they measure the population that experienced the change.
+
+This page explains how Sankofa records exposures, the difference between per-call and handshake-level tracking, and the implications for experiment math.
+
+## Two kinds of exposure
+
+| | Per-call exposure | Handshake-level exposure |
+|---|---|---|
+| Recorded when | Every time `getFlag(...)` / `get(...)` is called | Once, on the decision handshake |
+| Recorded by | Web SDK (`@sankofa/switch` + `@sankofa/config`) | All other SDKs (mobile + server) |
+| Granularity | Per-call site, deduplicated per session per `(key, value, variant)` | One per session per key |
+| Bandwidth cost | Slight — batched every 5s | Zero — rides the handshake |
+| Use this when | You need to measure if the *render path* actually saw the value | The decision is enough — handshake landed = decision applied |
+
+Web is the only SDK that does **per-call** exposure tracking today; every other platform does **handshake-level**. This is by design: in a browser, the same flag can be evaluated dozens of times across React renders, and you want to know which renders actually consumed which value. On mobile, `getFlag(...)` on Android is a static field read — the cost of reporting every read would dwarf the value.
+
+## Why exposures matter for experiments
+
+The honest version of an experiment result asks: "of the users who *experienced* the treatment, how many converted?" Not "of the users we *assigned* to the treatment, how many converted?"
+
+The two numbers diverge in three common ways:
+
+<Steps>
+  <Step title="Targeted but never visited the surface">
+    A flag controls the new checkout. The user was assigned to `treatment_b` but never opened the checkout. They're in the targeted population but never *exposed*. Counting them as treatment-arm conversions dilutes the result.
+  </Step>
+  <Step title="Targeted but the call site was gated">
+    The flag fires only on tablets, but the user is on mobile. The decision says `treatment_b`; the call never happened. Same problem.
+  </Step>
+  <Step title="Variant changed mid-session for some users">
+    Rare, but possible if you halt mid-rollout. Users who were exposed to one variant before the halt and another after are double-counted unless exposures are tracked per-variant.
+  </Step>
+</Steps>
+
+Exposure tracking lets the experiment dashboard restrict the analysis cohort to "users for whom the flag actually evaluated and was used in the render path."
+
+## The web exposure protocol
+
+<Steps>
+  <Step title="Call site fires">
+    `flags.getFlag("new_checkout")` returns the cached decision instantly.
+  </Step>
+  <Step title="SDK records the exposure locally">
+    The SDK adds `(flag_key, value, variant, reason, session_id, distinct_id)` to an in-memory exposure ring buffer. It deduplicates within the session: hitting the same `getFlag` 100 times in one session records one exposure, not 100.
+  </Step>
+  <Step title="Buffer flushes every 5 seconds">
+    The SDK posts the buffered exposures to `POST /api/switch/exposures` in batches. The endpoint accepts a list of exposure tuples, returns 204 on success.
+  </Step>
+  <Step title="Engine writes one row per (user, key, variant, session)">
+    The engine's exposure table is partitioned by day and indexed on `flag_key + variant`. Experiment queries restrict to `EXISTS (SELECT 1 FROM exposures WHERE user = ... AND key = ...)`.
+  </Step>
+</Steps>
+
+## The mobile / server exposure protocol
+
+Mobile and server SDKs don't track per-call exposures. Instead, the engine derives a **handshake-level exposure** from the decision response itself: when an SDK receives a non-default decision for a flag in its handshake response, the engine writes an implicit exposure under the assumption that the SDK *will* call into the flag during the session.
+
+This is faster, lighter, and a good enough approximation for most platforms — but it has a known drawback. If your mobile app receives a decision for `experiment_x` but the user never reaches the surface that calls `getFlag("experiment_x")`, the experiment dashboard still counts them as exposed.
+
+For experiments where this matters, manually report the exposure when the surface renders:
+
+<CodeGroup>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`final value = SankofaSwitch().getFlag('experiment_x');
+SankofaSwitch().reportExposure('experiment_x', value: value);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`let value = SankofaSwitch.shared.getFlag("experiment_x")
+SankofaSwitch.shared.reportExposure("experiment_x", value: value)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`val value = SankofaSwitch.getFlag("experiment_x")
+SankofaSwitch.reportExposure("experiment_x", value)`} />
+</CodeGroupItem>
+</CodeGroup>
+
+Manual `reportExposure` overrides the handshake-level implicit exposure and gives you the same per-call precision the web SDK does automatically.
+
+## Deduplication rules
+
+Web and manual mobile exposures both deduplicate within a session, keyed on `(flag_key, value, variant)`. That means:
+
+- Same user + same flag + same value evaluated 100 times in a session = **1 exposure row** in ClickHouse.
+- Same user + same flag + value changed mid-session (after halt + re-evaluation) = **2 exposure rows**, one per (value, variant) tuple.
+- Same user + same flag in two different sessions = **2 exposure rows**, one per session.
+
+This keeps storage and query costs manageable while preserving every state transition.
+
+## Exposure events in the dashboard
+
+In **Switch → Flags → \<flag\> → Exposures** you'll see:
+
+- A time-series chart of exposures per variant.
+- Cumulative unique users exposed per variant.
+- A diff between targeted (decision-level) and exposed (call-level) — the gap tells you how many users got the decision but never reached the call site.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
+    The protocol exposures attach to.
+  </Card>
+  <Card href="/products/ab-switch/overview" eyebrow="A/B Switch" title="Experiments">
+    How exposure-restricted analysis powers honest experiment math.
+  </Card>
+  <Card href="/api/switch/exposures" eyebrow="Reference" title="Exposure API">
+    Manual exposure reporting from custom HTTP clients.
+  </Card>
+</CardGrid>

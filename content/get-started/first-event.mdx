@@ -1,0 +1,241 @@
+---
+title: Send your first event
+description: From one track call to a row in the dashboard — the full path, with platform parity and a troubleshooting checklist for the common failures.
+badge: 10 min
+toc: true
+sdks: [web, flutter, react-native, ios, android, node, go, python, java]
+---
+
+Once an SDK is installed and initialized, every product Sankofa offers — analytics, replay correlation, cohorts, retention, A/B Switch — is downstream of one primitive: the **event**. This guide walks you through firing your first event, finding it in the dashboard, and confirming the path is healthy end-to-end.
+
+If you haven't installed an SDK yet, pick a platform from [Install](/get-started/install/web) first.
+
+## What an event is
+
+An event is a named action with optional structured properties. It belongs to a **distinct ID** (anonymous until [`identify`](/concepts/identity-and-aliases) names it) and an **environment** (live or test, resolved by API key). The engine appends default properties — OS, device, app version, geo — and writes a single row to ClickHouse.
+
+Three rules to keep in mind:
+
+<Steps>
+  <Step title="Names are stable contracts">
+    Once you ship `checkout_started` in v1, never rename it — every funnel, cohort, and retention chart references the name string. Use snake_case, present tense, and verb-noun ordering. See [Events deep dive](/concepts/events) for the full naming guide.
+  </Step>
+  <Step title="Properties are typed JSON">
+    Strings, numbers, booleans, and JSON arrays/objects are all valid. Sankofa indexes the keys you actually filter on; unindexed properties are still queryable, just slower.
+  </Step>
+  <Step title="`identify` is not the first call">
+    Track first, identify when the user signs in. Sankofa stitches the pre-identify anonymous traffic onto the resolved user automatically — no second `track` call needed.
+  </Step>
+</Steps>
+
+## Fire the event
+
+Pick a real user action — a button click, a route change, a checkout step — and wire one `track` call to it. The function shape is the same across every SDK:
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+
+document.getElementById("checkout-button")?.addEventListener("click", () => {
+  Sankofa.track("checkout_started", {
+    cart_value: 49.99,
+    item_count: 3,
+    currency: "USD",
+  });
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`ElevatedButton(
+  onPressed: () async {
+    await Sankofa.instance.track('checkout_started', {
+      'cart_value': 49.99,
+      'item_count': 3,
+      'currency': 'USD',
+    });
+  },
+  child: const Text('Checkout'),
+);`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`import { Sankofa } from "@sankofa/react-native";
+
+<Pressable onPress={() => Sankofa.track("checkout_started", {
+  cart_value: 49.99,
+  item_count: 3,
+  currency: "USD",
+})}>
+  <Text>Checkout</Text>
+</Pressable>`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`Button("Checkout") {
+    Sankofa.shared.track("checkout_started", properties: [
+        "cart_value": 49.99,
+        "item_count": 3,
+        "currency": "USD",
+    ])
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`button.setOnClickListener {
+    Sankofa.track("checkout_started", mapOf(
+        "cart_value" to 49.99,
+        "item_count" to 3,
+        "currency" to "USD"
+    ))
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/node";
+
+app.post("/checkout/start", async (req, res) => {
+  await Sankofa.track("checkout_started", {
+    cart_value: 49.99,
+    item_count: 3,
+    currency: "USD",
+  }, { distinctId: req.user?.id ?? "anon" });
+  res.status(204).send();
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`client.Track(ctx, sankofa.Event{
+    Name:       "checkout_started",
+    DistinctID: userID,
+    Properties: map[string]any{
+        "cart_value":  49.99,
+        "item_count":  3,
+        "currency":    "USD",
+    },
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`sankofa.track("checkout_started", {
+    "cart_value": 49.99,
+    "item_count": 3,
+    "currency": "USD",
+}, distinct_id=request.user.id)`} />
+</CodeGroupItem>
+<CodeGroupItem tab="java" label="Java">
+<CodeBlock lang="java" code={`Sankofa.track("checkout_started", Map.of(
+    "cart_value", 49.99,
+    "item_count", 3,
+    "currency", "USD"
+));`} />
+</CodeGroupItem>
+</CodeGroup>
+
+Reload your app and trigger the action.
+
+## Find the event in the dashboard
+
+<Steps>
+  <Step title="Open Live events">
+    Open [app.sankofa.dev](https://app.sankofa.dev) → your project → **Live events** in the left rail. This stream shows raw events as they land in ClickHouse, typically within 1–2 seconds.
+  </Step>
+  <Step title="Filter to your event name">
+    Use the search box and type `checkout_started`. The stream filters to only matching rows.
+  </Step>
+  <Step title="Inspect the payload">
+    Click a row to expand it. You'll see your custom properties (`cart_value`, etc.) plus the SDK's default properties (`$os`, `$browser` or `$device_model`, `$app_version`, `$geo_country`, etc.). Confirm the **environment** badge says `live` or `test` matching the API key you used.
+  </Step>
+</Steps>
+
+## Identify the user when they sign in
+
+After authentication, call `identify` with your stable user ID. Sankofa rewrites the pre-identify anonymous events onto the new ID server-side so funnels, cohorts, and retention all stitch correctly.
+
+<CodeGroup>
+<CodeGroupItem tab="web" label="Web">
+<CodeBlock lang="ts" code={`await Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="flutter" label="Flutter">
+<CodeBlock lang="dart" code={`await Sankofa.instance.identify('user_123', traits: {
+  'email': 'ada@example.com',
+  'plan': 'pro',
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="react-native" label="React Native">
+<CodeBlock lang="tsx" code={`Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios" label="iOS (Swift)">
+<CodeBlock lang="swift" code={`Sankofa.shared.identify(userId: "user_123", traits: [
+    "email": "ada@example.com",
+    "plan": "pro",
+])`} />
+</CodeGroupItem>
+<CodeGroupItem tab="android" label="Android (Kotlin)">
+<CodeBlock lang="kotlin" code={`Sankofa.identify("user_123", mapOf(
+    "email" to "ada@example.com",
+    "plan" to "pro"
+))`} />
+</CodeGroupItem>
+<CodeGroupItem tab="node" label="Node">
+<CodeBlock lang="ts" code={`await Sankofa.identify("user_123", {
+  email: "ada@example.com",
+  plan: "pro",
+});`} />
+</CodeGroupItem>
+<CodeGroupItem tab="go" label="Go">
+<CodeBlock lang="go" code={`client.Identify(ctx, sankofa.Person{
+    DistinctID: "user_123",
+    Traits:     map[string]any{"email": "ada@example.com", "plan": "pro"},
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="python" label="Python">
+<CodeBlock lang="python" code={`sankofa.identify("user_123", traits={
+    "email": "ada@example.com",
+    "plan": "pro",
+})`} />
+</CodeGroupItem>
+<CodeGroupItem tab="java" label="Java">
+<CodeBlock lang="java" code={`Sankofa.identify("user_123", Map.of(
+    "email", "ada@example.com",
+    "plan", "pro"
+));`} />
+</CodeGroupItem>
+</CodeGroup>
+
+The dashboard's **People** view will now show `user_123` with the events the same browser fired anonymously a moment ago.
+
+## Troubleshooting
+
+If the event hasn't shown up after 30 seconds:
+
+<Accordion>
+<AccordionItem title="My event landed in the wrong environment">
+The engine resolves `live` vs `test` from the API key, not from a config flag. Check that the key in your init call matches the environment you're looking at in the dashboard. A `sk_test_…` key always lands in **test**; a `sk_live_…` key always lands in **live**.
+</AccordionItem>
+<AccordionItem title="No event appears at all">
+Open the browser devtools or your server logs. SDK errors typically surface with a `[sankofa]` prefix when `debug: true`. Common failures:
+
+- **401 Unauthorized** — wrong key, or key revoked. Generate a fresh one in the dashboard.
+- **Network blocked** — content-blockers or strict CSPs can block `cdn.sankofa.dev` and `api.sankofa.dev`. Allow both.
+- **Forgot init** — confirm `Sankofa.init(...)` ran before the `track` call. Subsequent `init` calls are no-ops, so safest to call it at module top-level.
+</AccordionItem>
+<AccordionItem title="Properties are missing or stringified">
+Sankofa accepts strings, numbers, booleans, and JSON arrays/objects. Dates and BigInt are stringified automatically. If you're seeing strings where you expect numbers, check that you didn't wrap the value in quotes at the call site.
+</AccordionItem>
+<AccordionItem title="My identify call didn't stitch">
+Identity stitching is server-side. Anonymous events fired before `identify` get rewritten with the new distinct ID within a minute or two. If they still appear under the anonymous ID after 5 minutes, check that the user actually had a session running in the same project; cross-project stitching is not supported.
+</AccordionItem>
+</Accordion>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/get-started/first-feature-flag" eyebrow="Next" title="Your first feature flag">
+    Roll out a feature to a cohort, gate behind A/B variants, and halt on a Catch signal.
+  </Card>
+  <Card href="/get-started/first-remote-config" eyebrow="Next" title="Your first remote config">
+    Type a config item, fetch it from the SDK, version it, roll it back.
+  </Card>
+  <Card href="/concepts/events" eyebrow="Concepts" title="Events deep dive">
+    Naming conventions, default properties, sampling, allow/deny lists.
+  </Card>
+</CardGrid>
