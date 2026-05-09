@@ -155,7 +155,7 @@ Every publish creates an immutable version with the actor, timestamp, and full d
 |---|---|
 | an on/off toggle | [Switch](/products/switch/overview) |
 | a numeric, string, or JSON value | **Config** |
-| an A/B variant with stat-sig metrics | [A/B Switch](/products/ab-switch/overview) |
+| an A/B variant with stat-sig metrics | [Switch variants](/products/switch/overview) or [Config A/B experiments](/products/config/overview) |
 | a value that depends on a cohort, but should never enable a new code path | **Config** |
 | a value that gates a code path | [Switch](/products/switch/overview) |
 
@@ -168,7 +168,7 @@ Both share the same decision handshake, so using both costs the same as using on
     Types, schema validation, version history, scheduled rollouts.
   </Card>
   <Card href="/products/switch/overview" eyebrow="Switch" title="Switch deep dive">
-    Feature flags, variants, A/B Switch, halt webhooks.
+    Feature flags, variants, experiments, halt webhooks.
   </Card>
   <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
     Why Config and Switch share one ETag-cached snapshot.

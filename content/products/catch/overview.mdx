@@ -1,0 +1,170 @@
+---
+title: Catch
+description: Crash detection, error tracking, transactions, and web vitals. Auto-rollback in under 60 seconds via halt webhooks. Native + JS + server-side capture, with full source-map symbolication.
+toc: true
+---
+
+**Catch** is Sankofa's error-tracking and performance-monitoring product. Every official Sankofa SDK ships Catch — it's the broadest product in the matrix.
+
+Catch captures:
+
+- **Errors**: uncaught exceptions, unhandled rejections, native crashes, ANRs.
+- **Breadcrumbs**: low-noise events leading up to a failure (clicks, route changes, console logs, fetch responses).
+- **Transactions**: distributed-tracing spans for measuring server-side and (where instrumented) client-side latency.
+- **Web vitals**: LCP, FID, CLS, INP — for the web SDK.
+- **Profiles**: sampling profiler output (server SDKs).
+
+The goal isn't only to alert when something breaks — it's to **stop the regression in flight**. Catch wires into Switch and Deploy via the **halt webhook** so that a spike in error rate auto-rolls back the OTA bundle that caused it, in under 60 seconds, before most users notice.
+
+## What you'll see in the dashboard
+
+| View | Purpose |
+|---|---|
+| **Issues** | Grouped errors. Each issue is a fingerprint — a stack-trace + message family — with first/last seen, total count, affected users, and bonded release(s). |
+| **Events** | Individual error occurrences, with full payload + breadcrumbs + replay link (if Replay was active). |
+| **Transactions** | Trace spans grouped by name (route, function, db query). Used for performance regression tracking. |
+| **Vitals** | Web Vitals time series + percentiles, broken down by route + cohort. |
+| **Profiles** | Flame graphs from sampled profilers (server SDKs). |
+| **Alerts** | Conditions on issue / transaction / vital metrics that trigger webhooks, Slack messages, or PagerDuty pages. |
+| **Ownership rules** | Auto-assign issues to teams + people based on stack-trace heuristics. |
+
+## How issues are grouped
+
+Catch fingerprints every captured event into an **issue** so you don't see 10,000 rows for the same crash. The fingerprint is computed from:
+
+1. The exception type (`TypeError`, `NullPointerException`, etc.)
+2. The normalized stack trace (top N user-code frames, with line/column stripped to allow refactor tolerance)
+3. The exception message (with PII patterns scrubbed)
+
+Two events with the same fingerprint group into the same issue. You can override the fingerprint at the SDK call site:
+
+<CodeBlock lang="ts" code={`Sankofa.captureException(err, {
+  fingerprint: ["billing-charge-failed"],  // collapse all charge errors into one issue
+  tags: { feature: "billing" },
+  extras: { amount, currency },
+});`} />
+
+Custom fingerprints are useful for errors that the auto-grouper splits too aggressively (e.g. dynamically-named functions creating unique stacks).
+
+## Auto-rollback (the &lt;60s loop)
+
+This is what makes Catch operationally different.
+
+<Steps>
+  <Step title="Catch detects the spike">
+    An alert rule watches `error_rate` on a key route or feature. When the rate crosses the threshold (configurable per project), the rule fires.
+  </Step>
+  <Step title="Halt-webhook fires">
+    Catch posts to `POST /api/switch/halt-webhook` with the affected flag's key. The halt is identified either by an explicit flag-key configured on the alert, or by introspecting the most recent decision-handshake snapshot.
+  </Step>
+  <Step title="Switch revokes the flag">
+    The flag transitions to `halted`. Within ~30 seconds, every connected client SDK receives the new decision (default value applies).
+  </Step>
+  <Step title="Deploy reverts the bundle">
+    For React Native OTA bundles gated on the flag, the next call to `deploy.reportError` (or to `deploy.checkForUpdate`) detects the halt and triggers `rollbackToPrevious`.
+  </Step>
+  <Step title="Audit + ticket">
+    The halt is logged in the audit log. If you've configured a Plan integration, a ticket is auto-created in the affected board with the issue link, the affected release, and the rollback timestamp.
+  </Step>
+</Steps>
+
+End-to-end this completes in &lt; 60 seconds for the alert → halt → rollback path; the dashboard's banner reflects the rolled-back state immediately.
+
+## Source-map and symbol upload
+
+Production bundles + binaries are minified / stripped. To get readable stack traces:
+
+| Platform | Format | Upload command |
+|---|---|---|
+| Web | JavaScript source maps | `npx sankofa-cli catch symbols upload --kind js_sourcemap --release "$RELEASE_SHA" --dir ./dist` |
+| iOS | dSYM bundles | `... --kind dsym --release "$RELEASE_SHA" --dir ./build/dSYMs` |
+| Android | ProGuard / R8 mapping files | `... --kind proguard_mapping --release "$RELEASE_SHA" --file ./build/outputs/mapping/release/mapping.txt` |
+| Android NDK | NDK symbols | `... --kind ndk --release "$RELEASE_SHA" --dir ./obj` |
+| Flutter | Flutter symbols | `... --kind flutter --release "$RELEASE_SHA" --dir ./build/symbols` |
+| Server (Node) | JavaScript source maps | Same command as Web. |
+
+Run these in CI after build, before deploy. Catch matches uploaded symbols against `release` on the captured event.
+
+For ad-hoc symbolication of an obfuscated stack you've collected manually:
+
+<CodeBlock lang="bash" code={`sankofa catch symbolicate --release "$RELEASE_SHA" --stack ./crash.txt`} />
+
+## Web vitals (web only)
+
+Catch on the web ships a Web Vitals capture path:
+
+<CodeBlock lang="ts" code={`Sankofa.init({ apiKey: "...", endpoint: "...", plugins: [catchPlugin()] });
+// Web Vitals are captured automatically when @sankofa/catch is registered.`} />
+
+The dashboard shows LCP / FID / CLS / INP at the p50, p75, p90, and p99 percentiles, broken down by route and cohort, with regression alerts available.
+
+## Transactions and profiling (server SDKs)
+
+Server SDKs (Node, Go, Java, Python) ship distributed-tracing primitives:
+
+<CodeBlock lang="ts" code={`import { startTransaction } from "@sankofa/node";
+
+const tx = startTransaction({ name: "checkout_handler", op: "http.server" });
+const span = tx.startChild({ name: "db.query.orders", op: "db" });
+// ... do work ...
+span.finish();
+tx.finish();`} />
+
+Transactions appear in the **Transactions** view, with p50/p95/p99 latency and error correlation per name.
+
+For sampling profilers, see the per-SDK reference (`NodeProfiler`, `Profiler` on Python, etc.).
+
+## Issue ownership
+
+Configure rules at `/dashboard/catch/ownership` to auto-assign issues to teams or individuals. Rules match against:
+
+- Stack-trace path globs (`web/billing/**` → billing team)
+- Tag values (`feature=billing` → billing team)
+- File / module ownership from a `CODEOWNERS` file uploaded to the dashboard
+
+Multiple rules can match; the most-specific path wins.
+
+## API surface
+
+Catch exposes:
+
+### Ingestion (called by the SDK; not for direct use)
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/ee/catch/ingest/events` | Error events |
+| `POST /api/ee/catch/ingest/transactions` | Transactions + spans |
+| `POST /api/ee/catch/ingest/vitals` | Web vitals |
+| `POST /api/ee/catch/ingest/profiles` | Sampling profiler output |
+
+### Dashboard / management
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/catch/config` | Read project config (sample rates, ignore rules). |
+| `GET /api/v1/catch/issues` | List + search issues. |
+| `GET /api/v1/catch/events` | Drill into individual events. |
+| `GET /api/v1/catch/ownership` | Read + write ownership rules. |
+
+## Catch limits by tier
+
+| Plan | Events / month | Retention | Vitals | Profiles | Ownership rules |
+|---|---|---|---|---|---|
+| Free | 100K | 30 days | ✓ | — | basic |
+| Pro | 5M | 90 days | ✓ | ✓ | unlimited |
+| Growth | 25M | 180 days | ✓ | ✓ | unlimited + SLA alerts |
+| Enterprise | custom | custom (up to indefinite) | ✓ | ✓ | unlimited + per-rule audit export |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/switch/overview" eyebrow="Loop in" title="Switch + halt webhook">
+    The auto-rollback target; how Catch's alerts halt flags.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Loop in" title="Deploy + auto-rollback">
+    OTA bundle rollback when Catch fires.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tooling" title="Symbol upload">
+    `sankofa catch symbols upload` for source-map / dSYM / ProGuard.
+  </Card>
+</CardGrid>

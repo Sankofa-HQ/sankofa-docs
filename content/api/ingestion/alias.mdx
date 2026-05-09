@@ -1,0 +1,125 @@
+---
+title: Create an alias
+description: POST /api/v1/alias — connect an anonymous identifier to a known user identifier. Triggers server-side stitching that retroactively rewrites historical events.
+toc: true
+---
+
+The `alias` endpoint connects two identifiers as the same person. The most common case is stitching anonymous browsing activity onto a known user after sign-in: you alias the anonymous `distinct_id` to the new `user_id`, and the engine retroactively rewrites historical events to attribute them to the known user.
+
+For the SDK-level pattern, this is what `Sankofa.identify(userId)` calls under the hood. You'll only call this endpoint directly if you're integrating from a custom HTTP client or building a server-to-server identity-stitching flow.
+
+<EndpointBadge method="POST" path="/api/v1/alias" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<ParameterTable
+  params={[
+    { name: "alias_id", type: "string", required: true, description: "The previous (typically anonymous) identifier — the one whose history should be stitched onto the canonical user." },
+    { name: "distinct_id", type: "string", required: true, description: "The new (typically known / canonical) user identifier. Becomes the primary ID after the alias." },
+    { name: "timestamp", type: "string (ISO8601)", description: "Alias timestamp. Defaults to server time if not provided." },
+  ]}
+/>
+
+Both `alias_id` and `distinct_id` are subject to the garbage-ID heuristic — if either is shorter than 2 chars or matches common-garbage patterns, the request returns `202 Accepted` with `{"ok": true, "status": "discarded"}`.
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/alias \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "alias_id": "anon_a3b9ff",
+    "distinct_id": "user_123"
+  }'`} />
+
+The semantics: "anything previously seen as `anon_a3b9ff` is the same person as `user_123`."
+
+## Response
+
+`200 OK` on success — empty body.
+
+## What happens server-side
+
+The alias triggers two things:
+
+<Steps>
+  <Step title="Alias-table write">
+    A row goes into the `person_aliases` ClickHouse table linking `anon_a3b9ff` → `user_123`. From this point forward, queries that respect aliases (cohorts, funnels, retention) treat both IDs as the same person.
+  </Step>
+  <Step title="Asynchronous historical rewrite">
+    A background process rewrites the historical event rows: `distinct_id = anon_a3b9ff` becomes `distinct_id = user_123` (with the original anonymous ID preserved as `anon_id`). This happens within minutes of the alias write, depending on event volume.
+  </Step>
+</Steps>
+
+The result: charts, cohorts, funnels, retention — every analytics surface — attribute the pre-sign-up activity to `user_123` as if the user had been known the whole time.
+
+## When to call `alias`
+
+The canonical sequence:
+
+<Steps>
+  <Step title="User browses anonymously">
+    Events fire with `distinct_id = anon_a3b9ff` (the SDK's auto-generated UUID, or your synthetic anonymous ID).
+  </Step>
+  <Step title="User signs up or signs in">
+    Your auth flow now knows the user is `user_123`. Call `alias` with `alias_id = anon_a3b9ff` and `distinct_id = user_123`.
+  </Step>
+  <Step title="Subsequent events use the new ID">
+    From now on, the SDK (or your tracking calls) should send `distinct_id = user_123`.
+  </Step>
+</Steps>
+
+Don't call `alias` repeatedly for the same anon → known pair — it's idempotent server-side, but you're wasting requests. Call once per identity transition.
+
+## Multi-device stitching
+
+If the same user signs in on multiple devices, each device generates its own anonymous ID, and you call `alias` once per device:
+
+| Device | Anon ID | Alias call |
+|---|---|---|
+| Phone | `anon_a3b9ff` | `alias(anon_a3b9ff, user_123)` |
+| Web | `anon_4ef2cc` | `alias(anon_4ef2cc, user_123)` |
+| Desktop | `anon_77b9aa` | `alias(anon_77b9aa, user_123)` |
+
+All three anonymous histories merge onto `user_123`. The dashboard shows them as one person.
+
+## Cross-anonymous stitching
+
+What you **cannot** do via alias: stitch two anonymous IDs to each other without a known user in between. There's no fingerprint-based deduplication. Two users who never signed in remain separate people in the dashboard, even if they're the same human.
+
+(That's intentional. We don't fingerprint.)
+
+## Validation
+
+Same as `track` and `people`:
+
+1. Auth (`x-api-key`)
+2. Origin / IP allowlist
+3. JSON parse
+4. Required `alias_id` and `distinct_id` non-empty
+5. Garbage-ID heuristic on both IDs (returns `202` if either matches)
+6. Queue + return
+
+## Async write semantics
+
+The handler queues the alias and returns. A background worker (`startAliasWorker()`) writes the row to ClickHouse. The historical-rewrite job runs separately, with its own schedule (typically every 1–5 minutes for active projects).
+
+Latency to alias-row visibility: ~2 seconds. Latency to historical events being rewritten: a few minutes for active projects, longer if there's a large backlog.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/identity-and-aliases" eyebrow="Concepts" title="Identity and aliases">
+    The deeper concept — when to alias, when to identify, how stitching actually works.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Adjacent" title="Track events">
+    The events that get rewritten on alias.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Full field reference for the PersonAlias shape.
+  </Card>
+</CardGrid>

@@ -1,0 +1,171 @@
+---
+title: Vision
+description: Five-surface strategy workspace — Canvas, Roadmap, OKRs, Initiatives, and Strategy Docs. Boards are the unit of sharing; initiatives bridge strategy (OKRs) ↔ execution (Plan tickets) with auto-progress.
+toc: true
+---
+
+**Vision** is Sankofa's strategy and planning product. It's not a single tool but a **five-surface workspace** — Canvas, Roadmap, OKRs, Initiatives, and Strategy Docs — unified under shared **boards** that group related artifacts and act as the unit of sharing, billing, and access control.
+
+The dashboard tagline puts it best: *"Strategy boards — Canvas, Roadmap, OKRs, Initiatives, Docs. Five surfaces, one workspace."*
+
+What makes Vision different from a stand-alone strategy tool is its bond to the rest of Sankofa: **Initiatives** link upward to OKR Key Results (strategy) and downward to Plan tickets (execution). When a Plan ticket closes, Vision auto-recomputes the linked KR's progress and writes activity on every initiatives page in the project. Strategy and execution stay in lockstep without manual updates.
+
+## The five surfaces
+
+Each surface lives inside a board (`VisionBoard`) as a heterogeneous **page** (`VisionPage`) with a `Kind` discriminator. Surfaces share comments, activity, members, and assets — but each has its own UI paradigm and data model.
+
+<CardGrid cols={3}>
+  <Card eyebrow="Surface 1" title="Canvas">
+    Freeform multiplayer whiteboard. Konva + Yjs for real-time collaboration. Use for visual brainstorming, architecture sketches, annotated diagrams.
+  </Card>
+  <Card eyebrow="Surface 2" title="Roadmap">
+    Timeline + Now/Next/Later dual view. Lanes (per team), items, milestones (can pin to Deploy releases), and dependencies. Public read-only links supported.
+  </Card>
+  <Card eyebrow="Surface 3" title="OKRs">
+    Hierarchical objectives (company → team → individual) with numeric Key Results. Cycles per project. KR check-ins. Auto-progress when linked initiatives close.
+  </Card>
+  <Card eyebrow="Surface 4" title="Initiatives">
+    Themed bets bridging OKRs ↔ Plan tickets. RICE / ICE scoring, dependency DAG, status flow (`proposed → committed → in_progress → done`). The DNA of Vision.
+  </Card>
+  <Card eyebrow="Surface 5" title="Strategy Docs">
+    Long-form rich-text (Tiptap + Yjs). Embeds for live initiative / OKR / Plan-ticket references. Full-text search. Public read-only links with optional password.
+  </Card>
+</CardGrid>
+
+## Boards: the container
+
+A **board** (`vb_…`) groups any number of pages of any type. Every board has:
+
+- **Visibility** — `private`, `project`, or `public-link` (for read-only sharing).
+- **Members** — board-scoped roles: `Viewer < Commenter < Editor < Owner`. Falls back to board visibility if no explicit member rows exist.
+- **Assets** — Backblaze-backed image / sticker / GIF / file uploads, signed URLs, public bucket for public-link viewers.
+- **Comments** — surface-aware threaded comments with anchors (`shape:<id>` for canvas, `kr:<id>` for OKRs, `range:<from>:<to>` for docs, etc.).
+- **Activity** — Postgres + ClickHouse dual-write audit log; `board.created`, `page.added`, `comment.posted`, `initiative.ticket_closed`, etc.
+- **Notifications** — per-user inbox for comment mentions.
+
+Boards are the unit you share with someone, the unit billing counts against, and the unit you archive when a strategy season ends.
+
+## Cross-surface bonds
+
+The most important integrations live *inside* Vision:
+
+<Steps>
+  <Step title="Initiative ↔ Plan ticket">
+    Link a Plan ticket to an Initiative (`vision_initiative_ticket_links`). When the ticket transitions to `done`, the Vision plan-listener finds every linked Initiative, bumps the linked KRs based on the fraction of linked tickets closed, inserts an automatic `KrCheckin` to document the bump, and writes activity on every initiatives page in the project.
+  </Step>
+  <Step title="Initiative ↔ OKR Key Result">
+    Link an Initiative to a KR (`InitiativeObjectiveLink`). The KR's `current_value` auto-progresses based on the closure rate of linked initiatives. Confidence scores update with each check-in.
+  </Step>
+  <Step title="Roadmap milestone ↔ Deploy release">
+    A Roadmap milestone can pin to a Deploy release (`RoadmapMilestone.LinkedDeployReleaseID`). When Deploy fires the release-promoted event, the milestone backfills with the actual ship date.
+  </Step>
+  <Step title="Doc embed ↔ live entity">
+    Strategy Docs can embed live references — to an Initiative, an OKR, a Plan ticket, or a Deploy release. The doc-embeds resolver cache (`vision_doc_embeds`) keeps the rendered preview fresh.
+  </Step>
+  <Step title="Comments are surface-agnostic">
+    Anchors carry the context. A canvas comment anchors to a shape; a roadmap comment anchors to an item; an OKR comment anchors to a KR; a doc comment anchors to a text range. The comment table is one table for all surfaces.
+  </Step>
+</Steps>
+
+## Surface-by-surface details
+
+### Canvas
+
+A multiplayer whiteboard backed by Yjs CRDTs. Three tables:
+
+- `vision_canvas_pages` — snapshot metadata + revision tracking
+- `vision_canvas_updates` — append-only Yjs delta log
+- `vision_canvas_versions` — user-driven version snapshots + auto-rollups
+
+The compact worker prunes old deltas once a snapshot persists. Real-time edits flow over the WebSocket hub (`/api/v1/vision/ws/:board_id`); offline edits merge on reconnect.
+
+### Roadmap
+
+A timeline + NNL planner with five entity types:
+
+- `RoadmapLane` — swimlane (typically a team or workstream)
+- `RoadmapItem` — deliverable / epic with `start_date`, `end_date`, `bucket` (`now | next | later`), `status`
+- `RoadmapMilestone` — time-anchored marker, can link to a Deploy release
+- `RoadmapDependency` — DAG of item blocking relationships
+- `RoadmapPage` — view settings (mode, zoom, public share)
+
+Public read-only sharing is supported per page (`POST /roadmap/:page_id/share` mints a token; `GET /vision/roadmap/public/:token` serves the read-only view without auth).
+
+### OKR Maps
+
+Project-scoped cycles (`OkrCycle`) hold the time bounds; pages select which cycle to display. Objectives are hierarchical (company → team → individual via `ParentObjectiveID`); KRs hang off objectives with `start_value`, `target_value`, and `current_value`.
+
+Check-ins (`KrCheckin`) record progress + confidence updates. The auto-progress engine bumps `current_value` automatically when linked initiatives close — see the bonded view above.
+
+### Initiatives
+
+Initiatives are the DNA. They:
+
+- Live at the project level (visible across multiple pages and boards within the project)
+- Have a status flow: `proposed → committed → in_progress → [paused | cancelled] → done`
+- Support **RICE** (reach × impact × confidence ÷ effort) and **ICE** (impact × confidence × ease) scoring
+- Maintain a dependency DAG (`vision_initiative_dependencies`)
+- Link to Plan tickets (`InitiativeTicketLink`) and OKR KRs (`InitiativeObjectiveLink`)
+
+`InitiativePage` carries per-page filter/sort/view settings (board, list, or matrix view) — initiatives themselves are project-level.
+
+### Strategy Docs
+
+Tiptap + Yjs rich text with five tables:
+
+- `vision_doc_pages` — snapshot metadata + public share + plain-text search column
+- `vision_doc_updates` — append-only Yjs delta log
+- `vision_doc_versions` — user-driven + auto-rollup snapshots
+- `vision_doc_embeds` — resolver cache for cross-product embeds (Plan tickets, OKRs, Initiatives)
+
+Public read-only sharing supports an optional password (`POST /docs/:page_id/share`). Full-text search is column-backed for fast dashboard FTS.
+
+## API surface
+
+All routes live at `/api/v1/vision/*`. Authentication: dashboard JWT + project RBAC + Vision module gate. Listed by entity:
+
+| Group | Endpoints |
+|---|---|
+| Boards | `GET/POST /boards`, `GET/PATCH/DELETE /boards/:board_id`, `POST /boards/:board_id/{archive,unarchive,share}`, `DELETE /boards/:board_id/share` |
+| Pages | `GET/POST /boards/:board_id/pages`, `GET/PATCH/DELETE /pages/:page_id` |
+| Members | `GET/POST /boards/:board_id/members`, `PATCH/DELETE /boards/:board_id/members/:user_id` |
+| Assets | `GET/POST /boards/:board_id/assets`, `DELETE /assets/:asset_id` |
+| Comments | `GET/POST /pages/:page_id/comments`, `PATCH/DELETE /comments/:comment_id`, `POST /comments/:comment_id/{resolve,reopen}` |
+| Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
+| Activity | `GET /boards/:board_id/activity` |
+| Search | `GET /search`, `GET /embeds/:kind/:id` |
+| Canvas | `GET/PUT /canvas/:page_id/snapshot`, `GET /canvas/:page_id/versions`, `POST /canvas/:page_id/versions/:version_id/restore` |
+| Roadmap | `GET/PATCH /roadmap/:page_id`, `POST/PATCH/DELETE` for `lanes/items/milestones/dependencies`, `POST/DELETE /roadmap/:page_id/share`, `GET /vision/roadmap/public/:token` |
+| OKR | `GET/POST /okr-cycles`, `PATCH /okr-cycles/:id`, `POST /okr-cycles/:id/archive`, `GET/PATCH /okr/:page_id`, `POST/PATCH/DELETE` for `objectives` and `krs`, `GET/POST /okr/:page_id/krs/:kr_id/checkins` |
+| Initiatives | `GET /initiatives`, `GET /initiatives/by-ticket/:project_id/:ticket_key`, `POST /initiatives`, `GET/PATCH/DELETE /initiatives/:id`, dependency + Plan-ticket + OKR-KR linking endpoints |
+| Docs | `GET/PUT /docs/:page_id/snapshot`, `GET /docs/:page_id/versions`, `POST /docs/:page_id/versions/:version_id/restore`, `POST/DELETE /docs/:page_id/share`, `GET /vision/docs/public/:token` |
+| Realtime | `POST /boards/:board_id/ws-ticket`, `GET /vision/ws/:board_id` (WebSocket upgrade) |
+
+## Data residency + compliance
+
+Vision contributes to GDPR data export + purge — every entity is exportable and erasable per-user. The contributors live in `ee/vision/purge.go`. Activity is mirrored to ClickHouse for analytics; the Postgres copy is the authoritative audit log.
+
+## Vision limits by tier
+
+| Plan | Boards | Editors / board | OKR cycles | Initiatives | Public sharing | Multiplayer |
+|---|---|---|---|---|---|---|
+| Free | 1 | 3 | 1 active | 5 active | — | — |
+| Pro | unlimited | unlimited | unlimited | unlimited | ✓ (read-only links) | ✓ |
+| Growth | unlimited | unlimited | unlimited | unlimited | ✓ + password protection | ✓ |
+| Enterprise | unlimited | unlimited | unlimited | unlimited | ✓ + custom-domain sharing | ✓ + per-user audit |
+
+Quotas are enforced server-side at write time (`ee/vision/quota.go`); reads against existing entities continue to work even after quota is exhausted.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/plan/overview" eyebrow="Adjacent" title="Plan">
+    The execution layer that initiatives close on.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Adjacent" title="Deploy">
+    The release stream that roadmap milestones can pin to.
+  </Card>
+  <Card href="/products/overview" eyebrow="Map" title="All products">
+    See how Vision fits with the other seven products.
+  </Card>
+</CardGrid>

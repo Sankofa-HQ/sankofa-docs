@@ -1,0 +1,228 @@
+---
+title: Pulse — survey bundle and triggers
+description: GET /api/pulse/surveys returns the eligible surveys + targeting rules. Triggers are evaluated client-side. ETag-cached, refreshed via 304 Not Modified.
+toc: true
+---
+
+Pulse triggers are evaluated **client-side** — the SDK fetches the project's surveys (with their targeting rules embedded) once per session, caches them locally, and runs the trigger logic against in-process state (current screen, recent events, cohort membership) without further server calls.
+
+This page documents the two endpoints the SDK uses to fetch the survey bundle. There is no separate "trigger evaluation" endpoint to post against — if you're integrating without an SDK, you fetch the survey, evaluate the rules yourself, then post a response when the user submits.
+
+## List eligible surveys
+
+<EndpointBadge method="GET" path="/api/pulse/surveys" />
+
+### Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+### Headers
+
+The endpoint supports ETag-based caching:
+
+- **Request:** `If-None-Match: "<etag>"` (optional)
+- **Response:** `ETag: "<etag>"` always present
+- **Response:** `Cache-Control: private, max-age=300` (5-minute browser cache)
+
+### Response (200)
+
+<CodeBlock lang="json" code={`[
+  {
+    "id": "psv_abc",
+    "name": "Post-purchase NPS",
+    "description": "Sent after every successful checkout.",
+    "kind": "nps",
+    "status": "published",
+    "slug": "post-purchase-nps",
+    "auto_show": true,
+    "display_cooldown_seconds": 604800,
+    "display_delay_ms": 0,
+    "targeting_rules": [
+      {
+        "predicate": "event:checkout_completed",
+        "weight_numerator": 100
+      },
+      {
+        "predicate": "session_count >= 5",
+        "weight_numerator": 50
+      }
+    ]
+  },
+  {
+    "id": "psv_def",
+    "name": "Trial-end feedback",
+    "description": "Asked at trial conversion or expiry.",
+    "kind": "rating",
+    "status": "published",
+    "slug": "trial-end-feedback",
+    "auto_show": true,
+    "display_cooldown_seconds": 2592000,
+    "display_delay_ms": 1500,
+    "targeting_rules": [
+      {
+        "predicate": "cohort:trial_converted",
+        "weight_numerator": 100
+      },
+      {
+        "predicate": "cohort:trial_expired",
+        "weight_numerator": 100
+      }
+    ]
+  }
+]`} />
+
+### Response (304)
+
+When the SDK sends `If-None-Match` matching the engine's current ETag:
+
+<CodeBlock lang="http" code={`HTTP/1.1 304 Not Modified
+ETag: "abc123..."
+Cache-Control: private, max-age=300`} />
+
+Empty body. The SDK keeps its cached survey bundle.
+
+### Fields
+
+<ParameterTable
+  params={[
+    { name: "id", type: "string (`psv_*`)", description: "Survey UUID. Use this when fetching the full bundle (`GET /api/pulse/surveys/:survey_id`) and when posting a response." },
+    { name: "name", type: "string", description: "Display name (typically dashboard-only; surveys may use translations for end-user copy)." },
+    { name: "description", type: "string", description: "Optional context for ops. Not shown to end users." },
+    { name: "kind", type: "string", description: "Survey type: `nps`, `rating`, `likert`, `csat`, `custom`, `service_desk`. Determines the question types and the score derivation." },
+    { name: "status", type: "string", description: "Always `published` in this list — the engine filters out drafts and archived surveys." },
+    { name: "slug", type: "string", description: "URL-friendly slug for shareable links (`/p/<slug>`)." },
+    { name: "auto_show", type: "boolean", description: "If `true`, the SDK auto-shows the survey when triggers match. If `false`, you call `pulse.show(surveyId)` manually." },
+    { name: "display_cooldown_seconds", type: "integer", description: "Per-user cooldown after dismissal / completion. Default 7 days. SDK enforces in localStorage." },
+    { name: "display_delay_ms", type: "integer", description: "Delay between trigger match and survey render. Useful for letting the user finish their action before interrupting." },
+    { name: "targeting_rules", type: "array", description: "Predicates the SDK evaluates client-side. Each rule's `weight_numerator` is the per-1000 sampling rate (100 = 10%, 1000 = always)." },
+  ]}
+/>
+
+### Targeting predicate syntax
+
+The `targeting_rules[].predicate` is a small expression language the SDK evaluates locally. Common forms:
+
+| Predicate | Matches |
+|---|---|
+| `event:<event_name>` | Fires when the user dispatches the named event during the session. |
+| `session_count >= N` | True on the user's Nth+ session. |
+| `cohort:<cohort_name>` | User is currently in the named cohort (per the latest decision-handshake snapshot). |
+| `screen:<screen_name>` | Fires on entry to the named screen. |
+| `props.<key> = "value"` | True when the user's people-profile property matches. |
+| `AND(p1, p2)` | Both must be true. |
+| `OR(p1, p2)` | Either must be true. |
+
+The SDK has the full evaluator. For custom HTTP integrations without an SDK, replicate the logic per these rules — they're stable across versions.
+
+## Fetch full survey bundle
+
+<EndpointBadge method="GET" path="/api/pulse/surveys/:survey_id" />
+
+### Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. Survey ID can be the `psv_*` UUID **or** the human-friendly slug.
+
+### Query parameters
+
+<ParameterTable
+  params={[
+    { name: "external_id", type: "string", description: "If your app tracks an external respondent ID (e.g. for partial-response state), pass it here. Server returns any non-expired partial response under `partial`." },
+  ]}
+/>
+
+### Response (200)
+
+<CodeBlock lang="json" code={`{
+  "survey": {
+    "id": "psv_abc",
+    "organization_id": "org_xyz",
+    "project_id": "proj_def",
+    "name": "Post-purchase NPS",
+    "description": "Sent after every successful checkout.",
+    "kind": "nps",
+    "status": "published",
+    "slug": "post-purchase-nps",
+    "archived_at": null,
+    "created_at": "2026-04-12T10:00:00Z"
+  },
+  "questions": [
+    {
+      "id": "q_1",
+      "survey_id": "psv_abc",
+      "kind": "nps",
+      "prompt": "How likely are you to recommend us?",
+      "required": true,
+      "order_index": 0
+    },
+    {
+      "id": "q_2",
+      "survey_id": "psv_abc",
+      "kind": "text",
+      "prompt": "What's the main reason for your score?",
+      "required": false,
+      "order_index": 1
+    }
+  ],
+  "targeting_rules": [
+    { "predicate": "event:checkout_completed", "weight_numerator": 100 }
+  ],
+  "branching_rules": [
+    {
+      "from_question_id": "q_1",
+      "predicate": "answer < 7",
+      "to_question_id": "q_2"
+    }
+  ],
+  "theme": {
+    "id": "thm_abc",
+    "survey_id": "psv_abc",
+    "primary_color": "#FA7319"
+  },
+  "translations": {
+    "fr": {
+      "survey.name": "NPS post-achat",
+      "question.q_1.prompt": "Sur une échelle de 0 à 10, quelle est la probabilité que vous nous recommandiez ?"
+    }
+  },
+  "partial": {
+    "answers": { "q_1": 9 },
+    "current_question_id": "q_2"
+  }
+}`} />
+
+### Errors
+
+| Status | Body | When |
+|---|---|---|
+| `401` | `{"error": "missing_api_key"}` | No `x-api-key` |
+| `404` | `{"error": "not_found", "message": "survey not found for this project"}` | Survey ID doesn't exist or doesn't belong to the resolved project |
+| `422` | `{"error": "not_accepting_responses", "message": "survey is not currently accepting responses (status=draft)"}` | Survey exists but is in `draft` / `closed` / `archived` state |
+
+## Why client-side trigger evaluation
+
+Sankofa evaluates triggers client-side for two reasons:
+
+1. **No per-screen network call.** Triggers fire frequently (every screen change, every event), and a server round-trip per check would burn battery + bandwidth.
+2. **Cohort membership rides the decision-handshake snapshot.** The user's cohorts are already cached locally as part of the [decision handshake](/concepts/decision-handshake) — reusing them for trigger evaluation is free.
+
+The trade-off: **rule changes take effect on the next survey-bundle refresh** (5 minutes max via the `Cache-Control` directive, often shorter via the SDK's own polling). For surveys you publish *now* and want everyone to see immediately, plan for that latency.
+
+## Bundle ETag refresh
+
+The bundle ETag is computed from `(survey_id, updated_at)` pairs hashed together. Editing any field on any survey invalidates the bundle for the entire project — the SDK re-fetches the full list on the next refresh.
+
+For a project with hundreds of surveys, the bundle stays compact (it's just the metadata + targeting rules). Per-survey questions, branching, and theme are fetched lazily via `GET /api/pulse/surveys/:survey_id` only when a trigger fires.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/pulse/submissions" eyebrow="Adjacent" title="Submissions">
+    Where the user's response posts to.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Product" title="Pulse product">
+    Targeting rules, branching, scoring, NPS / CSAT semantics.
+  </Card>
+  <Card href="/sdks/web/packages/pulse" eyebrow="SDK" title="@sankofa/pulse">
+    The web client that consumes these endpoints.
+  </Card>
+</CardGrid>

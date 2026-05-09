@@ -1,12 +1,12 @@
 ---
 title: The decision handshake
-description: One ETag-cached payload per session powers Switch, Config, Pulse triggers, and A/B Switch — together. Here's how the protocol works and why we built it this way.
+description: One ETag-cached payload per session powers Switch, Config, and Pulse triggers — together. Here's how the protocol works and why we built it this way.
 toc: true
 ---
 
 Most analytics SDKs evaluate feature flags by polling a single endpoint per flag, per call. That works at small scale and falls apart fast — every render becomes a network request, every flag adds latency, and there's no shared truth across products.
 
-Sankofa's solution is the **decision handshake**: a single endpoint, called once per session, that returns the user's complete decision state across **every** product Sankofa runs — feature flags (Switch), remote config (Config), survey triggers (Pulse), and experiment assignments (A/B Switch). The SDK caches the response, evaluates everything locally for the rest of the session, and refreshes via ETag so unchanged state never re-hits the network.
+Sankofa's solution is the **decision handshake**: a single endpoint, called once per session, that returns the user's complete decision state across the products that need it — feature flags + variant assignments (Switch), typed remote config + A/B item experiments (Config), and survey triggers (Pulse). The SDK caches the response, evaluates everything locally for the rest of the session, and refreshes via ETag so unchanged state never re-hits the network.
 
 This is the seam that makes "one binary, zero glue code" possible.
 
@@ -120,7 +120,7 @@ Every decision in the response includes a `reason` field. This is a documented s
 | `default` | The flag/config wasn't found, or no rule matched. The SDK's bundled default (or code-side default) applied. |
 | `rollout` | A percentage rollout matched the user's stable bucket. |
 | `cohort:<name>` | A cohort-targeted rule matched (`cohort:pro`, `cohort:internal_staff`). |
-| `variant_assigned` | An A/B Switch experiment assigned the user to a variant via stable hashing. |
+| `variant_assigned` | A Switch flag variant or Config A/B experiment assigned the user via stable hashing. |
 | `halted` | The flag was halted (manually or via webhook). The default applied. |
 | `dependency_unmet` | A flag this one depends on evaluated to off. |
 | `cohort_lookup_failed` | The cohort table was unreachable. The default applied (graceful degradation). |

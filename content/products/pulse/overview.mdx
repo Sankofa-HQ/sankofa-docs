@@ -1,0 +1,145 @@
+---
+title: Pulse
+description: Behavior-triggered surveys rendered in-app. Build surveys with branching logic, target by cohort + recent events, and analyze responses alongside the rest of the Analytics surface.
+toc: true
+---
+
+**Pulse** is Sankofa's in-app survey product. Build a survey, define when it should fire ("after `checkout_completed`, on every 5th session, only for users in cohort `Pro plan`"), and the SDK shows the survey at the right moment. Responses flow into the dashboard alongside the rest of your event data, so you can correlate survey answers with downstream behavior.
+
+## What's in Pulse
+
+| Concept | Purpose |
+|---|---|
+| **Survey** | A named set of questions with versioning + lifecycle states (`draft`, `live`, `paused`, `archived`). |
+| **Question** | A single prompt within a survey. Types: short text, long text, single-select, multi-select, rating (1–10), NPS, scale. |
+| **Targeting rule** | Defines *who* sees the survey — cohort + property predicates + event behavior. |
+| **Branching rule** | Defines *which question comes next* based on the answer to the current question. |
+| **Trigger** | The event + condition that fires the survey ("show after `checkout_completed`"). |
+| **Cooldown** | Per-user delay between repeat impressions of the same survey. |
+| **Stats** | Per-survey response rate + completion rate + per-question distribution. |
+
+## Authoring a survey
+
+Surveys are authored from the dashboard at `/dashboard/pulse/surveys/new`. The flow:
+
+<Steps>
+  <Step title="Create + define questions">
+    Add questions one at a time. Each question has a type, prompt text, and optional metadata (placeholder, helper text, required flag).
+  </Step>
+  <Step title="Wire branching">
+    For non-linear surveys, attach branching rules to questions. "If answer to Q1 is 'unsatisfied', go to Q4 (follow-up); else, skip to Q3 (NPS)." Branching is server-side — the SDK never sees questions the user wouldn't qualify for.
+  </Step>
+  <Step title="Define triggers">
+    Pick the event(s) that should fire the survey. Add cohort + property gates ("only `pro` plan users in cohort `recent purchasers`"). Set the cooldown.
+  </Step>
+  <Step title="Preview + publish">
+    The dashboard renders the survey in-context with mock answers, walking branching paths. When the survey looks right, transition to `live`. The SDK's next handshake picks it up.
+  </Step>
+</Steps>
+
+## Triggers
+
+Triggers are evaluated client-side at every event firing. Sankofa SDKs evaluate against:
+
+- The current event's name + properties
+- The user's recent session events
+- The user's cohort membership (from the decision-handshake snapshot)
+- Default properties (geo, OS, app version)
+
+When a trigger matches, the SDK shows the survey via the bundled UI (or your custom renderer). If the user dismisses, the cooldown starts; if they complete, the survey is marked done for the user (re-fire only after the survey is updated to a new version).
+
+## Cohort targeting
+
+Surveys can target the same cohorts you use in Switch / Config:
+
+- "Power users (cohort)" → trigger after every 5th session
+- "Trial expiring this week (cohort)" → trigger on app launch
+- "Just downgraded (cohort)" → trigger immediately + only once
+
+See [Cohorts](/concepts/cohorts) for cohort refresh cadence — Pulse uses the same materialized snapshots.
+
+## Branching
+
+Branching turns a flat list of questions into a directed graph:
+
+<CodeBlock lang="json" code={`{
+  "questions": [
+    { "id": "q1", "type": "rating", "prompt": "How satisfied are you?" },
+    { "id": "q2", "type": "long_text", "prompt": "What could be better?" },
+    { "id": "q3", "type": "rating", "prompt": "How likely to recommend?" }
+  ],
+  "branching_rules": [
+    { "from": "q1", "if": "answer >= 8", "go_to": "q3" },
+    { "from": "q1", "if": "answer < 8", "go_to": "q2" }
+  ]
+}`} />
+
+The branching engine is server-side — the dashboard's preview walks every path, and the SDK only fetches the next question it should show.
+
+## Eligibility context
+
+For predicates the SDK can't see by default (e.g. internal staff role, custom tenant ID), set additional context on the Pulse client:
+
+<CodeBlock lang="ts" code={`pulse.setContext({
+  tenantId: "acme",
+  userRole: "admin",
+});`} />
+
+The next handshake includes the context, so cohort matching can include it in its rules.
+
+## Built-in vs custom rendering
+
+Each SDK ships a default renderer:
+
+- **Web** (`@sankofa/pulse`) — `<SurveyModal>` from `@sankofa/react`, themable via CSS variables.
+- **Mobile** (Flutter / RN / iOS / Android) — native bottom-sheet modal with brand-color theming.
+
+For full visual control, every SDK lets you register a custom renderer. The renderer receives the survey state object and a controller for submitting / dismissing — you build the UI, Pulse handles the protocol.
+
+## Per-survey analytics
+
+The dashboard surfaces:
+
+- **Response rate** = completions / impressions
+- **Completion rate** = completions / starts (i.e. how many users who started actually finished)
+- **Per-question distribution** with cohort breakdowns
+- **NPS / CSAT scores** auto-computed for the matching question types
+- **Verbatim responses** for free-text questions, with sentiment classification
+
+Survey events are also written to ClickHouse so you can correlate "users who answered Q3 with rating ≥ 9" with downstream behavior in Analytics insights.
+
+## API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/pulse/surveys` | List surveys. |
+| `POST /api/v1/pulse/surveys` | Create a survey. |
+| `GET /api/v1/pulse/surveys/:survey_id` | Read survey + version. |
+| `GET /api/v1/pulse/surveys/:survey_id/versions` | List versions. |
+| `PUT /api/v1/pulse/surveys/:survey_id/targeting-rules` | Update targeting. |
+| `PUT /api/v1/pulse/surveys/:survey_id/branching-rules` | Update branching. |
+| `POST /api/v1/pulse/surveys/:survey_id/responses` | SDK submits a response. |
+| `GET /api/v1/pulse/surveys/:survey_id/stats` | Aggregated stats. |
+
+## Pulse limits by tier
+
+| Plan | Surveys | Responses / month | Branching | Custom renderer | Cohort targeting |
+|---|---|---|---|---|---|
+| Free | ≤ 3 | 1K | linear only | — | basic |
+| Pro | unlimited | 50K | ✓ | ✓ | ✓ |
+| Growth | unlimited | 500K | ✓ | ✓ | ✓ + cohort entry/exit triggers |
+| Enterprise | unlimited | unlimited | ✓ | ✓ | ✓ + scheduled triggers |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/analytics/overview" eyebrow="Foundation" title="Analytics">
+    Cohorts and event data drive Pulse's targeting.
+  </Card>
+  <Card href="/sdks/web/packages/pulse" eyebrow="SDK" title="@sankofa/pulse (web)">
+    The web client and rendering API.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="Decision handshake">
+    How Pulse triggers piggy-back on the same per-session payload as Switch + Config.
+  </Card>
+</CardGrid>

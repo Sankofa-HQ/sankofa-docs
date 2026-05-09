@@ -1,0 +1,149 @@
+---
+title: Remote Config — decision handshake
+description: GET /api/v1/handshake — the unified per-session payload that returns the user's typed config values alongside Switch, Deploy, Catch, and Analytics modules.
+toc: true
+---
+
+The decision handshake is the unified endpoint that delivers Switch, Config, Deploy, Catch, and Analytics decisions in a single response. Config values arrive under `modules.config`.
+
+For the cross-product overview (why one endpoint, the ETag flow), see [The decision handshake](/concepts/decision-handshake). For the Switch slice, see [Switch decision handshake](/api/switch/decision).
+
+<EndpointBadge method="GET" path="/api/v1/handshake" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request
+
+The request shape is identical to the [Switch handshake](/api/switch/decision#request) — it's the same physical endpoint. Pass `installed=switch,config` (or list whatever modules your SDK has registered) so the engine knows which contributors to populate.
+
+## Config slice of the response
+
+<CodeBlock lang="json" code={`{
+  "project_id": "proj_abc",
+  "modules": {
+    "config": {
+      "enabled": true,
+      "values": {
+        "max_upload_mb": {
+          "value": 200,
+          "type": "int",
+          "version": 7,
+          "reason": "rollout"
+        },
+        "support_email": {
+          "value": "help@example.com",
+          "type": "string",
+          "version": 12,
+          "reason": "no_rule"
+        },
+        "home_hero": {
+          "value": {
+            "title": "Welcome to v2",
+            "subtitle": "...",
+            "ctaLabel": "Try it"
+          },
+          "type": "json",
+          "version": 4,
+          "variant": "treatment",
+          "reason": "variant_assigned"
+        }
+      },
+      "etag": "\\"a8e2...\\""
+    },
+    "switch": { /* see /api/switch/decision */ },
+    "deploy": { /* see /api/deploy/check */ },
+    "catch": { "enabled": true },
+    "analytics": { /* sampling rates, replay/heatmap config */ }
+  }
+}`} />
+
+Each item carries:
+
+- **value** — the typed value at the user's resolved version.
+- **type** — `string`, `int`, `float`, `bool`, or `json`. Immutable per item; lets the SDK validate before returning.
+- **version** — the version number that produced this value. Useful for logging which version a user evaluated.
+- **reason** — why this value was returned (see below).
+- **variant** — present only when an A/B item experiment assigned the user.
+
+## Reason tags
+
+| Reason | Meaning |
+|---|---|
+| `archived` | Item is archived. Default value applied. |
+| `no_rule` | Item has no targeting rule. Default value applied. |
+| `rollout` | Rule matched the user's stable bucket; rule's value applied. |
+| `variant_assigned` | A/B item experiment assigned a variant via stable hashing. |
+| `cohort:<name>` | A cohort-based rule matched. |
+| Custom rule reason | Per-item rule predicate (e.g. `country_excluded`). |
+
+## ETag refresh
+
+The Config slice has its own `etag` (separate from the composite ETag the engine computes for the whole handshake response). The flow is identical to [Switch's ETag refresh](/api/switch/decision#etag-refresh) — the SDK sends `If-None-Match` and the engine returns `304 Not Modified` if nothing changed.
+
+In practice, Config values change less often than Switch flags (no per-call halt webhook), so the Config ETag is a high-cache-hit-rate value.
+
+## Variant assignment for A/B item experiments
+
+When an item has an active A/B experiment configured, the engine:
+
+<Steps>
+  <Step title="Hashes the user">
+    Stable hash on `SHA-256(distinct_id + item_key)`.
+  </Step>
+  <Step title="Assigns to weighted variant">
+    Maps the hash to a variant by the variant's `weight_numerator`.
+  </Step>
+  <Step title="Returns the variant value">
+    Sets `value` to the variant's value. Sets `variant` to the variant's name. Sets `reason: "variant_assigned"`.
+  </Step>
+</Steps>
+
+The same user gets the same variant on every device + session. Bumping a variant's weight from 50/50 to 30/70 reshuffles only the boundary.
+
+## Quota gate
+
+If the project has exceeded its monthly handshake quota, the engine returns `modules.config.enabled = true` but `values: {}` and `reason: "quota_exceeded"`. The SDK falls back to bundled defaults gracefully.
+
+Each handshake increments the project's quota counter once (not per item) — so adding more config items doesn't speed up quota exhaustion.
+
+## Bundled defaults
+
+SDKs ship bundled defaults via the plugin's options:
+
+<CodeBlock lang="ts" code={`Sankofa.init({
+  apiKey: "sk_live_...",
+  endpoint: "https://api.sankofa.dev",
+  plugins: [
+    configPlugin({
+      defaults: {
+        max_upload_mb: 25,
+        support_email: "help@example.com",
+        home_hero: { title: "Welcome", subtitle: "Default" }
+      }
+    })
+  ]
+});`} />
+
+Bundled defaults serve three purposes:
+
+1. **Synchronous reads before the first handshake lands** — `config.get<T>(...)` returns the default immediately on init.
+2. **Offline fallback** — fresh installs with no cached snapshot return defaults until connectivity returns.
+3. **Type contract** — the default establishes the type the SDK expects. If the engine ever returns a different type, the default is preserved.
+
+See [`@sankofa/config` package](/sdks/web/packages/config) for the SDK consumption pattern.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/config/versions" eyebrow="Adjacent" title="Versions + rollback">
+    The history endpoint behind `sankofa config history` and `rollback`.
+  </Card>
+  <Card href="/api/switch/decision" eyebrow="Adjacent" title="Switch handshake">
+    The Switch slice of the same endpoint.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="Decision handshake">
+    The cross-product view — why one endpoint serves all modules.
+  </Card>
+</CardGrid>

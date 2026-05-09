@@ -1,0 +1,193 @@
+---
+title: Pulse — submit a response
+description: POST /api/pulse/responses — record a survey response. Anonymous submission supported. Server-side validation, NPS / CSAT score derivation, and outbound webhook on success.
+toc: true
+---
+
+When a user finishes a survey, the SDK posts the answers to this endpoint. The response is validated against the survey's question schema, scored if applicable (NPS, CSAT, rating), persisted to ClickHouse + Postgres, and emitted as an outbound webhook event.
+
+For the SDK pattern, every official Pulse client wraps this endpoint. Direct HTTP integrations (custom UIs, server-side surveys, email submission flows) should call it directly.
+
+<EndpointBadge method="POST" path="/api/pulse/responses" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<ParameterTable
+  params={[
+    { name: "survey_id", type: "string (`psv_*`)", required: true, description: "Survey UUID (or slug). Must exist in the resolved project + be in the `published` status." },
+    { name: "respondent", type: "object", description: "Optional respondent identity. Every field below is independently optional — anonymous submission works." },
+    { name: "respondent.user_id", type: "string", description: "Your stable user ID. Surfaces on the dashboard's profile view + flows into ClickHouse for analytics." },
+    { name: "respondent.external_id", type: "string", description: "Internal tracking ID — useful for funnel tracking when the same person fills out via web vs email vs in-app." },
+    { name: "respondent.email", type: "string", description: "Email if known. Auto-redacted in default analytics views; visible to Editors+." },
+    { name: "context", type: "object", description: "Optional execution-context for analytics + targeting attribution. Every field optional." },
+    { name: "context.release_version", type: "string", description: "App version at submission time." },
+    { name: "context.device_model", type: "string", description: "Hardware identifier (mobile)." },
+    { name: "context.os_version", type: "string", description: "OS version." },
+    { name: "context.distribution_id", type: "string", description: "If the survey came from an email-distribution funnel, the ID of that distribution. Lets the dashboard attribute responses back to the campaign." },
+    { name: "submitted_at", type: "string (ISO8601)", description: "Client-supplied submission timestamp. Server-time used if missing." },
+    { name: "answers", type: "object", required: true, description: "Map of `question_id` → answer value. Answer types vary by question kind: number for ratings, string for text, array for multiselect." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/pulse/responses \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "survey_id": "psv_abc",
+    "respondent": {
+      "user_id": "user_123",
+      "email": "ada@example.com"
+    },
+    "context": {
+      "release_version": "2.4.1",
+      "device_model": "iPhone 15",
+      "os_version": "17.4"
+    },
+    "answers": {
+      "q_satisfaction": 9,
+      "q_feedback": "Love the new checkout — much faster than before.",
+      "q_features": ["mobile_app", "dashboard"]
+    }
+  }'`} />
+
+## Response (201)
+
+<CodeBlock lang="json" code={`{
+  "id": "resp_xyz789",
+  "score": 9,
+  "env": "live",
+  "survey": "psv_abc"
+}`} />
+
+`score` is derived from the first NPS or rating answer in question order (or `null` if no scorable answer was provided). For surveys with multiple scoring questions, the dashboard's analytics view computes per-question scores too — `score` here is just the headline.
+
+## Error responses
+
+| Status | `error` | When |
+|---|---|---|
+| `400` | `validation` | Generic body-level validation failure (with `message`, `invalid[]`, and `missing[]` arrays detailing per-question issues) |
+| `400` | `invalid_body` | JSON parse failure or body shape doesn't match expectations |
+| `400` | `invalid_answers` | Answers map malformed (non-object, etc.) |
+| `401` | `missing_api_key` | No `x-api-key` |
+| `401` | `invalid_api_key` | Key doesn't match any project |
+| `402` | `quota_exceeded` | Pulse-response quota for the project exhausted (with `current` + `limit` integers in the body) |
+| `404` | `not_found` | Survey ID doesn't exist or doesn't belong to the resolved project |
+| `422` | `not_accepting_responses` | Survey is in `draft` / `closed` / `archived` state |
+| `422` | `no_questions` | Survey is `published` but has no questions configured |
+
+### Validation error shape
+
+When the request fails per-question validation:
+
+<CodeBlock lang="json" code={`{
+  "error": "validation",
+  "message": "Some answers are invalid or missing.",
+  "invalid": [
+    {
+      "question_id": "q_satisfaction",
+      "prompt": "How satisfied are you?",
+      "reason": "value_out_of_range"
+    }
+  ],
+  "missing": [
+    {
+      "question_id": "q_required_question",
+      "prompt": "What's the main reason?"
+    }
+  ]
+}`} />
+
+The `reason` codes:
+
+| Reason | Meaning |
+|---|---|
+| `value_out_of_range` | Numeric answer outside the question's allowed range (e.g. NPS &gt; 10). |
+| `wrong_type` | Answer type doesn't match the question kind (e.g. string for a numeric question). |
+| `option_not_allowed` | Multi-select / single-select answer is outside the configured options. |
+| `length_too_long` | Free-text answer exceeds the per-question max length. |
+
+## Anonymous submissions
+
+Every field in `respondent` is independently optional. Posting with no respondent identity creates a fully anonymous submission — useful for kiosks, embedded forms, and public sharable links.
+
+For shareable links, use the survey's slug:
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/pulse/responses \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "survey_id": "post-purchase-nps",
+    "answers": { "q_satisfaction": 8 }
+  }'`} />
+
+## Quota and billing
+
+Pulse-response submissions are quota-metered per project per month. The check happens **before** the database transaction commits — so a 402 response means the row was never written.
+
+If you're at risk of hitting the quota mid-month, the dashboard's usage card warns at 80% / 95%; upgrade tier or contact support before then.
+
+## Side effects on success
+
+When the engine accepts a response:
+
+<Steps>
+  <Step title="Persist">
+    Inserts `pulse_survey_responses` (one row) + `pulse_survey_response_answers` (N rows, one per answered question) in a single transaction.
+  </Step>
+  <Step title="Score derivation">
+    Picks the first NPS / rating / scale question in `order_index` order, extracts its value, stores in `score` field on the response row.
+  </Step>
+  <Step title="Plan integration (if configured)">
+    Emits a `ResponseSubmittedEvent` to the in-process bus. If a Plan board has a triage rule (e.g. "auto-create ticket on NPS &lt; 6 with text feedback"), Plan picks it up.
+  </Step>
+  <Step title="Outbound webhook">
+    `pulse.response.submitted` event fired to subscribers configured for that pattern. See [Webhooks](/api/webhooks).
+  </Step>
+  <Step title="Distribution attribution">
+    If `context.distribution_id` is set, the response is attributed to that distribution for funnel analytics ("of the 1,000 emails sent, 47% opened, 12% submitted").
+  </Step>
+  <Step title="ClickHouse mirror">
+    Best-effort async write to ClickHouse for analytics queries (joins with cohorts, retention, etc.). Failure here is non-fatal — Postgres is the source of truth.
+  </Step>
+  <Step title="Partial-response cleanup">
+    If a `respondent.external_id` was tracked through earlier partial-save calls, the matching `pulse_survey_response_partials` row is deleted.
+  </Step>
+</Steps>
+
+## Server-side validation against question schema
+
+The engine validates every answer against its question kind:
+
+| Question kind | Accepts | Validation |
+|---|---|---|
+| `text` | string | Optional `max_length`. |
+| `nps` | integer 0–10 | Range-checked. |
+| `rating` | integer 1–N (configured per question) | Range-checked. |
+| `csat` | integer 1–5 | Range-checked. |
+| `likert` | integer in scale (e.g. 1–7) | Range-checked. |
+| `select` | string | Must be one of the question's `options`. |
+| `multiselect` | array of strings | Each entry must be one of `options`. |
+| `boolean` | true/false | Type-checked. |
+| `date` | ISO8601 date | Parsed; format error → `wrong_type`. |
+
+`required: true` questions must be present in the `answers` map. Missing required questions show up under `missing` in the validation error response.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/pulse/trigger" eyebrow="Adjacent" title="Survey bundle">
+    The endpoint the SDK calls to fetch surveys + targeting rules.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Product" title="Pulse product">
+    Survey design, branching, scoring, distribution.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Reference" title="Webhooks">
+    The `pulse.response.submitted` outbound event.
+  </Card>
+</CardGrid>

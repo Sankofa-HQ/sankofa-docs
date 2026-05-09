@@ -1,0 +1,145 @@
+---
+title: Switch — exposures
+description: POST /api/switch/exposures — record per-call flag exposures for honest experiment math. Up to 1000 rows per request, append-only, deduplicated server-side per session.
+toc: true
+---
+
+Exposures record the moment a user actually evaluated a flag — distinct from "the user was assigned a variant by the handshake." That distinction is what lets experiment math separate **assigned** populations from **exposed** populations.
+
+The web SDK posts exposures automatically on every `getFlag(...)` / `getVariant(...)` call. Mobile / server SDKs use handshake-level exposures by default but can manually post here when the surface needs precision (e.g. `reportExposure` calls).
+
+For the concept, see [Exposure tracking](/concepts/exposure-tracking).
+
+<EndpointBadge method="POST" path="/api/switch/exposures" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<CodeBlock lang="json" code={`{
+  "exposures": [
+    {
+      "flag_key": "new_checkout",
+      "distinct_id": "user_123",
+      "anon_id": "anon_a3b9ff",
+      "value": true,
+      "variant": null,
+      "reason": "rollout",
+      "app_version": "2.4.1",
+      "platform": "ios",
+      "sdk": "@sankofa/react-native@0.1.0",
+      "ts_ms": 1715183942483
+    }
+  ]
+}`} />
+
+<ParameterTable
+  params={[
+    { name: "exposures", type: "array<object>", required: true, description: "Up to 1000 entries per request. Empty array → 200 no-op. > 1000 → 413 Payload Too Large." },
+    { name: "exposures[].flag_key", type: "string", required: true, description: "Flag key. Missing → row silently skipped (not an error)." },
+    { name: "exposures[].distinct_id", type: "string", required: true, description: "User identifier. Missing → row silently skipped." },
+    { name: "exposures[].anon_id", type: "string", description: "Pre-identify anonymous ID. Lets server stitch experiment exposures across the login boundary." },
+    { name: "exposures[].value", type: "boolean | string", description: "The decision value the SDK evaluated to. Boolean for boolean flags; string for variant flags." },
+    { name: "exposures[].variant", type: "string", description: "Variant name if applicable." },
+    { name: "exposures[].reason", type: "string", description: "Decision reason from the handshake (e.g. `rollout`, `variant_assigned`, `halted`)." },
+    { name: "exposures[].app_version", type: "string", description: "Client app version." },
+    { name: "exposures[].platform", type: "string", description: "Platform identifier (`web`, `ios`, etc.)." },
+    { name: "exposures[].sdk", type: "string", description: "SDK identifier." },
+    { name: "exposures[].ts_ms", type: "number", description: "Client timestamp in epoch ms. Server clock used if missing. Must be within ±7 days of server clock or row is skipped." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/switch/exposures \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "exposures": [
+      {
+        "flag_key": "new_checkout",
+        "distinct_id": "user_123",
+        "value": true,
+        "reason": "rollout",
+        "ts_ms": 1715183942483
+      },
+      {
+        "flag_key": "checkout_redesign",
+        "distinct_id": "user_123",
+        "value": "treatment_a",
+        "variant": "treatment_a",
+        "reason": "variant_assigned",
+        "ts_ms": 1715183942483
+      }
+    ]
+  }'`} />
+
+## Response
+
+<CodeBlock lang="json" code={`{
+  "accepted": 2
+}`} />
+
+`accepted` reflects rows that passed validation and queued for write. Rows skipped due to missing `flag_key` / `distinct_id` or out-of-window timestamps don't count.
+
+## Validation
+
+The handler accepts as many valid rows as it can:
+
+<Steps>
+  <Step title="Auth + rate limit">
+    Same as ingestion endpoints (see [Authentication](/api/authentication) and [Rate limits](/api/rate-limits)).
+  </Step>
+  <Step title="Body size">
+    Max 1000 entries per request → returns `413` if exceeded. Empty array → `200 {accepted: 0}`.
+  </Step>
+  <Step title="Per-row checks">
+    `flag_key` non-empty, `distinct_id` non-empty, `ts_ms` within ±7 days of server clock. Rows failing any of these are silently dropped.
+  </Step>
+  <Step title="Append-only write">
+    Surviving rows are appended to ClickHouse. The handler does not block on the write — the response returns as soon as the row is queued.
+  </Step>
+</Steps>
+
+## Server-side deduplication
+
+The engine deduplicates exposures **per session per `(flag_key, value, variant)` tuple**. If the same web user fires `getFlag("new_checkout")` 100 times in one session, only one exposure row exists in storage for that session.
+
+If the value or variant changes mid-session (rare, typically because of a halt), a new exposure row is written for the new tuple.
+
+## Append-only semantics
+
+Exposures are append-only. Retries are safe — sending the same exposure twice doesn't create duplicates (server-side dedup) but does count toward your rate limit.
+
+For SDK retry backoff: the recommended pattern is exponential backoff with jitter on `429` and `503`. Don't retry on `200` even if your local logic suggests the row should have shipped — the engine accepted it.
+
+## Per-platform scope
+
+| Platform | Exposure flow |
+|---|---|
+| Web (`@sankofa/switch`) | Auto-records every `getFlag` / `getVariant` call, batched every 5 s. |
+| Mobile (Flutter, RN, iOS, Android) | Handshake-level by default — one exposure per (key, session) on handshake. Optional manual `reportExposure(...)` from your render layer for precision. |
+| Server (Node, Go, Java, Python) | No exposure tracking by default. Server-side flag evaluation is per-call; exposures don't naturally fit. Use the Web exposure model (manual `reportExposure`) only if you have a long-lived process owning a single user's session. |
+
+See [Exposure tracking](/concepts/exposure-tracking) for the deeper rationale.
+
+## Quotas + rate limits
+
+- Exposure write isn't separately metered — it's part of the project's overall ingestion volume.
+- Same 500 req/min rate limit as ingestion endpoints. Use the 1000-row max per request to amortize.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/switch/decision" eyebrow="Adjacent" title="Decision handshake">
+    The endpoint that produces the values exposures record.
+  </Card>
+  <Card href="/api/switch/halt-webhook" eyebrow="Adjacent" title="Halt webhook">
+    What happens when error rates spike on an exposed cohort.
+  </Card>
+  <Card href="/concepts/exposure-tracking" eyebrow="Concepts" title="Exposure tracking">
+    Why per-call exposures matter for honest experiment math.
+  </Card>
+</CardGrid>

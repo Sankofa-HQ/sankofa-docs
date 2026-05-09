@@ -1,0 +1,125 @@
+---
+title: Deploy — report lifecycle events
+description: POST /api/deploy/report — SDK reports OTA bundle lifecycle events (download_complete, apply_success, rollback, crash_on_update). Best-effort telemetry — never blocks the SDK.
+toc: true
+---
+
+After an OTA bundle is downloaded, applied, or rolled back, the React Native SDK posts a lifecycle event here. The engine writes them to ClickHouse for adoption + crash analytics, and the dashboard's per-release stats roll up from these events.
+
+This endpoint is **telemetry only** — auto-rollback is triggered separately by Catch's spike detector + the explicit `/api/v1/deploy/releases/:id/rollback` endpoint, not by reports here.
+
+<EndpointBadge method="POST" path="/api/deploy/report" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<CodeBlock lang="json" code={`{
+  "events": [
+    {
+      "event_type": "apply_success",
+      "release_id": "rel_xyz789",
+      "distinct_id": "device_abc",
+      "app_version": "1.2.0",
+      "bundle_label": "1.2.0-rc.1",
+      "platform": "ios",
+      "os_version": "17.4",
+      "device_model": "iPhone15,2",
+      "metadata": "{\\"prev_label\\":\\"1.2.0\\",\\"first_render_ms\\":820}"
+    }
+  ]
+}`} />
+
+<ParameterTable
+  params={[
+    { name: "events", type: "array<object>", required: true, description: "Batch of lifecycle events. No documented per-batch cap; practical limit is the 500 MB body size." },
+    { name: "events[].event_type", type: "string", required: true, description: "One of `download_complete`, `apply_success`, `rollback`, `crash_on_update`." },
+    { name: "events[].release_id", type: "string (`rel_*`)", required: true, description: "Release the event refers to. From the response of `/api/deploy/check`." },
+    { name: "events[].distinct_id", type: "string", required: true, description: "Device identifier — matches what the SDK sent on `/api/deploy/check`." },
+    { name: "events[].app_version", type: "string", description: "Native app version at event time." },
+    { name: "events[].bundle_label", type: "string", description: "OTA bundle label — same shape as `release.label`." },
+    { name: "events[].platform", type: "string", description: "`ios` / `android`." },
+    { name: "events[].os_version", type: "string", description: "OS version." },
+    { name: "events[].device_model", type: "string", description: "Hardware identifier." },
+    { name: "events[].metadata", type: "string (JSON)", description: "Free-form event-specific JSON metadata. Examples: `{first_render_ms: 820}` for `apply_success`, `{stack_trace: \"...\", retry_count: 2}` for `crash_on_update`." },
+  ]}
+/>
+
+## Event types
+
+| `event_type` | When | Common metadata |
+|---|---|---|
+| `download_complete` | The SDK has finished downloading the OTA archive and verified its SHA-256. | `{download_ms: 8200, retried: false}` |
+| `apply_success` | The bundle is live and the SDK's `notifyAppReady()` has fired. | `{prev_label: "1.2.0", first_render_ms: 820}` |
+| `rollback` | The SDK reverted to the previous bundle. Either device-driven (two-crash rule) or server-pushed (kill-switch). | `{reason: "two_crash_rule", crash_count: 2}` or `{reason: "kill_switch", forced: true}` |
+| `crash_on_update` | The SDK detected a crash within N seconds of applying a new bundle (configurable, default 30 s). | `{stack_trace: "...", first_render_ms: null}` |
+
+## Response
+
+`202 Accepted` on success — even when validation fails on individual events:
+
+<CodeBlock lang="json" code={`{
+  "accepted": 1,
+  "rejected": 0
+}`} />
+
+The handler is **best-effort** — it doesn't return per-event error reporting. If an event has a missing field or an invalid `event_type`, the engine drops it silently and counts it under `rejected`. This matches the SDK's "fire and forget" expectation: telemetry should never block the user-facing flow.
+
+## Server-side enrichment
+
+The engine fills these fields automatically — your client doesn't need to send them:
+
+| Field | Source |
+|---|---|
+| `timestamp` | Server-stamped on receipt. Ignores any client-supplied timestamp. |
+| `project_id` | Resolved from API key |
+| `organization_id` | Resolved from API key |
+| `environment` | `live` or `test`, resolved from API key |
+
+## ClickHouse table
+
+Events land in `deploy_events`. Each row is a flat record with no nesting; the `metadata` column is parsed as JSON for queryable columns where useful.
+
+## Aggregation
+
+The dashboard's per-release stats (downloads, installs, rollbacks, crash rate, unique devices) roll up from these events. The aggregation runs on every `GET /api/v1/deploy/releases` and `GET /api/v1/deploy/releases/:id` query — there's no scheduled materialization step you have to wait on.
+
+## What this endpoint does *not* do
+
+- It does **not** trigger auto-rollback. That's the job of:
+  - The SDK's two-crash detector (`crash_on_update` x 2 within 30 seconds → SDK self-reverts on next launch).
+  - Catch's spike detector (`crash_free_sessions` below threshold → posts to `/api/v1/deploy/releases/:id/rollback`).
+- It does **not** validate that `release_id` exists. Orphaned `release_id` values are accepted as telemetry (useful for tracking devices on disabled releases that are about to roll back).
+- It does **not** dispatch outbound webhooks. Those are dispatched separately by the dashboard / management API actions.
+
+## Practical patterns
+
+### iOS / Android telemetry
+
+The React Native SDK auto-batches lifecycle events and flushes:
+
+- After every successful `applyPending()`.
+- On app suspend (so events from the just-installed bundle aren't lost).
+- Periodically (every 30 seconds) while the app is foregrounded.
+
+Direct HTTP integrations should follow the same pattern — batch events, flush on lifecycle transitions, keep retries idempotent (orphaned re-deliveries don't double-count).
+
+### Crash reporting
+
+For the `crash_on_update` event type, include the stack trace + the time-to-crash in `metadata`. The dashboard correlates these with Catch issues that fired during the rollout window.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/deploy/check" eyebrow="Adjacent" title="Check for update">
+    The poll endpoint that initiates the lifecycle.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Product" title="Deploy product">
+    Auto-rollback, gating, store distribution.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Reference" title="Webhooks">
+    Outbound `deploy.release.*` events.
+  </Card>
+</CardGrid>

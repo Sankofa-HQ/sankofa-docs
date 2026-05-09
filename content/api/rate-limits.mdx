@@ -1,0 +1,103 @@
+---
+title: Rate limits
+description: 500 requests per minute per API key (or per IP, when no key). 429 response on exhaustion. No Retry-After header — back off client-side.
+toc: true
+---
+
+Sankofa rate-limits ingestion endpoints to keep the engine healthy when one client misbehaves. The limits are conservative for individual keys; if you need higher throughput, batch your requests via [`POST /api/v1/batch`](/api/ingestion/batch) — the limit applies per-request, not per-event.
+
+## The limits
+
+| Endpoint group | Window | Limit | Scope |
+|---|---|---|---|
+| Ingestion (`/api/v1/{track,people,alias,batch}`) | 1 minute | 500 requests | Per `x-api-key` value (or per client IP if no key sent) |
+| Decision handshake (`/api/v1/decisions`) | 1 minute | 500 requests | Per `x-api-key` value |
+| Dashboard / management API | None | (no limiter applied; auth is the gate) | n/a |
+
+The limiter is a fixed-window counter. Keys reset at the start of the next minute window — there's no rolling window, no token bucket.
+
+## What happens when you exceed
+
+The engine returns:
+
+<EndpointBadge method="POST" path="/api/v1/track" />
+
+<CodeBlock lang="http" code={`HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Content-Length: 65
+
+{"error":"Rate limit exceeded. Please wait a moment."}`} />
+
+There are **no rate-limit headers** on the response — no `Retry-After`, no `X-RateLimit-Limit`, no `X-RateLimit-Remaining`, no `X-RateLimit-Reset`. The client has to back off blindly.
+
+<Callout tone="warning" title="Don't retry tight">
+On `429`, sleep at least 1 second before retrying — exponentially back off if you hit it again. The window resets in &lt; 60 seconds at the worst case.
+</Callout>
+
+## Why batch instead
+
+A single `POST /api/v1/batch` can carry **thousands of operations** (track + people + alias in any mix) for a single rate-limit hit. If you're ingesting at scale, the SDK's batched flush already does this — it buffers ~50 events per request on mobile and ~100 on web by default. For custom HTTP clients, follow the same pattern:
+
+<CodeBlock lang="bash" code={`# 1 request, 1000 events queued — counts as 1 against the limit
+curl -X POST https://api.sankofa.dev/api/v1/batch \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{"operations": [/* 1000 ops */]}'`} />
+
+See [Batch](/api/ingestion/batch) for the full payload shape.
+
+## Recommended client-side handling
+
+A simple exponential backoff handles 429 cleanly:
+
+<CodeBlock lang="ts" code={`async function postWithRetry(url: string, body: unknown) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "x-api-key": API_KEY, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) return res;
+    if (res.status !== 429) throw new Error(\`HTTP \${res.status}\`);
+
+    // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s
+    const delayMs = 1000 * 2 ** attempt + Math.random() * 200;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error("Rate limit retries exhausted");
+}`} />
+
+Every official SDK does this for you — you only need it if you're calling the API directly.
+
+## Per-project quotas (separate from rate limits)
+
+The 500 req/min is a **per-key** technical guardrail. Project-level **billing quotas** are different — they cap the total events / decision-handshake calls per month at your plan tier and return a different response (`429` with a `quota_exceeded` body, only at the start of the billing window after exhaustion).
+
+| Plan tier | Monthly events | Monthly decision-handshake calls |
+|---|---|---|
+| Free | 100K | 100K |
+| Pro | 5M | 10M |
+| Growth | 25M | unlimited |
+| Enterprise | custom | unlimited |
+
+When you exceed the monthly quota: events past the cap are **rejected at ingest** (not silently sampled). The dashboard's usage card warns you at 80% and 95% so you can upgrade before that happens.
+
+## What's not rate-limited
+
+- **Dashboard / management API** (flags, configs, projects, members CRUD) is gated by JWT + role; there's no per-key rate limit applied. Internal tooling and CI flows aren't constrained.
+- **Per-event size** — events can be up to a few MB each (the global request body limit is 500 MB).
+- **Batch size** — no explicit cap on operations per `batch` request. Practical limit is the 500 MB body size.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/ingestion/batch" eyebrow="Tip" title="Use batch">
+    Hundreds of operations per rate-limit hit.
+  </Card>
+  <Card href="/api/errors" eyebrow="Reference" title="Error shapes">
+    The 429 response and every other status code.
+  </Card>
+  <Card href="/account/plans-and-billing" eyebrow="Account" title="Plans + quotas">
+    Monthly event quotas per tier (separate from rate limits).
+  </Card>
+</CardGrid>

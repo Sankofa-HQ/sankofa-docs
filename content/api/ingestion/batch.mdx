@@ -1,0 +1,204 @@
+---
+title: Batch ingestion
+description: POST /api/v1/batch — send track + people + alias operations in one request. Mixed-type, ordered (aliases first, then people, then events), and counted as one against the rate limit.
+toc: true
+---
+
+The `batch` endpoint accepts a mixed list of `track`, `people`, and `alias` operations in a single HTTP request. It's the high-throughput path — every SDK's flush uses this endpoint by default — and it's the right answer when you need to ingest hundreds or thousands of operations without burning rate-limit budget.
+
+<EndpointBadge method="POST" path="/api/v1/batch" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<CodeBlock lang="json" code={`{
+  "operations": [
+    {
+      "type": "track" | "people" | "alias",
+      "payload": { /* full payload for the operation type */ }
+    }
+  ]
+}`} />
+
+<ParameterTable
+  params={[
+    { name: "operations", type: "array<object>", required: true, description: "Ordered list of operations. Empty array → 400 Bad Request. No documented maximum length; practical limit is the 500 MB body cap." },
+    { name: "operations[].type", type: "string", required: true, description: "One of `track`, `people`, or `alias`. Any other value → 400 Bad Request." },
+    { name: "operations[].payload", type: "object", required: true, description: "The full payload for the operation type. For `track`, the [AnalyticsEvent](/api/ingestion/track) shape. For `people`, the [PersonProfile](/api/ingestion/people) shape. For `alias`, the [PersonAlias](/api/ingestion/alias) shape." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/batch \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "operations": [
+      {
+        "type": "alias",
+        "payload": {
+          "alias_id": "anon_a3b9ff",
+          "distinct_id": "user_123"
+        }
+      },
+      {
+        "type": "people",
+        "payload": {
+          "distinct_id": "user_123",
+          "properties": {
+            "email": "ada@example.com",
+            "plan": "pro"
+          }
+        }
+      },
+      {
+        "type": "track",
+        "payload": {
+          "event_name": "checkout_started",
+          "distinct_id": "user_123",
+          "properties": { "cart_value": 49.99 }
+        }
+      },
+      {
+        "type": "track",
+        "payload": {
+          "event_name": "checkout_completed",
+          "distinct_id": "user_123",
+          "properties": { "cart_value": 49.99, "currency": "USD" }
+        }
+      }
+    ]
+  }'`} />
+
+## Response
+
+On success the engine reports per-type counts:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "project_id": "proj_abc",
+  "project_name": "My App",
+  "environment": "live",
+  "operations_received": 4,
+  "events_received": 2,
+  "people_received": 1,
+  "aliases_received": 1,
+  "commands": []
+}`} />
+
+Where the counts match the `type` of operations the engine accepted (after garbage-ID filtering).
+
+## Discarded responses
+
+If every operation's `distinct_id` is garbage, the engine returns `202 Accepted` with:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "status": "discarded_all"
+}`} />
+
+If only *some* operations have garbage IDs, the engine silently drops those and proceeds with the rest. The success response counts only accepted operations — you won't see per-item rejection reporting.
+
+## Processing order
+
+The engine processes operations in this order regardless of how they appear in your `operations` array:
+
+<Steps>
+  <Step title="Aliases first">
+    All `type: "alias"` operations are queued before anything else. This matters because subsequent `people` updates and `track` events on the new `distinct_id` will land cleanly after the alias is in flight.
+  </Step>
+  <Step title="People next">
+    All `type: "people"` operations queued after aliases.
+  </Step>
+  <Step title="Events last">
+    All `type: "track"` operations queued last.
+  </Step>
+</Steps>
+
+Within each category, operations preserve the order you sent them — so two events on the same user keep their relative ordering even though they're queued after aliases / people.
+
+## Validation
+
+The handler runs these checks in order:
+
+<Steps>
+  <Step title="Auth + Origin + IP">
+    Same as the single-event endpoints.
+  </Step>
+  <Step title="JSON parse">
+    Body parses as `{ operations: [...] }`. If not: `400`.
+  </Step>
+  <Step title="Operations not empty">
+    `operations` array is non-empty. If empty: `400 No operations provided`.
+  </Step>
+  <Step title="Per-operation type check">
+    Each operation has a known `type`. Unknown type → `400 unknown operation type` (entire batch rejected).
+  </Step>
+  <Step title="Per-operation payload parse">
+    Each operation's `payload` parses as the corresponding shape. Bad payload → `400 Invalid {track|people|alias} payload` (entire batch rejected).
+  </Step>
+  <Step title="Garbage-ID filter">
+    Per-item, the garbage-ID heuristic drops items silently from the batch.
+  </Step>
+  <Step title="Queue + respond">
+    Aliases queued first, then people, then events; per-type counts returned.
+  </Step>
+</Steps>
+
+There's no per-item error reporting — a malformed payload at index 47 fails the *entire* batch. If you need partial-failure semantics (some operations succeed, some fail), split into multiple `batch` calls or use the single-operation endpoints.
+
+## Why use batch
+
+| Single-operation endpoints | Batch endpoint |
+|---|---|
+| 1 request per operation | 1 request for ≤ 500 MB of operations |
+| 500 ops/min before rate-limited | Effectively unlimited (rate-limit is per-request, not per-op) |
+| Higher per-op overhead (TLS handshake, network round-trip) | Single round-trip amortized across all ops |
+| Easy retry / dedup | Whole-batch retry; per-op partial-failure handling tricky |
+
+The official SDKs use `batch` by default — they buffer ~50 events on mobile, ~100 on web — flushing roughly every 5 seconds or on app suspend.
+
+## Size and rate considerations
+
+| Limit | Value | Notes |
+|---|---|---|
+| Max operations per batch | No documented limit | Practical limit is the body cap |
+| Max body size | 500 MB | Engine-wide HTTP body limit |
+| Rate limit | 500 requests / minute | Same limit as single-op endpoints |
+| Max event size | No per-event cap | Constrained by the 500 MB body |
+
+For most projects, batches of 100–500 operations every few seconds is the sweet spot. Larger batches reduce per-op overhead; smaller batches reduce loss exposure if the request fails before queueing.
+
+## Idempotency
+
+Batch operations are **not idempotent** — retrying a successful batch creates duplicate events / aliases / people updates. Only retry on `429`, `503`, and network failures.
+
+## Common errors
+
+| Error | Status | Cause |
+|---|---|---|
+| `No operations provided` | 400 | Empty `operations` array |
+| `unknown operation type` | 400 | An operation's `type` is not `track` / `people` / `alias` |
+| `Invalid track payload` | 400 | A `track` operation's payload doesn't parse as AnalyticsEvent |
+| `Invalid people payload` | 400 | A `people` operation's payload doesn't parse as PersonProfile |
+| `Invalid alias payload` | 400 | An `alias` operation's payload doesn't parse as PersonAlias |
+| `Rate limit exceeded` | 429 | Hit the 500 req/min cap. See [Rate limits](/api/rate-limits) |
+| `Service temporarily unavailable` | 503 | Engine ingest buffer full — retry with backoff |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/ingestion/track" eyebrow="Single op" title="Track event">
+    The single-event endpoint, useful for testing.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Field-by-field for AnalyticsEvent / PersonProfile / PersonAlias.
+  </Card>
+  <Card href="/concepts/ingestion-model" eyebrow="Concepts" title="Ingestion model">
+    The end-to-end path from SDK queue through to ClickHouse.
+  </Card>
+</CardGrid>

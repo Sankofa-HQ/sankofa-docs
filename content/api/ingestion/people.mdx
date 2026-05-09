@@ -1,0 +1,130 @@
+---
+title: Update people profile
+description: POST /api/v1/people — set traits (email, plan, role, etc.) on a user. Async write to the People store, no identity change.
+toc: true
+---
+
+The `people` endpoint updates a user's profile traits without changing their identity. Use it for setting display traits (`name`, `email`, `avatar`) and custom properties (`plan`, `role`, `tenant_id`) that should appear on the user's profile in the dashboard.
+
+For identity stitching (anon → known), use [`/api/v1/alias`](/api/ingestion/alias) — different responsibility.
+
+<EndpointBadge method="POST" path="/api/v1/people" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<ParameterTable
+  params={[
+    { name: "distinct_id", type: "string", required: true, description: "The user identifier whose profile to update. Subject to the same garbage-ID heuristic as track — strings shorter than 2 chars or matching common patterns are silently discarded." },
+    { name: "properties", type: "object", description: "The traits to merge into the profile. New keys add; existing keys overwrite. Reserved trait names: `name`, `email`, `avatar`, `phone` (these surface in the dashboard's People view in the standard slots)." },
+    { name: "timestamp", type: "string (ISO8601)", description: "Profile-update timestamp. Defaults to server time if not provided. Used for ordering when multiple updates arrive close together." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/people \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "distinct_id": "user_123",
+    "properties": {
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "plan": "pro",
+      "signup_date": "2025-01-12",
+      "tenant_id": "acme"
+    }
+  }'`} />
+
+## Response
+
+`200 OK` on success — the response body is empty.
+
+For garbage `distinct_id`, returns `202 Accepted` with `{"ok": true, "status": "discarded"}`. See [Errors](/api/errors).
+
+## Merge semantics
+
+`people` is a **partial update** — only the keys in your `properties` object are touched. Existing keys not mentioned are preserved.
+
+To **delete** a trait, set it to `null`:
+
+<CodeBlock lang="json" code={`{
+  "distinct_id": "user_123",
+  "properties": {
+    "deprecated_trait": null
+  }
+}`} />
+
+The dashboard's People view treats `null` as "remove this trait."
+
+## Reserved trait names
+
+Some trait names get special treatment in the dashboard:
+
+| Key | Behavior |
+|---|---|
+| `name` | Shown in the People-view header next to the avatar. |
+| `email` | Surfaced in the contact strip; used as the default search match. |
+| `avatar` | Image URL rendered in the avatar circle. |
+| `phone` | Surfaced in the contact strip. |
+
+Everything else is custom and shown in the "Properties" tab on the user's profile.
+
+## Identity stitching
+
+`people` does **not** change the active user. If you set a trait on `user_123`, that's the user the trait is associated with — period. Calling `people` does not implicitly alias an anonymous ID onto a known one.
+
+To stitch anonymous-to-known identity, call [`/api/v1/alias`](/api/ingestion/alias) (or use the SDK's `identify(...)` which calls alias under the hood).
+
+## When to send `people`
+
+Three common patterns:
+
+<Steps>
+  <Step title="On sign-up">
+    Right after the user creates an account, call `people` with `email`, `name`, `plan`, and any other static traits.
+  </Step>
+  <Step title="On profile update">
+    When the user edits their profile, call `people` with just the changed traits. Don't re-send everything.
+  </Step>
+  <Step title="On state transition">
+    When their plan upgrades, their role changes, their cohort flips — call `people` with the new value. The dashboard will reflect the change immediately.
+  </Step>
+</Steps>
+
+For server-side workloads (cron jobs, billing webhooks, CRM syncs), call `people` directly — the official SDK's `setPerson` / `peopleSet` is just a thin wrapper around this endpoint.
+
+## Validation
+
+Same checks as [track](/api/ingestion/track):
+
+1. Auth (`x-api-key`)
+2. Origin / IP allowlist
+3. JSON parse
+4. Required `distinct_id` field
+5. Garbage-ID heuristic (returns `202` if matched)
+6. Queue + return
+
+## Async write semantics
+
+Same as track — the handler queues the update and returns immediately. A background worker (`startPersonWorker()`) batches updates and writes them to the People store. Latency is sub-millisecond response; reads see the new traits within ~2 seconds.
+
+If two `people` updates arrive close together for the same user, the one with the later `timestamp` wins. If both timestamps are the same (or omitted, defaulting to server time), the order is determined by which the worker picks up first — typically a few hundred microseconds apart, but not strictly defined.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/ingestion/alias" eyebrow="Adjacent" title="Alias">
+    Connect anon → known identity (different responsibility).
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Adjacent" title="Track events">
+    Record actions, not just traits.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Full field reference for the PersonProfile shape.
+  </Card>
+</CardGrid>

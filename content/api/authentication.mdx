@@ -1,0 +1,154 @@
+---
+title: Authentication
+description: Project API keys for ingestion, JWT for dashboard / management, Deploy tokens for OTA. How to mint, where to use, and how to rotate each.
+toc: true
+---
+
+Sankofa uses three credential types. Each authenticates a different surface of the API — using the wrong type returns `401 Unauthorized` with no recovery hint, so it's worth understanding which goes where before integrating.
+
+## The three credential types
+
+| Credential | Format | Header | Used for |
+|---|---|---|---|
+| Project API key (live) | `sk_live_` + 32 hex chars | `x-api-key: sk_live_…` | Production ingestion, decision handshake, Catch ingest |
+| Project API key (test) | `sk_test_` + 32 hex chars | `x-api-key: sk_test_…` | Dev / staging ingestion against the test environment of the same project |
+| User JWT | Standard JWT, signed HMAC | `Authorization: Bearer <jwt>` | Dashboard + management API (flags / configs / surveys / projects / members CRUD) |
+| Deploy token | `sk_deploy_` + 64 hex chars | `Authorization: Bearer sk_deploy_…` | Deploy / OTA release commands (`sankofa release`, `sankofa patch`) |
+
+Notes:
+
+- **Demo project keys** — demo projects expose a sentinel live key (`sk_live_demo_disabled_…`) that is intentionally rejected with `403 Forbidden`. Demo apps must use `sk_test_…`.
+- **Region pinning** — keys do **not** carry a region suffix. Regional projects use the same key format; routing happens at the ingress layer based on the project's stored region (`eu-west-1`, `us-east-1`, `af-south-1`, `ap-southeast-1` for Enterprise; `eu-west-1` default).
+
+## `x-api-key` (project API keys)
+
+The header name is `x-api-key`. The engine's HTTP framework treats header names as case-insensitive, so `X-API-Key`, `X-Api-Key`, and `x-api-key` all work — but the canonical form is lowercase.
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/track \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "event_name": "checkout_started",
+    "distinct_id": "user_123"
+  }'`} />
+
+### How project + environment are resolved
+
+On every request the engine:
+
+<Steps>
+  <Step title="Reads the x-api-key header">
+    If missing or empty: `401 Unauthorized`.
+  </Step>
+  <Step title="Looks up the key">
+    First as `projects.api_key` (live keys). If found, sets `environment = "live"`. If not, looks up as `projects.test_api_key` and sets `environment = "test"`. If neither matches: `403 Forbidden — Invalid API Key`.
+  </Step>
+  <Step title="Checks the demo-disabled sentinel">
+    If the resolved key has the `sk_live_demo_disabled_` prefix, returns `403 Forbidden — live API key disabled for demo projects — use the test key`.
+  </Step>
+  <Step title="Validates Origin (browsers) or IP (servers)">
+    See "Origin and IP allowlists" below.
+  </Step>
+  <Step title="Proceeds to the handler">
+    With the project + environment + tenant context attached.
+  </Step>
+</Steps>
+
+The lookup is a single indexed query — typically &lt; 1 ms. There's no Redis cache layer in the path; the database is the source of truth on every request.
+
+## Origin and IP allowlists
+
+Each project has two optional comma-separated allow-lists you can configure from `/dashboard/<project>/settings/security`:
+
+- `AuthorizedDomains` — origins the project accepts (e.g. `https://app.example.com,https://staging.example.com`). Compared against the request's `Origin` header.
+- `AuthorizedIPs` — server IPs the project accepts. Compared against the resolved client IP when no `Origin` header is present.
+
+Behavior:
+
+| Request has `Origin` | `AuthorizedDomains` | Result |
+|---|---|---|
+| Yes | Empty | Pass (no domain check) |
+| Yes | Non-empty, contains origin | Pass |
+| Yes | Non-empty, missing origin | `403 Forbidden — Unauthorized Origin` |
+
+| Request has no `Origin` | `AuthorizedIPs` | Result |
+|---|---|---|
+| Yes | Empty | Pass (no IP check) |
+| Yes | Non-empty, contains client IP | Pass |
+| Yes | Non-empty, missing client IP | `403 Forbidden — Unauthorized IP Address` |
+
+Allowlists let you ship a `sk_live_` key in a publicly-cacheable web bundle and still constrain where it can be used.
+
+## `Authorization: Bearer` (user JWTs)
+
+Dashboard and management endpoints accept a user JWT signed with the project's auth secret:
+
+<CodeBlock lang="bash" code={`curl https://api.sankofa.dev/api/v1/switch/flags \\
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`} />
+
+The JWT carries the user ID, organization, project, and roles. It's normally minted at sign-in and stored client-side by the dashboard. For programmatic use (CI scripts that need to read or update flags), generate a long-lived JWT from `/dashboard/<project>/settings/api-tokens`.
+
+JWT-authenticated endpoints return `401 Unauthorized` for missing / expired / invalid signatures, and `403 Forbidden` for valid JWTs whose role doesn't permit the action.
+
+## `sk_deploy_` (Deploy tokens)
+
+Deploy commands — `sankofa release`, `sankofa patch`, `sankofa submit`, `sankofa preview`, `sankofa status` — authenticate with a Deploy token, not a JWT. Tokens are project-scoped, optionally environment-scoped (`live`, `test`, or `all`), and stored hashed server-side (the cleartext value is shown once at mint time).
+
+<CodeBlock lang="bash" code={`# Mint from /dashboard/<project>/settings/deploy-tokens
+export SANKOFA_DEPLOY_TOKEN=sk_deploy_...
+sankofa release ios --rollout 25`} />
+
+Deploy tokens carry the metadata the Deploy module needs (project ID, environment scope, expiration, last-used timestamp) and **cannot** be used for ingestion or dashboard CRUD.
+
+## Key rotation
+
+For project API keys (`sk_live_…` / `sk_test_…`):
+
+<Steps>
+  <Step title="Mint the new key">
+    `/dashboard/<project>/settings/api-keys` → **Rotate**. The new key is shown once; the old key keeps working.
+  </Step>
+  <Step title="Roll out the new key">
+    Update your apps' configs and redeploy. Both keys work simultaneously — there's no traffic gap.
+  </Step>
+  <Step title="Wait for rollout to complete">
+    For mobile apps, wait for the store-rollout window (often 7–14 days for a forced upgrade).
+  </Step>
+  <Step title="Revoke the old key">
+    `/dashboard/<project>/settings/api-keys` → **Revoke** the old entry. Within ~1 minute, any remaining clients on the old key start getting `403 Invalid API Key`.
+  </Step>
+</Steps>
+
+Key rotation is non-disruptive if you do it in this order. There's no in-place rotation — the new key has a different value.
+
+For Deploy tokens, the procedure is the same: mint a new token, swap your CI environment variable, then revoke the old token.
+
+For user JWTs, expiration is handled at mint time (typical 24h–30 days depending on type). You don't manually rotate them.
+
+## Authentication errors
+
+| Status | Header used | Cause |
+|---|---|---|
+| `401 Unauthorized` | `x-api-key` | Missing or empty header |
+| `401 Unauthorized` | `Authorization` | Missing / expired / invalid JWT signature |
+| `403 Forbidden — Invalid API Key` | `x-api-key` | Key doesn't match any project's `api_key` or `test_api_key` |
+| `403 Forbidden — live API key disabled for demo projects — use the test key` | `x-api-key` | Demo project's sentinel live key was sent |
+| `403 Forbidden — Unauthorized Origin` | `x-api-key` | Origin not in `AuthorizedDomains` |
+| `403 Forbidden — Unauthorized IP Address` | `x-api-key` | Client IP not in `AuthorizedIPs` |
+| `403 Forbidden` | `Authorization` (JWT) | Valid JWT but role lacks permission |
+
+See [Errors](/api/errors) for the full status-code table.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/rate-limits" eyebrow="Limits" title="Rate limits">
+    500 requests per minute per key.
+  </Card>
+  <Card href="/api/errors" eyebrow="Errors" title="Error reference">
+    Status codes and `{ok, error}` shape.
+  </Card>
+  <Card href="/concepts/environments-and-api-keys" eyebrow="Concepts" title="Environments + keys">
+    The deeper concept — why one key per environment makes the wire simpler.
+  </Card>
+</CardGrid>

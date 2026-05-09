@@ -6,7 +6,7 @@ toc: true
 sdks: [flutter]
 ---
 
-The `sankofa_flutter` package on pub.dev bundles all eight Sankofa products in a single SDK — analytics, error capture, feature flags, remote config, surveys, OTA deploy, and session replay. There are no separate add-on packages on Flutter.
+The `sankofa_flutter` package on pub.dev bundles six Sankofa products in a single SDK — Analytics, Catch (error tracking), Switch (feature flags), Config (remote config), Pulse (surveys), and Replay (session replay). OTA Deploy is not exposed at the Dart API surface today; if you need OTA in a hybrid app, use the React Native SDK.
 
 ## 1. Add the dependency
 
@@ -102,7 +102,7 @@ Open [app.sankofa.dev](https://app.sankofa.dev) → your project → **Live even
     The full first-event guide, with multi-platform parity.
   </Card>
   <Card href="/sdks/flutter/overview" eyebrow="Reference" title="Flutter SDK reference">
-    All eight products' APIs as exposed in the Flutter SDK.
+    All six client products' APIs as exposed in the Flutter SDK.
   </Card>
   <Card href="/concepts/sessions" eyebrow="Concepts" title="Sessions">
     How session boundaries are computed and correlated with replays.

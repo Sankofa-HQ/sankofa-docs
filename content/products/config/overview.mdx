@@ -1,0 +1,163 @@
+---
+title: Remote Config
+description: Typed config values with cohort-targeted overrides, version history, A/B item experiments, change-impact analysis, and cohort-adoption metrics. The values you'd otherwise hard-code, ready to ship without a deploy.
+toc: true
+---
+
+**Remote Config** (engine module: `configmod`) is Sankofa's typed-value-shipping product. It's what you reach for when:
+
+- You'd otherwise hard-code a value (timeout, threshold, max-upload-MB) and want to change it without a deploy.
+- You want to A/B test a *value* (price, copy, retry count) — not a code path.
+- You want to ship copy, JSON payloads, or pricing changes faster than your release cadence.
+- You want a cohort-specific config without forking your code.
+
+It shares the [decision handshake](/concepts/decision-handshake) with Switch + Pulse, so reads are local and free after the first fetch.
+
+## What's in Remote Config
+
+| Concept | Purpose |
+|---|---|
+| **Item** | A named typed value. The unit your code reads via `config.get<T>(key, default)`. |
+| **Type** | One of `string`, `int`, `float`, `bool`, `json`. Immutable after creation. |
+| **Default value** | The current value returned if no override matches. |
+| **Rule** | The targeting logic for an item — cohort + property predicates. |
+| **Override** | A cohort-scoped value that wins over the default for matching users. |
+| **Version** | Every change creates a new immutable version. |
+| **A/B experiment** | Two values for a single item, randomly assigned per user, with significance metrics. |
+| **Change impact** | Estimated rollout impact (users / cohorts affected) before publish. |
+| **Cohort adoption** | Per-cohort timeline of which version is live. |
+
+## Typed values
+
+Every item is one of five types, declared at creation:
+
+| Type | Default value example | SDK getter (web example) |
+|---|---|---|
+| `string` | `"help@example.com"` | `config.get<string>("support_email", "default@example.com")` |
+| `int` | `25` | `config.get<number>("max_upload_mb", 25)` |
+| `float` | `0.05` | `config.get<number>("conversion_threshold", 0.05)` |
+| `bool` | `true` | `config.get<boolean>("show_promotion_banner", false)` |
+| `json` | `{...}` | `config.get<HomeHero>("home_hero", DEFAULT)` |
+
+The type is immutable after creation. To "change the type" of a key, archive the old key and create a new one with a different name + type.
+
+## Rules and cohort-targeted overrides
+
+A rule lets you ship one value to most users and a different value to a cohort:
+
+<CodeBlock lang="json" code={`{
+  "key": "max_upload_mb",
+  "type": "int",
+  "default_value": 25,
+  "overrides": [
+    {
+      "cohort": "Pro plan customers",
+      "value": 200
+    },
+    {
+      "cohort": "Internal staff",
+      "value": 1000
+    }
+  ]
+}`} />
+
+The rule is evaluated server-side at handshake time; the SDK only sees the final value for the active user.
+
+## Version history + rollback
+
+Every publish creates a new immutable version. The dashboard's version log shows:
+
+- **What changed** — diff between consecutive versions
+- **Who changed it** — actor (with project-role attribution)
+- **When** — UTC timestamp
+- **Why** — optional change note
+
+Rollback is non-destructive — it creates a *new* version whose snapshot matches a previous version. So the version timeline is append-only, even when you "undo".
+
+<CodeBlock lang="bash" code={`sankofa config rollback max_upload_mb 3 --note "revert accidental bump"`} />
+
+## A/B experiments on items
+
+Config supports the same variant testing as Switch, but for *values*:
+
+<CodeBlock lang="json" code={`{
+  "key": "checkout_button_label",
+  "type": "string",
+  "experiment": {
+    "variants": [
+      { "name": "control", "value": "Pay now", "weight": 50 },
+      { "name": "treatment", "value": "Confirm purchase", "weight": 50 }
+    ],
+    "success_metrics": ["checkout_completed"]
+  }
+}`} />
+
+Variant assignment uses the same stable hashing as Switch. The experiment dashboard shows lift + statistical significance computed against the success-metric events you defined.
+
+A common pattern: A/B test the *value* of a config item that drives an experience that's already controlled by a Switch flag. Switch decides whether the user sees the experience at all; Config decides which variant of the value they see.
+
+## Change impact + cohort adoption
+
+Before you publish a rule change, the dashboard previews:
+
+- **Estimated reach** — total users + per-cohort breakdown affected by the new rule.
+- **Risk score** — derived from the % of high-value users (configurable) the change affects.
+- **Cohort adoption timeline** — for an existing item, how each cohort's value has changed over time.
+
+This sits at `/dashboard/config/items/:id/impact` and is computed against ClickHouse so the numbers are fresh to within minutes.
+
+## Subscriptions
+
+Apps that need to react to mid-session value changes (admin published a new override and the UI should refresh) subscribe to the change stream:
+
+<CodeBlock lang="ts" code={`config.onChange("max_upload_mb", (decision) => {
+  setMaxMB(decision.value);
+});`} />
+
+Subscriptions fire on the next handshake refresh that returns a different value (typically within 30 s of dashboard publish).
+
+## Bundled defaults
+
+Every SDK lets you ship bundled defaults at init time. Defaults serve three purposes:
+
+1. **Synchronous startup** — your code calls `get<T>(...)` immediately after init, before the engine has responded. The bundled default returns synchronously.
+2. **Offline fallback** — fresh installs with no cached snapshot return defaults until connectivity returns.
+3. **Type contract** — establishes the type the SDK expects. Engine type mismatches preserve the default.
+
+## API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/config/items` | List items. |
+| `POST /api/v1/config/items` | Create an item. |
+| `GET /api/v1/config/items/:id` | Read item + current version. |
+| `PUT /api/v1/config/items/:id/rule` | Update the targeting rule. |
+| `GET /api/v1/config/items/:id/versions` | List versions. |
+| `POST /api/v1/config/items/:id/rollback` | Roll back to a previous version. |
+| `GET /api/v1/config/items/:id/change-impact` | Pre-flight estimate of a rule change. |
+| `GET /api/v1/config/items/:id/cohort-adoption` | Per-cohort adoption timeline. |
+| `GET /api/v1/config/metrics` | Aggregated metrics across the project. |
+| `POST /api/v1/decisions` | Decision-handshake endpoint (called by the SDK). |
+
+## Config limits by tier
+
+| Plan | Items | Fetches / month | Versions | Cohort overrides | A/B experiments | History retention |
+|---|---|---|---|---|---|---|
+| Free | ≤ 25 | 100K | 5 | basic | — | — |
+| Pro | ∞ | 10M | unlimited | ✓ | up to 5 active | 30 days |
+| Growth | ∞ | ∞ | unlimited | ✓ | up to 25 active | 90 days |
+| Enterprise | ∞ | ∞ | unlimited | ✓ | unlimited | custom |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/switch/overview" eyebrow="Adjacent" title="Switch">
+    Boolean code-path toggles (vs Config's typed values).
+  </Card>
+  <Card href="/sdks/web/packages/config" eyebrow="SDK" title="@sankofa/config (web)">
+    The single generic `get<T>` API and onChange subscriptions.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="Decision handshake">
+    How Config + Switch + Pulse share one ETag-cached snapshot.
+  </Card>
+</CardGrid>

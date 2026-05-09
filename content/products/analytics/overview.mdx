@@ -1,0 +1,185 @@
+---
+title: Analytics
+description: Events, users, cohorts, funnels, flows, retention, and insights — plus session replay and heatmaps. The product behind every chart in the dashboard.
+toc: true
+---
+
+**Analytics** is Sankofa's product analytics surface — the foundation everything else queries. It's where events become insights: charts, cohorts, funnels, flows, retention, dashboards, and the replay + heatmap views that show you *what users actually did*.
+
+The Analytics engine is the open-core layer of Sankofa (`internal/api/`) plus an EE plugin (`ee/analytics/`) that adds enterprise-only features (webhooks, SCIM data sync). Replay and heatmaps live alongside in `ee/replay/` and surface inside the Analytics dashboard, not as separate products.
+
+## What's in Analytics
+
+| Surface | Purpose |
+|---|---|
+| **Live events** | Real-time stream of every event landing in ClickHouse. |
+| **Insights** | Saved chart configurations — line, bar, area, stacked, table, big number. |
+| **Funnels** | Step sequences with conversion rates between each step + time-to-step. |
+| **Flows** | Sankey-style diagrams showing what users do before / after a key action. |
+| **Retention** | Cohort retention curves — daily, weekly, monthly. |
+| **Cohorts** | Saved user segments. Static (uploaded list) or dynamic (rule-based). |
+| **Lexicon** | Auto-generated catalog of every event + property in your data, with frequency + last-seen. |
+| **People** | Per-user profile view: traits, recent events, session list, replay timeline, cohort membership. |
+| **Dashboards** | Composable boards of insights — share with the team, embed externally. |
+| **Replay** | Session replay (rrweb on web, native capture on mobile). |
+| **Heatmaps** | Aggregate click + scroll heatmaps per route. |
+
+## The data model in one paragraph
+
+Every event is a row with: a `distinct_id` (anonymous or identified user), an `event_name`, custom `properties`, default-properties (geo / OS / device — see [Default properties](/concepts/default-properties)), and a timestamp. Events flow through `track`, `identify`, `setPerson`, and `alias`. People profiles are derived from `identify` + `setPerson` calls. Cohorts are queries materialized periodically. Insights, funnels, flows, retention, and dashboards all query the same events table.
+
+For the deeper concept dive, see [Events](/concepts/events) and [Identity and aliases](/concepts/identity-and-aliases).
+
+## Insights
+
+The unit of analysis. Every chart on every dashboard is an "insight" — a saved query + visualization config.
+
+You build insights via:
+
+- **Visual builder** — pick events + properties + breakdowns + filters with no SQL.
+- **SQL editor** — direct ClickHouse SQL with autocomplete on your event lexicon.
+- **AI-assisted** — describe the chart in natural language; the engine generates the query.
+
+Insights are versioned, shareable (read-only or editable), and embeddable.
+
+## Funnels
+
+A funnel is an ordered sequence of events. The engine computes:
+
+- Conversion rate at each step (`step_n / step_n-1`)
+- Drop-off rate at each step
+- Median time to step
+- Per-step breakdown by any property (cohort, plan, geo, etc.)
+
+The funnel can be **strict** (events must occur in order) or **loose** (events must occur in the time window, in any order).
+
+## Flows
+
+Flows answer "what do users do *before* X?" or "what do they do *after* Y?". Pick a pivot event, choose direction (before / after), and the engine emits a Sankey diagram of the most common surrounding events with weights.
+
+Useful for:
+
+- Understanding what leads to conversion vs. drop-off
+- Finding unexpected paths (users completing checkout via the help center, etc.)
+- Spotting friction patterns
+
+## Retention
+
+Cohort retention shows what % of users from a starting cohort came back N days/weeks/months later. Three flavors:
+
+- **Classic retention** — % of cohort that performed any event in window N.
+- **Action retention** — % of cohort that performed a *specific* event in window N.
+- **First-time retention** — % of cohort whose *first* of an event was in window 0, then performed it again in window N.
+
+All three filter and break down by the same axes as insights.
+
+## Cohorts
+
+A cohort is a named set of users defined by either:
+
+- A static list (CSV upload + API).
+- A rule (events + properties + behavior + cohort intersections).
+
+See [Cohorts](/concepts/cohorts) for refresh cadence and how Switch / Config / Pulse consume them.
+
+## Lexicon
+
+The lexicon is the auto-generated catalog of every event + property in your project. It tells you:
+
+- All event names actually being fired
+- All properties on each event, with their type + sample values
+- Frequency + last-seen timestamps
+
+Useful for onboarding new team members + spotting events that should have been deprecated.
+
+## People
+
+The People view is the "user 360°" — per `distinct_id`, you see:
+
+- Profile traits (`email`, `plan`, etc.) set via `setPerson`
+- Recent events
+- Session timeline with replay links
+- Cohort memberships
+- Catch issues bonded to the user
+- Pulse survey responses (if Pulse is wired)
+
+## Dashboards
+
+A dashboard is a saved layout of multiple insights. They support:
+
+- Time-range scoping (apply one date range to every insight on the board)
+- Property filtering (apply one cohort filter to every insight)
+- Sharing — link, embed, or export to PDF
+- Per-tile drill-down — click any chart to expand
+
+## Session replay
+
+Replay is captured by the client SDKs (`@sankofa/replay-rrweb` for web; native engines for mobile / Flutter / RN). Recordings are uploaded as encrypted, masked chunks to engine storage, then surfaced inside the Analytics dashboard:
+
+- **Replay timeline** for any user
+- **Per-event replay link** — click any event in Live events → "Watch replay" → scrubbed to the moment of the event
+- **Catch issue replays** — every captured error has the matching replay attached for one-click reproduction
+
+See the SDK package pages for masking + privacy controls.
+
+## Heatmaps
+
+Aggregate click + scroll heatmaps captured at the same SDK layer as replay. Per-route. Useful for finding dead clicks, scroll cliffs, and confused-user patterns.
+
+## Ingestion model
+
+Analytics consumes events from the standard ingestion endpoints — `track`, `people`, `alias`, `batch`. See [Ingestion model](/concepts/ingestion-model) for the full path.
+
+## API surface
+
+Analytics is the **OSS core** + EE plugin:
+
+### Ingestion (called by the SDK)
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/track` | Single event. |
+| `POST /api/v1/people` | People profile update. |
+| `POST /api/v1/alias` | Identity stitching. |
+| `POST /api/v1/batch` | Batched events / people / aliases. |
+
+### Query
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/events` | Recent events with filters. |
+| `GET /api/v1/people` | People profiles + cohort membership. |
+| `GET /api/v1/lexicon` | Event + property catalog. |
+| `POST /api/v1/insights` | Run a saved insight. |
+| `POST /api/v1/funnels` | Compute a funnel. |
+
+### Replay
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/replay/chunk` | SDK uploads a replay chunk. |
+| `GET /api/v1/replay/:session_id` | Dashboard fetches a full replay. |
+| `GET /api/v1/shared-replay/:session_id` | Public-share link replay (read-only). |
+
+## Analytics limits by tier
+
+| Plan | Events / month | Retention | Insights | Cohorts | Replay storage | Heatmaps |
+|---|---|---|---|---|---|---|
+| Free | 100K | 30 days | 10 | 5 | 7 days | basic |
+| Pro | 5M | 1 year | unlimited | unlimited | 30 days | ✓ |
+| Growth | 25M | 2 years | unlimited | unlimited | 90 days | ✓ + funnels heatmap |
+| Enterprise | custom | custom | unlimited | unlimited | custom | ✓ + per-cohort heatmap |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/events" eyebrow="Foundation" title="Events">
+    The atomic unit Analytics queries.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Compose" title="Pulse + cohorts">
+    Trigger surveys when users enter or leave an Analytics-defined cohort.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Compose" title="Catch + replay">
+    Replays auto-attach to crash reports.
+  </Card>
+</CardGrid>

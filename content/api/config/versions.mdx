@@ -1,0 +1,202 @@
+---
+title: Remote Config — versions and rollback
+description: GET /api/v1/config/items/:id/versions returns the append-only version log; POST /api/v1/config/items/:id/rollback writes a new version whose snapshot matches a target — non-destructive.
+toc: true
+---
+
+Every change to a Config item creates a new immutable version row. The version log is **append-only** — there's no in-place mutation, and rollback is just a new row whose snapshot matches an old one.
+
+The endpoints below back the dashboard's history view + the CLI's `sankofa config history` and `sankofa config rollback`.
+
+## List versions
+
+<EndpointBadge method="GET" path="/api/v1/config/items/:id/versions" />
+
+### Authentication
+
+`Authorization: Bearer <jwt>` — Viewer role minimum.
+
+### Path parameters
+
+<ParameterTable
+  params={[
+    { name: "id", type: "string (UUID)", required: true, description: "Config item UUID. Returned by `GET /api/v1/config/items` and embedded in dashboard URLs." },
+  ]}
+/>
+
+### Response
+
+<CodeBlock lang="json" code={`{
+  "versions": [
+    {
+      "id": "ver_abc123",
+      "item_id": "itm_xyz",
+      "version_number": 7,
+      "action": "rolled_back",
+      "value_snapshot": "200",
+      "rule_snapshot": "{\\"cohort\\":\\"Pro plan customers\\",\\"value\\":200}",
+      "actor_id": "user_456",
+      "actor_email": "alice@example.com",
+      "note": "revert accidental bump",
+      "created_at": "2026-05-09T14:32:01.482Z"
+    },
+    {
+      "id": "ver_abc122",
+      "item_id": "itm_xyz",
+      "version_number": 6,
+      "action": "changed",
+      "value_snapshot": "500",
+      "rule_snapshot": null,
+      "actor_id": "user_456",
+      "actor_email": "alice@example.com",
+      "note": null,
+      "created_at": "2026-05-09T13:15:42.100Z"
+    },
+    {
+      "id": "ver_abc121",
+      "item_id": "itm_xyz",
+      "version_number": 5,
+      "action": "created",
+      "value_snapshot": "200",
+      "rule_snapshot": null,
+      "actor_id": "user_123",
+      "actor_email": "bob@example.com",
+      "note": "initial Pro tier override",
+      "created_at": "2026-04-12T10:00:00Z"
+    }
+  ]
+}`} />
+
+### Fields
+
+<ParameterTable
+  params={[
+    { name: "id", type: "string (UUID)", description: "Version-row UUID. Used as the `version_id` argument to rollback." },
+    { name: "item_id", type: "string (UUID)", description: "The item this version belongs to." },
+    { name: "version_number", type: "integer", description: "Monotonically increasing per item. Lets you reason about ordering without timestamps." },
+    { name: "action", type: "string", description: "`created` (initial), `changed` (default-value or rule update), or `rolled_back` (rollback row)." },
+    { name: "value_snapshot", type: "string (serialized JSON)", description: "The default value at this version. JSON-encoded — parse based on the item's type." },
+    { name: "rule_snapshot", type: "string (serialized JSON) | null", description: "The targeting rule at this version. `null` if the item had no rule. Includes cohort overrides + percentage rollouts." },
+    { name: "actor_id", type: "string", description: "User UUID. Pseudo-actors like `system:rollback-on-halt` for automation." },
+    { name: "actor_email", type: "string", description: "Email if actor_id is a real user." },
+    { name: "note", type: "string", description: "Optional change note supplied by the actor (e.g. `--note 'revert accidental bump'`)." },
+    { name: "created_at", type: "string (ISO8601)", description: "When the version was written. UTC." },
+  ]}
+/>
+
+The response is ordered by `version_number DESC` (newest first) and capped at the most recent **100** versions. For older history, contact support — we can export the full log on request.
+
+## Roll back to a previous version
+
+<EndpointBadge method="POST" path="/api/v1/config/items/:id/rollback" />
+
+### Authentication
+
+`Authorization: Bearer <jwt>` — Editor role minimum.
+
+### Request body
+
+<ParameterTable
+  params={[
+    { name: "version_id", type: "string (UUID)", required: true, description: "The UUID of the version to restore. Get it from the version log (`GET /api/v1/config/items/:id/versions`)." },
+    { name: "note", type: "string", description: "Optional audit note (e.g. `\"revert accidental bump after incident inc-2026-05-09\"`). Surfaces in the new version's `note` field." },
+  ]}
+/>
+
+### Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/config/items/itm_xyz/rollback \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer eyJhbGciOiJI..." \\
+  -d '{
+    "version_id": "ver_abc121",
+    "note": "revert accidental bump"
+  }'`} />
+
+The CLI equivalent:
+
+<CodeBlock lang="bash" code={`sankofa config rollback max_upload_mb 5 --note "revert accidental bump"`} />
+
+(The CLI takes the version *number*, not UUID, and looks up the matching version row first.)
+
+### Response
+
+`200 OK`:
+
+<CodeBlock lang="json" code={`{
+  "item": {
+    "id": "itm_xyz",
+    "project_id": "proj_abc",
+    "environment": "live",
+    "key": "max_upload_mb",
+    "type": "int",
+    "default_value": "200",
+    "description": "Max upload size in MB",
+    "is_archived": false,
+    "current_version": 8,
+    "created_at": "2026-04-12T10:00:00Z",
+    "updated_at": "2026-05-09T14:32:01.482Z"
+  },
+  "version": {
+    "id": "ver_new789",
+    "item_id": "itm_xyz",
+    "version_number": 8,
+    "action": "rolled_back",
+    "value_snapshot": "200",
+    "rule_snapshot": null,
+    "actor_id": "user_456",
+    "actor_email": "alice@example.com",
+    "note": "revert accidental bump",
+    "created_at": "2026-05-09T14:32:01.482Z"
+  },
+  "rule": null
+}`} />
+
+### Errors
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `{"error": "version_id is required"}` | Missing in body |
+| `401` | `{"error": "Invalid token"}` | JWT missing / expired |
+| `403` | `{"error": "Permission denied"}` | JWT role isn't Editor or higher |
+| `404` | `{"error": "Item not found"}` | Item ID in URL doesn't exist |
+| `404` | `{"error": "Version not found for this item"}` | `version_id` exists but doesn't belong to this item |
+
+## Non-destructive semantics
+
+Rollback **creates a new version row** whose `value_snapshot` and `rule_snapshot` match the target version. The version timeline is append-only — you never lose history.
+
+| Before rollback | After rollback |
+|---|---|
+| Versions 1, 2, 3, 4, 5, 6, 7 | Versions 1, 2, 3, 4, 5, 6, 7, **8** (new row, snapshot = version 5) |
+
+Rolling back a rollback works the same way — pick the version you want to restore, post `version_id`, and a new row appears.
+
+This means:
+
+- **Audit trail is preserved.** The "rolled_back" action is recorded with actor + reason.
+- **Reverting accidental rollbacks is one click.** Pick the pre-rollback version (typically `version_number - 1` of the rollback), post again.
+- **Time-travel debugging** — you can fetch any historical version's snapshot and diff against current.
+
+## Side effects
+
+When the rollback succeeds:
+
+- **Item state updates** — `default_value`, `current_version`, and any rule on the item move to match the target snapshot.
+- **ETag invalidates** — the Config module's ETag changes, so connected SDKs get the new value on their next handshake (≤ 30 seconds).
+- **Outbound webhook fires** — `config.item.rolled_back` event is emitted to subscribers configured for that pattern. See [Webhooks](/api/webhooks).
+- **Audit log records the rollback** — actor, reason, target version, timestamp.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/config/decision" eyebrow="Adjacent" title="Decision handshake">
+    The endpoint that returns rolled-back values to SDKs.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="CLI" title="`sankofa config rollback`">
+    Command-line shortcut around this endpoint.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Reference" title="Webhooks">
+    The `config.item.rolled_back` outbound event.
+  </Card>
+</CardGrid>

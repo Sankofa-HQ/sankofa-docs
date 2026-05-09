@@ -1,0 +1,158 @@
+---
+title: Switch — halt webhook
+description: POST /api/switch/halt-webhook — kill-switch endpoint that immediately flips a flag to its default value. Auth via x-api-key. Idempotent. Used by Catch alerts and external systems.
+toc: true
+---
+
+The halt webhook is Sankofa's kill-switch for feature flags. Hit it from Catch alerts, on-call runbooks, PagerDuty automation, or any external system that has reason to revert a flag — within seconds, every connected SDK returns the flag's default value with `reason: "halted"`.
+
+For the cross-product story (Catch + Switch + Deploy auto-rollback in &lt; 60 seconds), see [Catch overview](/products/catch/overview).
+
+<EndpointBadge method="POST" path="/api/switch/halt-webhook" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+The halt webhook auths with the project API key (no JWT required), so external automation can hit it without minting a user token. Make sure your monitoring config stores this key with the same care as any other secret.
+
+## Request body
+
+<ParameterTable
+  params={[
+    { name: "flag_key", type: "string", required: true, description: "The flag key to halt. Required." },
+    { name: "environment", type: "string", description: "`live` or `test`. Optional — overrides the environment that would otherwise be derived from the API key. Use this if the same external system needs to halt flags across environments using a single key." },
+    { name: "reason", type: "string", required: true, description: "Human-readable description of why the halt was triggered. Free-form. Surfaces in the dashboard, audit log, and webhook payloads." },
+    { name: "evidence_url", type: "string", description: "Optional URL to a Catch incident, an alert dashboard, or whatever else explains the halt. Surfaces alongside the reason." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/switch/halt-webhook \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "flag_key": "new_checkout",
+    "reason": "Catch alert: checkout_completed_error_rate > 1% for 2 windows",
+    "evidence_url": "https://app.sankofa.dev/dashboard/catch/issues/iss_abc123"
+  }'`} />
+
+## Response
+
+`200 OK` on successful halt (or no-op if already halted):
+
+<CodeBlock lang="json" code={`{
+  "flag": {
+    "id": "fl_abc123",
+    "project_id": "proj_xyz",
+    "environment": "live",
+    "key": "new_checkout",
+    "kind": "boolean",
+    "description": "Rebuilt checkout flow",
+    "default_value": "false",
+    "default_variant": "",
+    "is_archived": false,
+    "current_version": 8,
+    "halted_at": "2026-05-09T14:32:01.482Z",
+    "halt_reason": "Catch alert: checkout_completed_error_rate > 1% for 2 windows",
+    "halt_condition": null,
+    "created_at": "2026-04-12T10:00:00Z",
+    "updated_at": "2026-05-09T14:32:01.482Z"
+  }
+}`} />
+
+The `current_version` increments on every halt (so the SDK's ETag refreshes immediately). `halted_at` and `halt_reason` are set; `halt_condition` is reserved for future automated-halt rules.
+
+### Errors
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `{"error": "flag_key is required"}` | Missing `flag_key` |
+| `400` | `{"error": "environment must be live or test"}` | Bad `environment` override |
+| `401` | `{"error": "missing x-api-key"}` | No `x-api-key` header |
+| `401` | `{"error": "invalid api key"}` | Key doesn't match any project |
+| `403` | `{"error": "Switch disabled: <reason>"}` | Switch module quota / billing-gate exhausted |
+| `404` | `{"error": "flag not found"}` | `flag_key` doesn't exist in the resolved project + environment |
+
+## Idempotency
+
+Halting an already-halted flag is **safe** — the engine returns `200` with the current state and doesn't increment the version again. This means you can wire a halt webhook with at-least-once semantics (retries on transient failures) without worrying about flag-state drift.
+
+The first call sets `halted_at`. Subsequent calls don't update it.
+
+## Side effects
+
+When the halt succeeds:
+
+<Steps>
+  <Step title="Flag state flips">
+    `halted_at` set to `time.Now()`. `halt_reason` set to the reason you provided. `current_version` incremented.
+  </Step>
+  <Step title="ETag invalidated">
+    The Switch module's ETag changes. Connected SDKs see a different ETag on their next handshake refresh (≤ 30 s).
+  </Step>
+  <Step title="Decisions revert to default">
+    All future `getFlag(...)` calls return the flag's default value with `reason: "halted"` until the flag is resumed.
+  </Step>
+  <Step title="Outbound webhook fires">
+    A `switch.flag.halted` webhook event is emitted to every subscriber configured for that event pattern. See [Webhooks](/api/webhooks) for the delivery model.
+  </Step>
+  <Step title="Audit log records the halt">
+    The audit log gets a row with `actor = "system:halt-webhook"`, the flag, the reason, and the evidence URL.
+  </Step>
+</Steps>
+
+## Resuming
+
+To clear the halt, use the dashboard (`/dashboard/switch/<flag>` → Resume) or the CLI:
+
+<CodeBlock lang="bash" code={`sankofa flags resume new_checkout`} />
+
+There is no `unhalt-webhook` endpoint with `x-api-key` auth — resume is intentionally a JWT-gated action requiring an Editor role. This prevents external automation from re-enabling a flag without a human ack.
+
+## Wiring Catch alerts to the halt webhook
+
+In the dashboard:
+
+<Steps>
+  <Step title="Open Catch → Alerts → New alert">
+    Pick an issue or a metric (e.g. `checkout_completed_error_rate`).
+  </Step>
+  <Step title="Define the trigger condition">
+    "Threshold of `1%` over `2 5-minute windows`."
+  </Step>
+  <Step title="Add halt-flag action">
+    Pick the flag (e.g. `new_checkout`). Set the halt reason template.
+  </Step>
+  <Step title="Catch posts the halt automatically">
+    On trigger, Catch posts to this endpoint with the flag key, reason, and an `evidence_url` pointing to the incident.
+  </Step>
+</Steps>
+
+The end-to-end "alert → halt → SDK reverts to default" path completes in under 60 seconds. See [Catch overview](/products/catch/overview).
+
+## Wiring external systems
+
+Any system that can post HTTP can hit the halt webhook. Common patterns:
+
+- **PagerDuty / Opsgenie automation** — post on incident open.
+- **Custom monitoring** — Datadog, Grafana, Prometheus alertmanager → wrapped curl call.
+- **Internal admin tooling** — manual halt button on internal dashboards that don't have Sankofa SSO.
+- **CI / CD canary failure** — auto-halt the new feature's flag if canary deployment fails.
+
+For all of these, the recommended retry on transient failures is two attempts with 1 s spacing — the endpoint is idempotent, so retries are cheap, but the rate limit still applies.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/catch/overview" eyebrow="Loop" title="Catch + halt webhook">
+    The auto-rollback story end-to-end.
+  </Card>
+  <Card href="/api/switch/decision" eyebrow="Adjacent" title="Decision handshake">
+    What halted flags look like in the handshake response.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Reference" title="Webhooks">
+    The outbound `switch.flag.halted` event subscribers receive.
+  </Card>
+</CardGrid>

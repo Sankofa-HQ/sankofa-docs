@@ -1,0 +1,160 @@
+---
+title: Plan
+description: Tickets, sprints, releases, and roadmaps — bonded to deploys, replays, and revenue. Sankofa's project-management product, with native Jira import for migrating teams.
+toc: true
+---
+
+**Plan** is Sankofa's project-management product. It's a full ticketing system — boards, tickets, sprints, releases, workflows, pages, comments, attachments, time entries — but uniquely bonded to the rest of the Sankofa platform: deploys, crash reports, session replays, and revenue events.
+
+The bond means you can:
+
+- Open a ticket and see every Catch issue, Switch flag, Deploy release, and replay tied to it.
+- Group tickets by release and see what user-visible behavior shipped together.
+- Filter tickets by the cohort they affected.
+- Migrate from Jira in one go via the built-in importer.
+
+Plan is **dashboard-driven** — there's no Plan SDK call in your app code. Integration is via the REST API + webhooks for tools that need to talk to it (CI, Slack, on-call rotations).
+
+## The Plan model
+
+<Steps>
+  <Step title="Boards">
+    Top-level container. A board is a collection of tickets sharing a workflow, field schema, and members. Most teams have one board per project, sometimes split by surface (e.g. "iOS", "Backend", "Growth").
+  </Step>
+  <Step title="Tickets">
+    The atomic unit. Tickets have a title, description, assignee, priority, status (mapped to the board's workflow), labels, and arbitrary fields defined by the board's field schema. Tickets attach files, link to other tickets, and bond to deploys + Catch issues + replays.
+  </Step>
+  <Step title="Sprints">
+    Time-boxed groupings of tickets with a start and end date. Sprints aggregate burn-down, velocity, and completion metrics.
+  </Step>
+  <Step title="Releases">
+    Versioned bundles of completed work. A release groups the tickets that shipped together and bonds to the corresponding Deploy bundle (when one exists).
+  </Step>
+  <Step title="Workflows">
+    The state machine that governs ticket transitions — `Backlog → In Progress → In Review → Done`, or whatever your team uses. Workflows are per-board, with role-based transition rules.
+  </Step>
+  <Step title="Field schemas">
+    Per-board custom-field definitions — text, number, date, select, multi-select, person, relationship. Field schemas are versioned, so changes don't retroactively invalidate historical tickets.
+  </Step>
+  <Step title="Pages">
+    Long-form documentation living alongside tickets — design specs, retros, decision records. Pages are versioned, link to tickets, and search alongside ticket content.
+  </Step>
+</Steps>
+
+## Bonded views
+
+The cross-product bonds are what make Plan different from a stand-alone tracker. From any ticket you can:
+
+| View | What it shows |
+|---|---|
+| **Catch issues** | Every Catch issue assigned to the same release as the ticket, plus issues whose stack trace mentions the ticket's affected code paths. |
+| **Replays** | Sessions where the user encountered the issue or interacted with the affected feature. |
+| **Deploy releases** | The OTA bundle (or store release) that shipped the work, with rollout %, crash rate, and adoption metrics. |
+| **Switch flags** | Flags gating the affected behavior, including current rollout % and exposure count. |
+| **Revenue impact** | If you've configured revenue events in Analytics, the dollar / unit impact of incidents tied to the ticket. |
+
+These bonds are computed by the engine — you don't manually link them. The matching is based on shared release IDs, cohort intersections, and stack-trace fingerprints.
+
+## Workflows
+
+A workflow is a directed graph of statuses with role-gated transitions. The default board workflow ships pre-configured:
+
+- **Backlog → Triaged → In Progress → In Review → Ready → Done**
+- **Done → Backlog** (reopen)
+- **Any status → Won't Do** (close without resolution)
+
+Each transition can require:
+
+- A specific role (`Editor` to move to "In Review", `Admin` to move to "Done");
+- Required custom fields filled (e.g. "estimate" required before "In Progress");
+- A linked Deploy release (e.g. "Done" requires a release attached).
+
+Workflows are editable per-board from `/dashboard/plan/<board>/settings/workflow`.
+
+## Sprints, releases, roadmaps
+
+| Concept | Time horizon | Purpose |
+|---|---|---|
+| Sprint | 1–4 weeks (configurable) | Tactical execution. Sprint health = burn-down + on-time %. |
+| Release | Variable (matches your shipping cadence) | The unit users actually see. Releases bond to Deploy bundles. |
+| Roadmap | Quarter / half-year | Strategic. Roadmaps group releases into themes. |
+
+Sprints, releases, and roadmaps share the same ticket pool — moving a ticket between them is a metadata change, not a copy.
+
+## Jira migration
+
+Plan ships a one-shot Jira importer that preserves:
+
+- Tickets (with all custom fields mapped to Plan field schemas)
+- Comments (with original timestamps and authors)
+- Attachments
+- Sprints + releases (mapped to Plan equivalents)
+- Workflows (mapped 1:1 where shapes align, with manual review prompts where they don't)
+- Member assignments (matched by email; un-matched users are flagged for invitation)
+
+Run the importer from `/dashboard/plan/migrate/jira`. The migration runs in dry-run mode first — you review the diff, then commit. Re-running an import is incremental: only changed tickets are updated.
+
+The importer engine lives in `ee/plan/migrations/jira/`.
+
+## Pages
+
+Plan Pages are long-form Markdown docs that live alongside your tickets. They're useful for:
+
+- **Design specs** linked from one or more tickets.
+- **Retros** that summarize what shipped (or didn't) in a release.
+- **Decision records** with their own ticket-linkage so the rationale survives the original conversation.
+- **Internal runbooks** that benefit from inline ticket references.
+
+Pages support full Markdown plus the same embed system used in tickets — you can drop a Catch issue, a Deploy release, or an Analytics insight directly into a page.
+
+## Notifications + integrations
+
+Plan emits events to:
+
+- **Sankofa's audit log** for every change.
+- **Webhooks** you configure per board (`/dashboard/plan/<board>/settings/webhooks`).
+- **Slack** via the standard Slack integration — per-board channel routing, configurable event filters.
+- **Email** to assignees + watchers, with digest controls per user.
+
+The webhook payload is documented at [API → Webhooks](/api/webhooks).
+
+## API surface
+
+Plan exposes a full REST API at `/api/v1/plan/*`. Endpoints include:
+
+| Endpoint | Purpose |
+|---|---|
+| `/api/v1/plan/boards` | CRUD on boards. |
+| `/api/v1/plan/tickets` | CRUD on tickets. |
+| `/api/v1/plan/sprints` | CRUD on sprints. |
+| `/api/v1/plan/releases` | CRUD on releases. |
+| `/api/v1/plan/workflows` | Manage status workflows. |
+| `/api/v1/plan/field-schemas` | Manage per-board field definitions. |
+| `/api/v1/plan/pages` | CRUD on pages. |
+| `/api/v1/plan/migrations/jira/*` | Drive the Jira importer. |
+| `/api/v1/plan/widgets/:widget` | Read-only widgets for embedding (board summary, ticket count, sprint health). |
+
+Authenticate with the dashboard JWT (project-role RBAC enforced); the public API key (`sk_live_*`) does not have Plan write access.
+
+## Plan limits by tier
+
+| Plan | Boards | Tickets / sprint | Pages | Jira migration |
+|---|---|---|---|---|
+| Free | 1 | 50 | 5 | — |
+| Pro | unlimited | unlimited | unlimited | once |
+| Growth | unlimited | unlimited | unlimited | unlimited re-imports |
+| Enterprise | unlimited | unlimited | unlimited | unlimited + custom workflow imports |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/overview" eyebrow="Adjacent" title="Deploy">
+    Bond Plan releases to OTA bundles for closed-loop release tracking.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Adjacent" title="Catch">
+    Auto-create Plan tickets from Catch issues at severity threshold.
+  </Card>
+  <Card href="/api/overview" eyebrow="Reference" title="API reference">
+    The REST surface for external integrations.
+  </Card>
+</CardGrid>

@@ -1,0 +1,146 @@
+---
+title: Errors
+description: Every Sankofa API error follows the {ok, error} shape. The HTTP status code carries the type; the error field carries the message. No machine-readable codes today — match on status.
+toc: true
+---
+
+Sankofa returns errors in a uniform JSON shape across every endpoint. The HTTP status code tells you *what kind* of error; the `error` field tells you *what specifically* went wrong.
+
+## The error shape
+
+<CodeBlock lang="json" code={`{
+  "ok": false,
+  "error": "Human-readable message"
+}`} />
+
+Every endpoint that returns an error returns this shape. There's **no machine-readable error code** — for now, match on the HTTP status code and (optionally) parse the `error` string.
+
+## Status codes
+
+| Status | Meaning | Common causes |
+|---|---|---|
+| `200 OK` | Success | Event queued, decision returned, query succeeded. |
+| `201 Created` | Resource created | Dashboard API creating a flag / config / project. |
+| `202 Accepted` | Accepted but discarded (not an error) | Track event with a garbage `distinct_id`; entire batch silently discarded. Returned as `{"ok": true, "status": "discarded"}` or `"discarded_all"`. |
+| `400 Bad Request` | Invalid request body | JSON parse error, missing required field, empty batch operations, unknown batch op type. |
+| `401 Unauthorized` | Missing credentials | `x-api-key` header missing, `Authorization` header missing or invalid JWT signature. |
+| `403 Forbidden` | Valid auth but not authorized | Wrong key (no matching project), demo-disabled live key, Origin not allowlisted, IP not allowlisted, JWT role lacks permission. |
+| `404 Not Found` | Resource doesn't exist | Dashboard API: project ID, flag key, config key, etc. not found. |
+| `409 Conflict` | Constraint violation | Email already registered, board name duplicate, sole-owner deletion blocked. |
+| `429 Too Many Requests` | Rate limit exceeded | More than 500 requests per minute against the same `x-api-key` (or IP). See [Rate limits](/api/rate-limits). |
+| `500 Internal Server Error` | Unhandled engine error | Database unreachable, OOM, panic. The engine logs include a request ID; if you can capture and report it, it speeds up support. |
+| `503 Service Unavailable` | Buffer full | The async ingest buffer is at capacity; retry after a brief delay. |
+
+## Common error messages
+
+The `error` field is a free-form English string. The most common values you'll encounter:
+
+### Authentication
+
+| `error` | Status | When |
+|---|---|---|
+| `Missing API key` | 401 | `x-api-key` header empty / missing |
+| `Invalid API Key` | 403 | Key doesn't match any `projects.api_key` or `projects.test_api_key` |
+| `live API key disabled for demo projects — use the test key` | 403 | Demo project's sentinel live key was sent |
+| `Unauthorized Origin` | 403 | Browser request's `Origin` header isn't in `AuthorizedDomains` |
+| `Unauthorized IP Address` | 403 | Server request's IP isn't in `AuthorizedIPs` |
+| `Missing Authorization header` | 401 | Dashboard API call without `Authorization: Bearer <jwt>` |
+| `Invalid token` | 401 | JWT signature invalid / expired |
+
+### Ingestion
+
+| `error` | Status | When |
+|---|---|---|
+| (none — accepted as discarded) | 202 | `distinct_id` is shorter than 2 chars, or contains "gzip" / "*/*" / "deflate" / "identity" / "accept" (case-insensitive). The event is silently dropped; response is `{"ok": true, "status": "discarded"}`. |
+| `Invalid request body` | 400 | JSON parse error |
+| `Missing event_name` | 400 | Track without `event_name` |
+| `Missing distinct_id` | 400 | Track / people / alias without `distinct_id` |
+| `Missing alias_id` | 400 | Alias without `alias_id` |
+| `No operations provided` | 400 | Batch with empty `operations` array |
+| `Invalid track payload` | 400 | Batch operation with `type: "track"` but malformed payload |
+| `Invalid people payload` | 400 | Batch operation with `type: "people"` but malformed payload |
+| `Invalid alias payload` | 400 | Batch operation with `type: "alias"` but malformed payload |
+| `unknown operation type` | 400 | Batch operation with `type` not in `["track", "people", "alias"]` |
+
+### Rate limit + capacity
+
+| `error` | Status | When |
+|---|---|---|
+| `Rate limit exceeded. Please wait a moment.` | 429 | More than 500 requests in the last minute |
+| `Service temporarily unavailable` | 503 | Async ingest buffer at capacity; client should retry |
+
+### Dashboard / management
+
+| `error` | Status | When |
+|---|---|---|
+| `Project not found` | 404 | Project ID in URL doesn't exist |
+| `Flag not found` | 404 | Flag key in URL doesn't exist |
+| `Permission denied` | 403 | JWT's role lacks permission for the action |
+
+## How to handle each class
+
+### `4xx` — your request
+
+These are caused by something your client sent. Don't retry. Fix the request and try again.
+
+- `400` — fix the body
+- `401` — fix the auth header
+- `403` — fix the key, the Origin, the IP allowlist, or the role
+- `404` — fix the URL
+- `409` — read the error message; usually means a unique constraint
+
+### `429` — rate-limited
+
+Back off and retry. See [Rate limits](/api/rate-limits) for the recommended pattern.
+
+### `5xx` — engine-side
+
+These are transient. Retry with exponential backoff (1s, 2s, 4s, 8s, 16s, capped at 60s). If the issue persists past a few minutes, [contact support](/resources/support) with the timestamp + request body.
+
+- `500` — engine bug; rare but possible
+- `503` — async buffer full; the engine self-recovers within seconds
+
+### `202` — accepted but discarded
+
+Not an error per se — the engine accepted the request and silently discarded it (typically because the `distinct_id` was unidentifiable garbage). Response body is `{"ok": true, "status": "discarded"}` or `"discarded_all"` (for batches).
+
+If you see this consistently, your SDK's distinct-ID generation is producing values that match the engine's garbage-detection heuristic (very short strings, or strings containing common HTTP-header values like `"gzip"` or `"*/*"`). Switch to a UUID-based generator.
+
+## Idempotency
+
+Sankofa **does not** support client-supplied event IDs for idempotency on ingestion. Every track / people / alias call generates a new server-side ID — retrying a request that succeeded creates duplicate events.
+
+For ingestion at-least-once delivery this is the right tradeoff (the SDK queues and retries on failure), but for custom HTTP integrations you must avoid retrying on `2xx` responses. Only retry on `429`, `503`, and network failures.
+
+## Diagnostic recommendations
+
+When something goes wrong:
+
+<Steps>
+  <Step title="Check the status + error">
+    The status alone narrows it to a class; the `error` string usually points to the exact issue.
+  </Step>
+  <Step title="Verify the request body in the dashboard">
+    `/dashboard/<project>/live-events` shows accepted requests. If your event isn't there, the engine never accepted it — check the response body for the rejection reason.
+  </Step>
+  <Step title="Capture and report request IDs for 5xx">
+    The engine includes a `request_id` in 500-class responses (in headers when present). Include this in support tickets — it lets us trace through the engine logs.
+  </Step>
+  <Step title="Test against the test environment first">
+    Switch to `sk_test_*` and the test environment for diagnostics — billing quotas don't apply, and the dashboard shows test events on a separate filter.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/authentication" eyebrow="Common cause" title="Authentication errors">
+    The 401 / 403 cases.
+  </Card>
+  <Card href="/api/rate-limits" eyebrow="Common cause" title="Rate limit handling">
+    The 429 case + recommended backoff.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Reference" title="Track endpoint">
+    The endpoint that triggers most of the error cases above.
+  </Card>
+</CardGrid>

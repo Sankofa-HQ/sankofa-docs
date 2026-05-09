@@ -1,0 +1,149 @@
+---
+title: Deploy
+description: OTA (over-the-air) bundle releases for hybrid mobile apps. React Native today; gated by Switch decisions and auto-rolled-back by Catch error rates.
+toc: true
+---
+
+**Deploy** is Sankofa's OTA (over-the-air) bundle delivery product. It ships JavaScript / asset bundles to React Native apps without an App Store / Play Store review cycle, then watches the rollout and auto-rolls-back if Catch detects errors.
+
+<Callout tone="note" title="React Native only at the SDK layer today">
+The Deploy product's engine is fully shipped (`/api/v1/deploy/*`) and the dashboard supports any platform that can implement the OTA contract. But at the SDK layer, **only `@sankofa/react-native` exports `SankofaDeploy`** today. Native iOS / Android / Flutter SDKs do not include OTA. For native-only apps, use Switch + the platform's standard staged rollouts.
+</Callout>
+
+## What you ship with Deploy
+
+A **release** is a versioned bundle:
+
+- **Base release** — full native binary + JS bundle. Goes through App Store / Play Store review. Created with `sankofa release ios` / `release android`.
+- **Patch release** — JS-only update against an existing base release. No store review needed. Created with `sankofa patch ios` / `patch android`.
+
+Every release has:
+
+- A **release ID** + display label (`v1.4.2-rc.3`).
+- A **rollout %** (0–100, deterministic per device).
+- A **mandatory** flag (whether existing devices must update before they can run).
+- A **status** (`draft`, `published`, `rolling-out`, `complete`, `paused`, `rolled-back`).
+
+## Lifecycle
+
+<Steps>
+  <Step title="Build">
+    `sankofa release ios --skip-distribution` builds the native binary + the OTA bundle. Use `--publish` to send the OTA bundle live immediately, or omit it to stage for review.
+  </Step>
+  <Step title="Rollout ramps">
+    `sankofa release ios --rollout 25` (then `50`, then `100`) — each call updates the server-side rollout %. Devices on the next `checkForUpdate` call see the new bundle if their bucket includes them.
+  </Step>
+  <Step title="Devices check + apply">
+    The SDK calls `deploy.checkForUpdate()` on app start (and on resume if `checkOnResume: true`). If a new bundle is available, it downloads in the background and applies on next restart — or, if mandatory, applies immediately and force-restarts the app.
+  </Step>
+  <Step title="`notifyAppReady` on first successful render">
+    After the new bundle's first successful render, the SDK fires `notifyAppReady()`. This marks the bundle as healthy. **Without this call, two crashes within 30 seconds trigger an automatic rollback** to the previous bundle.
+  </Step>
+  <Step title="Catch + halt + rollback">
+    If a Catch alert detects a regression after rollout, it can post to the deploy halt endpoint. The rollout pauses immediately; affected devices revert to the previous bundle on next launch.
+  </Step>
+</Steps>
+
+## Auto-rollback rules
+
+The auto-rollback path has three triggers:
+
+| Trigger | Outcome |
+|---|---|
+| Two crashes within 30 seconds without `notifyAppReady()` having fired | Rollback to previous bundle on next launch (per-device). |
+| Catch alert on a Deploy-bonded release crosses error threshold | Rollout pauses globally; devices on the bad bundle revert on next `checkForUpdate`. |
+| Manual rollback from dashboard | Same as Catch alert — global pause + per-device revert. |
+
+The first trigger is **per-device** — if device A crashes twice but device B is fine, only device A reverts. The second + third are **global** rollouts — the rule pauses for everyone.
+
+## Mandatory vs. optional updates
+
+| Option | Behavior |
+|---|---|
+| Optional (default) | Bundle downloads silently. Applied on next app restart (often the user closes + reopens the app naturally). |
+| Mandatory | Bundle downloads. SDK forces the app to restart and apply, blocking the UI. Use only for critical fixes — disrupts the user's flow. |
+
+## Switch gating
+
+Deploy bundles can be gated by a Switch flag, so a bundle only goes live where the feature is enabled:
+
+<CodeBlock lang="json" code={`{
+  "release_label": "v1.4.2-checkout-redesign",
+  "switch_gate": "new_checkout",
+  "rollout": 100
+}`} />
+
+The gate is evaluated per-device on `checkForUpdate`. If the device's `new_checkout` flag is `false`, the device sees no update — even though the bundle is at 100% rollout for everyone else.
+
+This composes nicely with experiments: roll a Switch variant to 5% of users; only those users get the bundle that contains the new feature.
+
+## CI/CD integration
+
+The CLI is designed for CI:
+
+<CodeBlock lang="yaml" filename=".github/workflows/release.yml" code={`- name: Build + ship iOS bundle
+  env:
+    SANKOFA_DEPLOY_TOKEN: \${{ secrets.SANKOFA_DEPLOY_TOKEN }}
+    SANKOFA_PROJECT_ID: \${{ secrets.SANKOFA_PROJECT_ID }}
+  run: |
+    npx sankofa-cli patch ios --publish --rollout 25 --description "v1.4.2"`} />
+
+The Deploy Token (`sk_deploy_*`) is a project-scoped credential — different from the dashboard JWT used for Switch / Config CRUD.
+
+## Distribution to stores
+
+For the native-binary half (Apple / Google sign + submit), the CLI ships:
+
+<CodeBlock lang="bash" code={`# Build only — no OTA, no submit
+sankofa dist ios
+sankofa dist android --android-format aab
+
+# Submit a built binary to App Store Connect / Play Console
+sankofa submit ios --apple-api-key-id ABC --apple-api-issuer UUID
+sankofa submit android --google-service-account ~/sa.json --google-track internal`} />
+
+These commands integrate with App Store Connect's API key + Play Console's service-account flows.
+
+## API surface
+
+### SDK-called
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/deploy/check` | Device polls for a new bundle. |
+| `POST /api/deploy/report` | Device reports an event (boot success, crash, install completion). |
+| `POST /api/deploy/releases/:id/rollback` | Device-driven rollback (called automatically on the two-crash rule). |
+
+### Management
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/deploy/releases` | List releases for a project. |
+| `POST /api/v1/deploy/releases` | Create a release. |
+| `PUT /api/v1/deploy/releases/:id` | Update rollout %, mandatory flag, etc. |
+| `GET /api/v1/deploy/config` | Read project config (channels, distribution settings). |
+| `GET /api/v1/deploy/stats` | Adoption + rollout stats. |
+| `GET /api/v1/deploy/metrics` | Per-release error / success rates from telemetry. |
+
+## Deploy limits by tier
+
+| Plan | Releases / month | Bundle size | Geo CDN | Auto-rollback |
+|---|---|---|---|---|
+| Free | 5 | 50 MB | shared | basic (two-crash) |
+| Pro | unlimited | 200 MB | dedicated | + Catch-driven |
+| Growth | unlimited | 500 MB | dedicated + multi-region | + custom rules |
+| Enterprise | unlimited | unlimited | dedicated + region pinning | + per-device gating |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/switch/overview" eyebrow="Compose" title="Switch + Deploy">
+    Gate bundles on flag decisions for staged rollouts.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Compose" title="Catch + auto-rollback">
+    Wire Catch alerts to revert bad releases.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="SDK" title="React Native SDK">
+    The only SDK that exports `SankofaDeploy` today.
+  </Card>
+</CardGrid>

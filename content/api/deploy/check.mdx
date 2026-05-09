@@ -1,0 +1,128 @@
+---
+title: Deploy — check for update
+description: GET /api/deploy/check — SDK polls the engine for an OTA bundle update. Returns either `has_update: false` with a reason or full bundle metadata. Deterministic per-device rollout via stable hashing.
+toc: true
+---
+
+Every React Native app on Sankofa Deploy hits this endpoint at session start (and on resume, if `checkOnResume: true`) to check whether a new OTA bundle is available. The engine resolves the right bundle by joining the device's app version + platform + rollout bucket against the project's active releases.
+
+For the surrounding lifecycle (`notifyAppReady`, `downloadAndApply`, auto-rollback), see [Deploy product overview](/products/deploy/overview).
+
+<EndpointBadge method="GET" path="/api/deploy/check" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request
+
+`GET` with query-string parameters. No body.
+
+<ParameterTable
+  params={[
+    { name: "app_version", type: "string", required: true, description: "The native app's user-facing version (e.g. `1.2.0`). Used to pick the right release stream — bundles built for `1.2.x` only show up to devices on `1.2.x`." },
+    { name: "distinct_id", type: "string", required: true, description: "Device identifier. Used for stable hashing into the rollout bucket. Same device on the same release ID always gets the same answer." },
+    { name: "current_bundle_label", type: "string", description: "The label of the OTA bundle the device is currently running. Used to determine `already_on_latest` (skip the download)." },
+    { name: "platform", type: "string", description: "`ios` or `android`. Used to scope to platform-specific releases." },
+    { name: "os_version", type: "string", description: "OS version (e.g. `17.4` for iOS). Captured for telemetry; not used in routing today." },
+    { name: "device_model", type: "string", description: "Hardware identifier (e.g. `iPhone15,2`). Captured for telemetry." },
+    { name: "locale", type: "string", description: "User locale. Captured for telemetry." },
+  ]}
+/>
+
+The engine also reads the request's IP for GeoIP-based country resolution — passed forward to telemetry but not used in routing today.
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl "https://api.sankofa.dev/api/deploy/check?app_version=1.2.0&distinct_id=device_abc&platform=ios&os_version=17.4" \\
+  -H "x-api-key: sk_live_..."`} />
+
+## Response — no update available
+
+<CodeBlock lang="json" code={`{
+  "enabled": true,
+  "has_update": false,
+  "reason": "already_on_latest"
+}`} />
+
+The `reason` codes:
+
+| Reason | Meaning |
+|---|---|
+| `no_matching_release` | No active release for this `app_version` + `platform`. |
+| `already_on_latest` | The device's `current_bundle_label` matches the latest available release. |
+| `not_in_rollout` | A release exists but the device's stable bucket isn't in the rollout %. The device will get this release on a future check once rollout expands. |
+| `global_pause` | The release exists and the device is in the rollout, but the active schedule has paused it. |
+| `below_floor` | The device's `app_version` is below the minimum supported version for the latest release. |
+
+## Response — update available
+
+<CodeBlock lang="json" code={`{
+  "enabled": true,
+  "has_update": true,
+  "release_id": "rel_xyz789",
+  "label": "1.2.0-rc.1",
+  "download_url": "https://b2-bucket.s3.eu-west-1.amazonaws.com/deploy/proj_abc/rel_xyz789/ota.zip?X-Amz-Algorithm=...",
+  "sha256": "a8c2f...",
+  "size": 2048576,
+  "is_mandatory": false,
+  "force_apply": false,
+  "reason": "eligible"
+}`} />
+
+<ParameterTable
+  params={[
+    { name: "release_id", type: "string (`rel_*`)", description: "Server-side identifier for the release. Pass to `POST /api/deploy/report` when the SDK reports lifecycle events." },
+    { name: "label", type: "string", description: "Human-readable label for the bundle (`1.2.0`, `1.2.0-patch.3`)." },
+    { name: "download_url", type: "string (signed URL)", description: "Pre-signed object-storage URL with a short TTL (default 1 hour). Don't cache it across SDK launches." },
+    { name: "sha256", type: "string (hex)", description: "Bundle integrity hash. SDK should verify after download." },
+    { name: "size", type: "number", description: "Bundle size in bytes. Useful for showing progress UI." },
+    { name: "is_mandatory", type: "boolean", description: "If `true`, the SDK should force-restart the app to apply. If `false`, apply silently on next restart." },
+    { name: "force_apply", type: "boolean", description: "True only on a kill-switch rollback path: the device is on a disabled release and must move to the replacement immediately." },
+    { name: "reason", type: "string", description: "`eligible` for the normal happy-path; `kill_switch_rollback` if the device's current release was disabled and this is the forced replacement." },
+  ]}
+/>
+
+## Rollout hashing
+
+A device is in the rollout if:
+
+```
+hash(distinct_id + release_id) % 100 < release.rollout_percentage
+```
+
+The `(distinct_id, release_id)` tuple is the stable input — bumping `release.rollout_percentage` from 10 to 30 doesn't reshuffle the original 10%; the same devices stay in.
+
+This is the same stable-hash pattern Switch uses for flag rollouts.
+
+## Kill-switch rollback path
+
+If the device is currently on a release that's been disabled (via dashboard, halt webhook, or auto-rollback), the engine returns the **next non-disabled release** with `force_apply: true` and `reason: "kill_switch_rollback"`. The SDK is expected to apply immediately, regardless of `is_mandatory` or `checkOnResume`.
+
+## Schedule-aware routing
+
+If a release has an active `DeployReleaseSchedule` (a time-windowed rollout — e.g. "5% → 25% → 100% over 7 days"), the engine consults the schedule's current step before deciding whether the device qualifies. A paused schedule returns `reason: "global_pause"`.
+
+## Country detection
+
+Server-side GeoIP from the request IP populates a country code on the response telemetry. This is logged for analytics (per-country rollout breakdowns) but not used in routing — there's no per-country rollout gate today.
+
+## Response shape consistency with the unified handshake
+
+The same response shape (the `enabled` + `has_update` + bundle metadata fields) is also returned inside `modules.deploy` of the unified handshake at `GET /api/v1/handshake`. SDKs that already call the handshake on session start can read the deploy decision from there without a separate request to `/api/deploy/check`.
+
+For server-to-server custom integrations or deeply-customized SDKs, calling `/api/deploy/check` directly is the simpler path.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/deploy/telemetry" eyebrow="Adjacent" title="Report lifecycle events">
+    The endpoint the SDK posts to after applying / failing to apply.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Product" title="Deploy product">
+    Lifecycle, auto-rollback, gating, store distribution.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="SDK" title="React Native SDK">
+    The only mobile SDK with a Deploy/OTA surface today.
+  </Card>
+</CardGrid>

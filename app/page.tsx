@@ -3,6 +3,7 @@ import { getTopNavSections } from "@/lib/nav.config";
 import { CardGrid, Card } from "@/components/mdx/Card";
 
 const PRODUCTS = [
+  { slug: "vision", title: "Vision", body: "Five-surface strategy workspace — Canvas, Roadmap, OKRs, Initiatives, Docs." },
   { slug: "plan", title: "Plan", body: "Tickets bonded to deploys, replays, and revenue impact." },
   { slug: "catch", title: "Catch", body: "Crash detection with auto-rollback in under 60 seconds." },
   { slug: "switch", title: "Switch", body: "Feature flags with cohort targeting and halt webhooks." },
@@ -10,7 +11,6 @@ const PRODUCTS = [
   { slug: "analytics", title: "Analytics", body: "Events, cohorts, funnels, flows, retention." },
   { slug: "pulse", title: "Pulse", body: "Surveys triggered by real user behavior." },
   { slug: "config", title: "Remote Config", body: "Typed values with cohort-targeted payloads." },
-  { slug: "ab-switch", title: "A/B Switch", body: "Experiments with retention impact in real time." },
 ];
 
 export default function LandingPage() {
@@ -51,8 +51,7 @@ export default function LandingPage() {
           }}
         >
           Sankofa unifies eight products behind one engine and one set of SDKs:
-          Plan, Catch, Switch, Deploy, Analytics, Pulse, Remote Config, and
-          A/B Switch.
+          Vision, Plan, Catch, Switch, Deploy, Analytics, Pulse, and Remote Config.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 32 }}>
           <Link href="/get-started/quickstart" className="btn btn-primary btn-lg">

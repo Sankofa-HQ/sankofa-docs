@@ -1,0 +1,181 @@
+---
+title: Payload reference
+description: Field-by-field reference for AnalyticsEvent, PersonProfile, and PersonAlias. Required vs optional, types, server-enrichment behavior, and the standard $-prefixed property keys.
+toc: true
+---
+
+This page is the canonical field reference for the three ingestion shapes. Every official SDK serializes to these shapes; every direct HTTP integration must conform.
+
+## `AnalyticsEvent` (track payload)
+
+Used by `POST /api/v1/track` and inside `batch` operations of `type: "track"`.
+
+<ParameterTable
+  params={[
+    { name: "event_name", type: "string", required: true, description: "Event name. snake_case verb-noun by convention. No documented length cap; practical events stay under ~64 chars." },
+    { name: "distinct_id", type: "string", required: true, description: "User identifier. UUID for anonymous, your stable user ID for known. Strings shorter than 2 chars or matching the garbage-ID heuristic (`gzip`, `*/*`, `deflate`, `identity`, `accept`) are silently discarded." },
+    { name: "properties", type: "object", description: "Free-form custom properties. Strings, numbers, booleans, arrays, objects all valid. Reserved keys: `$session_id`, `$timestamp`, `$time` (see [Standard property keys](#standard-property-keys-prefixed))." },
+    { name: "default_properties", type: "object", description: "SDK-provided device / OS / app context. Auto-merged with server-side User-Agent + GeoIP enrichment. Sending this is optional." },
+    { name: "timestamp", type: "string (ISO8601) | unix-ms", description: "Event timestamp. RFC3339 / RFC3339Nano / `2006-01-02 15:04:05` formats accepted. Falls back to server time when not provided." },
+    { name: "lib_version", type: "string", description: "SDK version. Auto-set by official SDKs (`@sankofa/browser@0.1.2`, `sankofa_flutter@0.1.0`, etc.)." },
+  ]}
+/>
+
+### Server-side fields (returned, not sent)
+
+| Field | Source |
+|---|---|
+| `id` | Server-generated `evt_` + 21-char nanoid. **Cannot be specified by client.** |
+| `tenant_id` | Resolved from API key |
+| `project_id` | Resolved from API key |
+| `org_id` | Resolved from API key |
+| `environment` | `live` or `test`, resolved from API key |
+| `session_id` | Read from `properties.$session_id` if provided |
+| `city`, `region`, `country`, `timezone` | GeoIP from client IP |
+| `os`, `browser`, `device_model` | Parsed from `User-Agent` header (falls back to `default_properties` keys) |
+| `received_at` | Server-stamped on accept |
+
+## `PersonProfile` (people payload)
+
+Used by `POST /api/v1/people` and inside `batch` operations of `type: "people"`.
+
+<ParameterTable
+  params={[
+    { name: "distinct_id", type: "string", required: true, description: "The user whose profile to update. Same garbage-ID rules as track." },
+    { name: "properties", type: "object", description: "Traits to merge. Existing keys overwrite; new keys add; explicit `null` deletes." },
+    { name: "timestamp", type: "string (ISO8601)", description: "Update timestamp. Used for ordering when multiple updates arrive close together." },
+  ]}
+/>
+
+### Reserved trait keys (special dashboard treatment)
+
+| Key | Behavior |
+|---|---|
+| `name` | Header on the People-view profile card. |
+| `email` | Contact strip + default search match. |
+| `avatar` | Image URL for the avatar circle. |
+| `phone` | Contact strip. |
+
+Everything else surfaces under "Properties" on the user's profile.
+
+## `PersonAlias` (alias payload)
+
+Used by `POST /api/v1/alias` and inside `batch` operations of `type: "alias"`.
+
+<ParameterTable
+  params={[
+    { name: "alias_id", type: "string", required: true, description: "The previous (typically anonymous) identifier." },
+    { name: "distinct_id", type: "string", required: true, description: "The new (typically known) canonical identifier." },
+    { name: "timestamp", type: "string (ISO8601)", description: "Alias timestamp. Defaults to server time." },
+  ]}
+/>
+
+Both IDs are subject to the garbage-ID heuristic.
+
+## Standard property keys (`$`-prefixed)
+
+The `$` prefix denotes Sankofa-recognized standard properties. They get special handling — promotion to indexed columns, dashboard-rendered breakdowns, automatic enrichment, etc.
+
+### Always-promoted (indexed columns on event rows)
+
+| Key | Type | Source | Notes |
+|---|---|---|---|
+| `$session_id` | string | client (`properties.$session_id`) | If absent: empty. Server doesn't auto-derive sessions. |
+| `$os` | string | server (User-Agent parse) or client default_properties | Lowercase normalized: `ios`, `android`, `web`, `darwin`, `linux`, `windows`. |
+| `$browser` | string | server (User-Agent parse) or client default_properties | Browser family — `Chrome`, `Safari`, `Firefox`, `Edge`. |
+| `$device_model` | string | server (User-Agent parse) or client default_properties | Device identifier. Mobile: hardware model. Web: empty. |
+| `$city` | string | server (GeoIP) | Always overrides client value. Private IPs normalized to a fixed value. |
+| `$region` | string | server (GeoIP) | Subdivision. |
+| `$country` | string | server (GeoIP) | Two-letter ISO. |
+| `$timezone` | string | server (GeoIP) | IANA tz. |
+
+### Time / lifecycle (handled specially)
+
+| Key | Type | Notes |
+|---|---|---|
+| `$timestamp` | string (ISO8601) | Alternative to top-level `timestamp` field; same parsing logic. |
+| `$time` | string (ISO8601) | Same as `$timestamp` (alternate name). |
+| `$session_start_ts` | int64 (unix-ms) | When the session began. SDKs auto-set; servers should send if known. |
+| `$session_index` | int | The user's session counter (1, 2, 3, …). SDKs auto-increment. |
+
+### Lifecycle event names (auto-fired by SDKs)
+
+These are *event names* the SDKs reserve, not properties:
+
+- `$pageview` (web) — emitted on `pushState` / `replaceState` / `popstate`
+- `$screen_view` / `$screen` (mobile) — emitted on screen transitions; triggers heatmap CAPTURE_PRISTINE commands in the response
+- `$session_start` — first event of a session
+- `$session_end` — internal, fires on backgrounding (rendered into replays + Pulse triggers)
+- `$queue_overflow` — fires once per drain cycle when the SDK queue has dropped events on overflow
+
+Don't use these names for your own custom events.
+
+## Property value types
+
+| Type | Allowed | Encoding |
+|---|---|---|
+| `string` | ✓ | UTF-8 JSON string |
+| `number` | ✓ | JSON number (int or float) |
+| `boolean` | ✓ | JSON boolean |
+| `array` | ✓ | JSON array of any allowed type |
+| `object` | ✓ | JSON object (nested) |
+| `null` | ✓ | Treated as "no value" / "delete this trait" |
+| `Date` (JS) | ✓ | Auto-stringified to ISO8601 by SDKs |
+| `BigInt` (JS) | ✓ | Auto-stringified by SDKs |
+
+There's no max property bag size separate from the global 500 MB request body limit. Practical events should stay under ~100 KB.
+
+## Timestamp parsing
+
+The engine parses timestamps in this priority order:
+
+<Steps>
+  <Step title="Top-level `timestamp` field">
+    Tries: `RFC3339Nano`, `RFC3339`, `2006-01-02T15:04:05.999Z07:00`, `2006-01-02 15:04:05.999`, `2006-01-02 15:04:05`. First parser to succeed wins.
+  </Step>
+  <Step title="`properties.$timestamp` (string)">
+    Same parser chain.
+  </Step>
+  <Step title="`properties.$time` (string)">
+    Same parser chain.
+  </Step>
+  <Step title="Server `time.Now()`">
+    Fallback if all of the above are empty / unparseable.
+  </Step>
+</Steps>
+
+The server preserves the parsed timestamp — it doesn't override with server time when the client provided a valid one.
+
+## Auto-enrichment from User-Agent
+
+When a request arrives with a `User-Agent` header, the engine parses it and fills `$os`, `$browser`, `$device_model` from the result if those keys aren't already present in `default_properties`. This means web SDKs don't have to send these — the engine derives them.
+
+For server-to-server requests with custom User-Agent strings, populate `default_properties` yourself if you want clean breakdowns.
+
+## Auto-enrichment from GeoIP
+
+Every request gets GeoIP-resolved from the client IP, regardless of what `default_properties` you sent. The resolved values overwrite client-supplied `$city`, `$region`, `$country`, `$timezone` — the server treats GeoIP as authoritative.
+
+For server-to-server requests where the client IP is your server (not the user), pass the user's IP via `X-Forwarded-For` to get correct enrichment.
+
+Private IPs (`127.*`, `192.168.*`, `10.*`, `172.16.*`–`172.31.*`) are normalized to a fixed public IP for GeoIP lookup, so localhost gets a consistent (but synthetic) location.
+
+## Idempotency
+
+Sankofa's ingestion is **not idempotent**. Each request gets a fresh server-generated `id`; retries create duplicate rows. Don't retry on `2xx` responses.
+
+For at-least-once delivery, retry only on `429`, `503`, and network failures. The official SDKs handle this automatically via their persistent queues.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/ingestion/track" eyebrow="Endpoint" title="Track event">
+    The single-event endpoint reference.
+  </Card>
+  <Card href="/api/ingestion/batch" eyebrow="Endpoint" title="Batch">
+    The high-throughput multi-op endpoint.
+  </Card>
+  <Card href="/concepts/default-properties" eyebrow="Concepts" title="Default properties">
+    Why the `$`-prefixed keys exist and what each one means.
+  </Card>
+</CardGrid>

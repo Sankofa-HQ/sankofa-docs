@@ -1,41 +1,41 @@
 ---
 title: Welcome to Sankofa
-description: One platform unifies eight products — ship features, observe what breaks, and recover before users notice.
+description: One platform unifies eight products — strategize, ship, observe, and recover before users notice.
 toc: true
 ---
 
-Sankofa is a closed-source SaaS platform for the full **build → ship → observe → recover** loop. Eight products run on a single engine and a unified set of SDKs, so a flag, a deploy, a crash, and a survey share the same identity, the same cohorts, and the same audit trail.
+Sankofa is a closed-source SaaS platform for the full **strategize → build → ship → observe → recover** loop. Eight products run on a single engine and a unified set of SDKs, so a strategy initiative, a ticket, a flag, a deploy, a crash, and a survey share the same identity, the same cohorts, and the same audit trail.
 
 <Callout tone="note" title="Built for product, engineering, and growth — together">
-You don't need separate vendors for analytics, error tracking, feature flags, and OTA. Sankofa replaces the seam between them with a single decision protocol that every SDK speaks.
+You don't need separate vendors for strategy, ticketing, analytics, error tracking, feature flags, and OTA. Sankofa replaces the seam between them with a single decision protocol that every SDK speaks.
 </Callout>
 
 ## The eight products
 
 <CardGrid cols={4}>
+  <Card href="/products/vision/overview" eyebrow="Strategy" title="Vision">
+    Five-surface strategy workspace — Canvas, Roadmap, OKRs, Initiatives, Strategy Docs.
+  </Card>
   <Card href="/products/plan/overview" eyebrow="Engineering" title="Plan">
-    Tickets bonded to deploys, replays, and revenue impact.
+    Tickets, sprints, releases, and roadmaps bonded to deploys, replays, and revenue.
   </Card>
   <Card href="/products/catch/overview" eyebrow="Engineering" title="Catch">
     Crash detection with auto-rollback in under 60 seconds.
   </Card>
   <Card href="/products/switch/overview" eyebrow="Experimentation" title="Switch">
-    Feature flags with cohort targeting, halt webhooks, and dependencies.
+    Feature flags with cohort targeting, halt webhooks, variants, and experiments.
   </Card>
   <Card href="/products/deploy/overview" eyebrow="Engineering" title="Deploy">
     OTA releases gated by Catch and Switch signals.
   </Card>
   <Card href="/products/analytics/overview" eyebrow="Insights" title="Analytics">
-    Events, users, cohorts, insights, funnels, flows, retention.
+    Events, users, cohorts, insights, funnels, flows, retention — plus replay and heatmaps.
   </Card>
   <Card href="/products/pulse/overview" eyebrow="Insights" title="Pulse">
     Surveys triggered by real user behavior and cohorts.
   </Card>
   <Card href="/products/config/overview" eyebrow="Experimentation" title="Remote Config">
-    Typed values with cohort-targeted payloads and version history.
-  </Card>
-  <Card href="/products/ab-switch/overview" eyebrow="Experimentation" title="A/B Switch">
-    Experiments with retention impact measured in real time.
+    Typed values with cohort-targeted payloads, version history, and A/B item experiments.
   </Card>
 </CardGrid>
 
@@ -71,14 +71,14 @@ Sankofa is organized around three concepts you'll see throughout the docs:
 
 ## SDKs at a glance
 
-The web ships as a **multi-package monorepo** so you only pay for what you use. Every other platform ships as a **single SDK** that bundles all eight products.
+The web ships as a **multi-package monorepo** so you only pay for what you use. Every other client platform (Flutter, RN, iOS, Android) ships as a **single SDK** that bundles every supported client product. Server SDKs (Node, Go, Java, Python) focus on Catch + tracing.
 
 <CardGrid cols={3}>
   <Card href="/sdks/web/overview" eyebrow="7 packages" title="Web">
     `@sankofa/browser`, `catch`, `config`, `switch`, `pulse`, `replay-rrweb`, `react`. Tree-shakeable.
   </Card>
   <Card href="/sdks/flutter/overview" eyebrow="Single SDK" title="Flutter">
-    All eight products in a single `pub.dev` package.
+    Six client products in a single `pub.dev` package (Analytics, Catch, Switch, Config, Pulse, Replay).
   </Card>
   <Card href="/sdks/react-native/overview" eyebrow="Single SDK" title="React Native">
     Bare and Expo. Config plugin included.

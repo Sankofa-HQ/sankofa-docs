@@ -1,0 +1,159 @@
+---
+title: Track event
+description: POST /api/v1/track — record a single event with name, distinct_id, properties, and optional default_properties. Async write to ClickHouse with sub-millisecond response.
+toc: true
+---
+
+The `track` endpoint records a single event for a user. It's the busiest endpoint on the engine — every `Sankofa.track(...)` call from every SDK ends up here.
+
+<EndpointBadge method="POST" path="/api/v1/track" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request body
+
+<ParameterTable
+  params={[
+    { name: "event_name", type: "string", required: true, description: "The event name. snake_case + verb-noun is the convention. See [Events](/concepts/events) for naming guide." },
+    { name: "distinct_id", type: "string", required: true, description: "The user identifier — anonymous (UUID) or known (your stable user ID). See [Identity and aliases](/concepts/identity-and-aliases). Strings shorter than 2 chars or matching common-garbage patterns (`gzip`, `*/*`, `deflate`, `identity`, `accept`) are silently discarded with a 202 response." },
+    { name: "properties", type: "object", description: "Custom event properties. Strings, numbers, booleans, arrays, JSON objects all valid. Reserved keys: `$session_id`, `$timestamp`, `$time`. See [Payload reference](/api/payload-reference)." },
+    { name: "default_properties", type: "object", description: "SDK-provided device / OS / app context. Standard keys: `$os`, `$browser`, `$device_model`, `$city`, `$region`, `$country`, etc. The engine merges these with GeoIP and User-Agent enrichment automatically — you don't have to send them." },
+    { name: "timestamp", type: "string (ISO8601)", description: "Event timestamp. RFC3339 / RFC3339Nano / `2006-01-02 15:04:05` formats accepted. Defaults to `time.Now()` (server time) if not provided. Can also be specified via `properties.$timestamp` or `properties.$time` strings." },
+    { name: "lib_version", type: "string", description: "SDK version string for analytics + debugging. Auto-set by official SDKs to `@sankofa/browser@0.1.2` etc." },
+  ]}
+/>
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/v1/track \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{
+    "event_name": "checkout_started",
+    "distinct_id": "user_123",
+    "timestamp": "2026-05-09T14:32:01.482Z",
+    "properties": {
+      "cart_value": 49.99,
+      "item_count": 3,
+      "currency": "USD",
+      "$session_id": "sess_abc123"
+    },
+    "default_properties": {
+      "$os": "ios",
+      "$device_model": "iPhone 15",
+      "$app_version": "2.4.1"
+    },
+    "lib_version": "@sankofa/react-native@0.1.0"
+  }'`} />
+
+## Response
+
+`200 OK` on success:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "commands": []
+}`} />
+
+For special events (`$screen` / `$screen_view`), the response includes heatmap self-healing commands:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "commands": [
+    {
+      "type": "CAPTURE_PRISTINE",
+      "params": { "screen": "Checkout" }
+    }
+  ]
+}`} />
+
+The `commands` array is consumed by the SDK to manage heatmap state — you can ignore it if you're not using session replay or heatmaps.
+
+## Discarded responses
+
+Events with garbage `distinct_id` values are silently discarded with `202 Accepted`:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "status": "discarded"
+}`} />
+
+This indicates the request was syntactically valid but the engine couldn't identify a real user. Common cause: the SDK's distinct-ID generator is producing values that hit the heuristic — switch to a UUID-based scheme.
+
+## Server-side enrichment
+
+The engine adds the following automatically — you don't need to send them:
+
+| Field | Source | Notes |
+|---|---|---|
+| `id` | server | `evt_` + 21-char nanoid. Server-generated; client cannot specify. |
+| `$os`, `$browser`, `$device_model` | `User-Agent` header parse | Falls back to `default_properties` if you supplied them. |
+| `$city`, `$region`, `$country`, `$timezone` | GeoIP from client IP | Always overrides any client-supplied values. |
+| `$session_id` | `properties.$session_id` (if present) | Otherwise blank — server doesn't auto-derive sessions. |
+| Server timestamp | `time.Now()` if no client timestamp | Otherwise uses client-supplied value. |
+
+Private IPs (`127.0.0.1`, `192.168.*`, `10.*`, `172.16.*`–`172.31.*`) are normalized to a fixed value for GeoIP lookups, so localhost requests get a consistent (but synthetic) geo result.
+
+## Validation
+
+The engine runs these checks in order:
+
+<Steps>
+  <Step title="Auth">
+    `x-api-key` resolves to a project. If not: `401` / `403`. See [Authentication](/api/authentication).
+  </Step>
+  <Step title="Origin / IP allowlist">
+    If `AuthorizedDomains` or `AuthorizedIPs` is set on the project, the request must match. If not: `403`.
+  </Step>
+  <Step title="JSON parse">
+    Body parses as JSON. If not: `400 Invalid request body`.
+  </Step>
+  <Step title="Required fields">
+    `event_name` and `distinct_id` are non-empty strings. If not: `400`.
+  </Step>
+  <Step title="Garbage check">
+    `distinct_id` passes the garbage-ID heuristic (≥ 2 chars, no `gzip` / `*/*` / `deflate` / `identity` / `accept` substrings). If garbage: `202 discarded`.
+  </Step>
+  <Step title="Queue + return">
+    Event is queued to the async write channel; response returned immediately.
+  </Step>
+</Steps>
+
+There's no max-event-name length, no max property-bag size beyond the 500 MB request body limit, no allow / deny list applied at ingest. Allow / deny rules are applied at query time inside the dashboard.
+
+## Async write semantics
+
+The handler **does not wait** for the event to land in ClickHouse. After validation it queues to an in-process channel (10,000-item buffer) and returns. A background worker batches ~1,000 events at a time (or every 2 seconds, whichever comes first) and inserts them via ClickHouse's batch protocol.
+
+Implications:
+
+- **Latency is sub-millisecond** for the response.
+- **Durability is best-effort** — if the engine crashes before the next batch flush, in-flight events are lost. The SDK's persistent queue is the actual durability layer.
+- **Reads see the event** within ~2 seconds of the response (next worker flush).
+- **Buffer overflow** returns `503` — the engine self-recovers within seconds.
+
+## Per-event size
+
+There's no per-event size cap separate from the global 500 MB body limit. Practical events should stay under ~100 KB; events over 1 MB indicate something wrong (probably you're trying to send a stack trace or an entire object that should be summarized).
+
+## Idempotency
+
+The engine generates a fresh `id` for every accepted request — there's no client-supplied event ID and no deduplication on retry. Don't retry on `2xx` responses.
+
+For at-least-once delivery, retry only on `429`, `503`, and network failures.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/ingestion/people" eyebrow="Adjacent" title="People profiles">
+    Update traits on a user (`POST /api/v1/people`).
+  </Card>
+  <Card href="/api/ingestion/batch" eyebrow="Adjacent" title="Batch">
+    Send hundreds of events in one request.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Full field reference for the AnalyticsEvent shape.
+  </Card>
+</CardGrid>

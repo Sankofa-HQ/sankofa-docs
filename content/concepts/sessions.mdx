@@ -54,7 +54,7 @@ Replays are session-scoped on purpose — a single replay file representing eigh
 
 ## Sessions and decisions
 
-The decision handshake (the unified Switch / Config / Pulse / A/B Switch endpoint) fires once per session at session start. Every flag, config, and survey trigger evaluated during the session uses the same snapshot, so a flag can never flip mid-session — it can only change between sessions or via the explicit halt webhook.
+The decision handshake (the unified Switch / Config / Pulse endpoint) fires once per session at session start. Every flag, config, and survey trigger evaluated during the session uses the same snapshot, so a flag can never flip mid-session — it can only change between sessions or via the explicit halt webhook.
 
 This is why `reset()` after a logout is non-negotiable: without it, the new user would inherit the old user's flag assignments and cohort memberships for the rest of that long session.
 
@@ -128,7 +128,7 @@ A 24-hour timeout sounds harmless until you realise it means a single session ca
 
 <CardGrid cols={3}>
   <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="The decision handshake">
-    How one snapshot per session powers Switch, Config, Pulse, and A/B Switch together.
+    How one snapshot per session powers Switch, Config, and Pulse together.
   </Card>
   <Card href="/concepts/exposure-tracking" eyebrow="Concepts" title="Exposure tracking">
     Why per-call exposures matter even when decisions don't change mid-session.

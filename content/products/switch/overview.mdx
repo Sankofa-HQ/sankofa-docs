@@ -1,0 +1,172 @@
+---
+title: Switch
+description: Feature flags, variants, scheduled rollouts, halt webhooks, and reach previews. Sankofa's flag system, with A/B variant experiments built in.
+toc: true
+---
+
+**Switch** is Sankofa's feature-flag system. It evaluates flags against a per-session [decision snapshot](/concepts/decision-handshake), supports **variants** for A/B testing, **scheduled** rollouts, **dependencies** between flags, and the **halt webhook** path that lets Catch (or any external system) revert a flag in under a minute.
+
+A/B testing is built into Switch via the variants feature — there's no separate "A/B Switch" product. For type-safe value experiments (numeric thresholds, copy strings, JSON), use the [Remote Config](/products/config/overview) A/B item experiments instead.
+
+## What's in Switch
+
+| Concept | Purpose |
+|---|---|
+| **Flag** | A named on/off (or multi-value) decision. Boolean by default. The unit your code reads via `getFlag(...)` / `getVariant(...)`. |
+| **Rule** | The targeting logic for a flag — rollout %, cohort filter, dependencies. One rule per flag. |
+| **Variants** | Named values a flag can return (`control`, `treatment_a`, `treatment_b`). Used for A/B + multi-arm experiments. |
+| **Schedule** | Time-based rollout — e.g. "ramp from 10% → 100% between Mar 5 and Mar 12". |
+| **Reach preview** | Pre-flight estimate of how many users a rule would target, before you publish. |
+| **Halt** | Kill-switch that immediately flips the flag to its default value, regardless of rule. |
+
+## Boolean flags
+
+The simplest flag — returns `true` or `false`.
+
+<CodeBlock lang="ts" code={`if (Sankofa.flags.getFlag("new_checkout")) {
+  showNewCheckout();
+}`} />
+
+Bucket assignment is deterministic on `SHA-256(distinct_id + flag.key)`. This means:
+
+- The same user gets the same answer on every device + session.
+- Bumping rollout from 10% → 30% never reshuffles the original 10% — the bucket assignment is monotonic.
+- Halting the flag returns the default to everyone within ~30 seconds (the next handshake refresh).
+
+## Variants
+
+For A/B and multi-arm experiments, define multiple named variants on a single flag.
+
+<CodeBlock lang="ts" code={`const variant = Sankofa.flags.getVariant("checkout_redesign", "control");
+
+switch (variant) {
+  case "treatment_a": return <CheckoutA />;
+  case "treatment_b": return <CheckoutB />;
+  default: return <ClassicCheckout />;
+}`} />
+
+Variant assignment uses the same stable hashing — once a user is in `treatment_a`, they stay there for the lifetime of the flag (or until the variant is removed). The dashboard's experiment view computes lift + statistical significance on the events you've configured as success metrics.
+
+## Targeting and cohorts
+
+A flag's rule can target by:
+
+- **Percentage rollout** — `0–100`, deterministic bucket.
+- **Cohort include / exclude** — match against any cohort defined in `/dashboard/people/cohorts`. See [Cohorts](/concepts/cohorts).
+- **Property predicates** — `country = "GH"`, `plan = "pro"`, `signup_date > "2025-01-01"`.
+- **Dependency** — only evaluate if another flag is on / off.
+
+Rules compose: "100% of users in cohort `Pro plan customers` AND in country `GH`". The rule is evaluated server-side at handshake time; the SDK only sees the final decision.
+
+## Scheduled rollouts
+
+For pre-staged ramps:
+
+<CodeBlock lang="json" code={`{
+  "schedule": [
+    { "starts_at": "2026-03-05T00:00:00Z", "rollout": 5 },
+    { "starts_at": "2026-03-07T00:00:00Z", "rollout": 25 },
+    { "starts_at": "2026-03-09T00:00:00Z", "rollout": 50 },
+    { "starts_at": "2026-03-12T00:00:00Z", "rollout": 100 }
+  ]
+}`} />
+
+Schedules are stored on the rule and evaluated server-side. They're configurable from the dashboard or via `sankofa flags toggle <key> <pct> --at <timestamp>`.
+
+## Reach preview
+
+Before you publish a rule change, the dashboard shows you the **reach preview** — how many users your new rule would target, broken down by:
+
+- Total estimate
+- Per-cohort breakdown
+- Per-platform breakdown
+- Estimated daily exposures (based on recent events)
+
+This lets you avoid shipping a rule that would reach zero users (or all of them when you only meant 5%). The preview runs against ClickHouse so it's accurate to within minutes.
+
+## Halt webhook
+
+The halt webhook is the kill switch. It lets Catch — or any external system — revert a flag immediately:
+
+<CodeBlock lang="bash" code={`curl -X POST https://api.sankofa.dev/api/switch/halt-webhook \\
+  -H "x-api-key: sk_live_..." \\
+  -d '{ "flag_key": "new_checkout", "reason": "error rate spike" }'`} />
+
+When halted:
+
+- The flag's `halted` flag flips to `true` server-side.
+- The next handshake (≤ 30 seconds for active sessions) returns `default value, reason: "halted"`.
+- Every SDK's `onChange` listener fires.
+- The audit log records who/what halted it (and why).
+
+To resume: clear the halt from the dashboard, or `sankofa flags resume <key>`.
+
+## Per-call exposure tracking
+
+The web Switch package records a **per-call exposure** every time `getFlag(...)` / `getVariant(...)` runs. This means experiment analysis can restrict to "users who actually reached the call site," not just "users assigned to the variant." See [Exposure tracking](/concepts/exposure-tracking).
+
+Mobile and server SDKs use **handshake-level exposures** by default — assignment is recorded once on handshake. For high-precision experiments, mobile SDKs can manually call `reportExposure(...)` when the surface actually renders.
+
+## Dependencies
+
+A flag can depend on another flag. Useful for staged feature rollouts where downstream flags only activate after the upstream feature ships.
+
+<CodeBlock lang="json" code={`{
+  "rule": {
+    "rollout": 50,
+    "depends_on": { "flag_key": "new_checkout", "value": true }
+  }
+}`} />
+
+Dependency evaluation is single-level by default (Pro tier). Multi-level chains are available on Growth+. If a dependency evaluates to `false`, the dependent flag returns its default with `reason: "dependency_unmet"`.
+
+## Stale-flag scanner
+
+Old flags accumulate. The CLI ships a scanner that walks your code for `.getFlag(...)` / `.getVariant(...)` calls and cross-references them with the server:
+
+<CodeBlock lang="bash" code={`sankofa flags scan
+sankofa flags scan --strict   # fail CI on warnings`} />
+
+It reports:
+
+- **Warning** — flag referenced in code but missing on server (typo or stale code path).
+- **Warning** — flag on server but never referenced in code (dead flag).
+- **Error** — flag archived on server but still branched in code (will silently return default forever).
+
+## API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/switch/flags` | List flags. |
+| `POST /api/v1/switch/flags` | Create a flag. |
+| `GET /api/v1/switch/flags/:id` | Read flag detail. |
+| `PUT /api/v1/switch/flags/:id/rule` | Update the targeting rule. |
+| `POST /api/v1/switch/flags/:id/variants` | Add a variant. |
+| `PUT /api/v1/switch/flags/:id/schedule` | Set a scheduled rollout. |
+| `GET /api/v1/switch/flags/:id/reach-preview` | Pre-flight reach estimate. |
+| `POST /api/switch/halt-webhook` | Halt a flag (idempotent; can be hit by external systems with `x-api-key`). |
+| `POST /api/v1/decisions` | The decision-handshake endpoint (called by the SDK). |
+| `POST /api/switch/exposures` | Per-call exposure upload (web SDK). |
+
+## Switch limits by tier
+
+| Plan | Flags | Variants / flag | Schedules | Halt webhook | SSO RBAC + audit export |
+|---|---|---|---|---|---|
+| Free | ≤ 10 | 1 (boolean only) | — | — | — |
+| Pro | ∞ | up to 10 | ✓ | ✓ | — |
+| Growth | ∞ | up to 25 | ✓ | ✓ + experiment results | — |
+| Enterprise | ∞ | unlimited | ✓ | ✓ | ✓ |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/config/overview" eyebrow="Adjacent" title="Remote Config">
+    Typed values for non-boolean experiments and gradually-rolled-out copy.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Adjacent" title="Catch + halt">
+    Auto-halt flags on error-rate spikes via the halt webhook.
+  </Card>
+  <Card href="/concepts/exposure-tracking" eyebrow="Concepts" title="Exposure tracking">
+    Why per-call exposures matter for honest experiment math.
+  </Card>
+</CardGrid>

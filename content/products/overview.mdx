@@ -1,0 +1,110 @@
+---
+title: Products
+description: Eight products on a single engine — Vision, Plan, Catch, Switch, Deploy, Analytics, Pulse, Remote Config. One identity model, one decision protocol, one billing surface.
+toc: true
+---
+
+Sankofa is **one platform with eight products**. They share the same engine, the same identity model, the same decision handshake, the same project + RBAC boundary, and the same billing surface. You can adopt one and ignore the others, or compose all of them — there's no glue code to write between them.
+
+This page is the map. Pick the product you're integrating today and follow its dedicated page.
+
+## The eight products
+
+<CardGrid cols={4}>
+  <Card href="/products/vision/overview" eyebrow="Strategy" title="Vision">
+    Five-surface strategy workspace — Canvas, Roadmap, OKRs, Initiatives, Strategy Docs.
+  </Card>
+  <Card href="/products/plan/overview" eyebrow="Engineering" title="Plan">
+    Tickets, sprints, releases, and roadmaps bonded to deploys, replays, and revenue.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Engineering" title="Catch">
+    Crash detection with auto-rollback in under 60 seconds.
+  </Card>
+  <Card href="/products/switch/overview" eyebrow="Experimentation" title="Switch">
+    Feature flags with cohort targeting, halt webhooks, variants, and experiments.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Engineering" title="Deploy">
+    OTA releases gated by Catch and Switch signals.
+  </Card>
+  <Card href="/products/analytics/overview" eyebrow="Insights" title="Analytics">
+    Events, users, cohorts, insights, funnels, flows, retention — plus replay and heatmaps.
+  </Card>
+  <Card href="/products/pulse/overview" eyebrow="Insights" title="Pulse">
+    Surveys triggered by real user behavior and cohorts.
+  </Card>
+  <Card href="/products/config/overview" eyebrow="Experimentation" title="Remote Config">
+    Typed values with cohort-targeted payloads, version history, and A/B item experiments.
+  </Card>
+</CardGrid>
+
+## Where each product lives
+
+Each product has its own dashboard route, its own engine module, and (where applicable) its own SDK surface. The following table tells you what each touches.
+
+| Product | Engine module | Dashboard route | SDK surface |
+|---|---|---|---|
+| Vision | `ee/vision/` (boards, pages, members, comments, activity + 5 surface sub-packages: canvas, roadmap, okr, initiatives, docs) | `/dashboard/vision/` | None — dashboard-driven; REST + WebSocket for multiplayer; cross-product bonds to Plan + Deploy via the engine. |
+| Plan | `ee/plan/` (boards, tickets, sprints, releases, workflows, pages, Jira migration) | `/dashboard/plan/` | None — Plan is dashboard-driven, with REST + webhooks for external integrations. |
+| Catch | `ee/catch/` (events, transactions, vitals, profiles, issues, ownership) | `/dashboard/catch/` | All SDKs ship Catch — see [Catch overview](/products/catch/overview). |
+| Switch | `ee/switchmod/` (flags, rules, variants, schedules) | `/dashboard/switch/` | Web (`@sankofa/switch`), Flutter, RN, iOS, Android. Server SDKs accept a `readFlagSnapshot` callback only. |
+| Deploy | `ee/deploy/` (releases, check, report, rollback, metrics) | `/dashboard/deploy/` | React Native only. |
+| Analytics | `internal/api/` (events, people, lexicon) + `ee/analytics/` plugin (webhooks, SCIM) + `ee/replay/` (session replay) | `/dashboard/analytics/` | All client SDKs (Web, Flutter, RN, iOS, Android) ship event tracking. Server SDKs are Catch-focused. |
+| Pulse | `ee/pulse/` (surveys, versions, targeting/branching rules, responses, stats) | `/dashboard/pulse/` | Web (`@sankofa/pulse`), Flutter, RN, iOS, Android. |
+| Remote Config | `ee/configmod/` (items, rules, versions, change-impact, cohort-adoption, A/B experiments) | `/dashboard/config/` | Web (`@sankofa/config`), Flutter, RN, iOS, Android. |
+
+## What lives at the platform level (not inside any single product)
+
+Some surfaces are shared across products and live in `app/dashboard` shell, not under any one product:
+
+- **Organizations + projects + environments** — see [Concepts → Account model](/concepts/organizations-and-projects).
+- **Identity stitching** — `track`, `identify`, `alias` are platform primitives, not Plan/Catch/Switch primitives. See [Identity and aliases](/concepts/identity-and-aliases).
+- **Decision handshake** — Switch + Config + Pulse share the same per-session payload. See [The decision handshake](/concepts/decision-handshake).
+- **Cohorts** — defined once at the project level, consumed by Switch, Config, and Pulse. See [Cohorts](/concepts/cohorts).
+- **Audit log** — every product writes to the same audit stream. See [Audit log](/account/audit-log).
+- **Replay + Heatmaps** — captured by client SDKs, surfaced in the Analytics dashboard. Listed under Analytics in pricing.
+
+## What's intentionally NOT a separate product
+
+Two terms you may see elsewhere that are *not* products in Sankofa today:
+
+- **A/B testing** is built into both Switch (flag variants) and Remote Config (A/B item experiments). The targeting engine is shared. There is no separate "A/B Switch" or "Experiments" product or SDK module.
+- **Replay + Heatmaps** are sub-features of Analytics — captured at the client SDK layer and surfaced inside the Analytics dashboard.
+
+## How the products compose
+
+Every product gains capabilities when used alongside another:
+
+<Steps>
+  <Step title="Vision + Plan + Deploy">
+    Vision Initiatives link upward to OKR Key Results and downward to Plan tickets. When a Plan ticket closes, Vision auto-bumps the linked KR's progress and writes activity on every initiatives page in the project. Roadmap milestones can pin to Deploy releases for actual-vs-planned shipping dates.
+  </Step>
+  <Step title="Plan + Deploy">
+    Open a ticket in Plan and bond it to a Deploy release. The dashboard shows you what code changes shipped against which user-visible behavior, when. Bonded tickets are searchable by release ID.
+  </Step>
+  <Step title="Catch + Switch">
+    Wire a Catch alert to halt a Switch flag via the `halt-webhook`. If error rate on `checkout_completed` doubles after a flag rollout, the flag halts within seconds. See [Switch halt webhooks](/products/switch/overview).
+  </Step>
+  <Step title="Switch + Deploy">
+    Promote OTA bundles only when their gated flag's exposure is healthy. The Deploy product reads the Switch decision before applying a bundle update. See [Deploy gating](/products/deploy/overview).
+  </Step>
+  <Step title="Analytics + Pulse">
+    Trigger a Pulse survey when a user enters or leaves a cohort defined in Analytics. The cohort is computed once and read by both products. See [Pulse triggers](/products/pulse/overview).
+  </Step>
+  <Step title="Catch + Plan">
+    Auto-create a Plan ticket when a Catch issue crosses a severity threshold. Tickets reference back to the issue, the affected release, and the most recent reproducible session replay.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/products/vision/overview" eyebrow="Strategy" title="Vision">
+    Five-surface strategy workspace.
+  </Card>
+  <Card href="/products/plan/overview" eyebrow="Execution" title="Plan">
+    Tickets, sprints, releases.
+  </Card>
+  <Card href="/concepts/overview" eyebrow="Foundations" title="Concepts">
+    The platform-level concepts every product builds on.
+  </Card>
+</CardGrid>

@@ -77,7 +77,7 @@ The matrix splits into three groups:
 
 A few specific notes from this matrix:
 
-- **A/B Switch is part of Switch.** It's the variant + experiment-result side of the same product, not a separate SDK module.
+- **A/B testing is built into Switch + Config.** Switch flag variants and Config A/B item experiments share the same targeting engine — there's no separate "A/B Switch" product or SDK module.
 - **Deploy / OTA is React-Native only at the SDK layer.** Native iOS / Android / Flutter SDKs do not export a `SankofaDeploy` class today. Pure-native apps use Switch for feature gating + the platform's standard staged rollouts.
 - **Pulse is mobile + web only.** Server SDKs don't render UI, so they don't ship Pulse.
 - **Server SDKs are Catch-focused.** They expose error capture, breadcrumbs, transactions, and profiling. They do *not* expose `Sankofa.flags.get(...)` / `Sankofa.config.get(...)` calls — instead, they accept callbacks (`readFlagSnapshot`, `readConfigSnapshot`) that you wire to your own flag system, so error events can include flag context.
@@ -123,7 +123,7 @@ Every SDK ships a consistent API for the basics:
 Client SDKs (web, Flutter, RN, iOS, Android) share three more things that server SDKs do not:
 
 - **Offline-first event queue** — events are durable across app restarts and survive network failures.
-- **Decision handshake at session start** — one snapshot per session covers Switch, Config, Pulse, A/B Switch.
+- **Decision handshake at session start** — one snapshot per session covers Switch flags + variants, Config items + A/B experiments, and Pulse triggers.
 - **Default property collection** — geo, OS, device, browser, app version, session — added automatically.
 
 Server SDKs use an in-memory queue, no decision handshake, and a smaller default-property set focused on the runtime + request context.

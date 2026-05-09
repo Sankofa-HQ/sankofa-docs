@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     template: "%s · Sankofa Docs",
   },
   description:
-    "Build, ship, observe, and roll back faster with Sankofa — one platform for Plan, Catch, Switch, Deploy, Analytics, Pulse, Remote Config, and A/B Switch.",
+    "Build, ship, observe, and roll back faster with Sankofa — one platform for Vision, Plan, Catch, Switch, Deploy, Analytics, Pulse, and Remote Config.",
   applicationName: "Sankofa Docs",
   keywords: [
     "Sankofa",

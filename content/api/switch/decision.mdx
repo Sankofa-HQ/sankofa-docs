@@ -1,0 +1,147 @@
+---
+title: Switch — decision handshake
+description: GET /api/v1/handshake — the unified per-session payload that returns the user's flag decisions alongside Config, Deploy, Catch, and Analytics modules. ETag-cached, refreshed via 304 Not Modified.
+toc: true
+---
+
+The decision handshake is the one endpoint every client SDK calls at session start to fetch the user's complete decision state. Switch decisions arrive under `modules.switch`; the same response also carries Config, Deploy, Catch, and Analytics module payloads.
+
+Pulse is **not** in the handshake — it has its own [`GET /api/pulse/surveys`](/api/pulse/trigger) endpoint with its own ETag.
+
+For the cross-product overview (why one endpoint, the ETag flow, the bundled-defaults pattern), see [The decision handshake](/concepts/decision-handshake).
+
+<EndpointBadge method="GET" path="/api/v1/handshake" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+## Request
+
+The handshake is a `GET` request — all parameters are query-string. There's no request body.
+
+<ParameterTable
+  params={[
+    { name: "distinct_id", type: "string", description: "User identifier — known (your stable ID) or anonymous (UUID). Server uses this for stable bucket hashing on rollouts and variants." },
+    { name: "anon_id", type: "string", description: "The pre-identify anonymous ID, if the user has just transitioned to identified. Lets the engine evaluate cohorts that the user matched while anonymous." },
+    { name: "app_version", type: "string", description: "User-facing app version. Used in handshake context for targeting predicates." },
+    { name: "current_bundle_label", type: "string", description: "OTA bundle label, if the SDK supports Deploy. Used by the Deploy contributor in the same handshake." },
+    { name: "platform", type: "string", description: "`web` / `ios` / `android` / `react-native` / `flutter`." },
+    { name: "os_version", type: "string", description: "OS version string." },
+    { name: "device_model", type: "string", description: "Hardware identifier (mobile only)." },
+    { name: "locale", type: "string", description: "User locale (e.g. `en-GH`)." },
+    { name: "sdk", type: "string", description: "SDK identifier (e.g. `@sankofa/browser@0.1.2`). Used for telemetry and per-SDK rollout gating." },
+    { name: "installed", type: "string", description: "Comma-separated module list the SDK has registered (e.g. `switch,config`). Reverse-handshake — tells the engine which modules to populate." },
+  ]}
+/>
+
+The request also accepts `If-None-Match: <etag>` — if the engine's recomputed ETag matches, it returns `304 Not Modified` with no body, and the SDK keeps its cached snapshot.
+
+## Example request
+
+<CodeBlock lang="bash" code={`curl "https://api.sankofa.dev/api/v1/handshake?distinct_id=user_123&platform=ios&app_version=2.4.1&installed=switch,config" \\
+  -H "x-api-key: sk_live_..." \\
+  -H 'If-None-Match: "abc123"'`} />
+
+## Switch slice of the response
+
+The full handshake response includes every module the engine wired up. The Switch slice looks like:
+
+<CodeBlock lang="json" code={`{
+  "project_id": "proj_abc",
+  "modules": {
+    "switch": {
+      "enabled": true,
+      "flags": {
+        "new_checkout": {
+          "value": true,
+          "reason": "rollout",
+          "version": 7
+        },
+        "checkout_redesign": {
+          "value": "treatment_a",
+          "variant": "treatment_a",
+          "reason": "variant_assigned",
+          "version": 12
+        },
+        "dark_mode_default": {
+          "value": false,
+          "reason": "no_rule",
+          "version": 1
+        }
+      },
+      "etag": "\\"7d4f...\\""
+    },
+    "config": { /* see /api/config/decision */ },
+    "deploy": { /* see /api/deploy/check */ },
+    "catch": { "enabled": true },
+    "analytics": { /* sampling rates, replay/heatmap config */ }
+  }
+}`} />
+
+## Reason tags
+
+The `reason` field on each flag decision is a stable contract. Production possible values:
+
+| Reason | Meaning |
+|---|---|
+| `archived` | Flag is archived. Default value applied. |
+| `halted` | Flag was halted (manually or via halt-webhook). Default value applied. |
+| `scheduled` | A schedule override is active. Override value applied. |
+| `no_rule` | Flag has no targeting rule. Default value applied. |
+| `not_in_rollout` | Rule matched but the user's stable bucket isn't in the rollout %. Default applied. |
+| `dependency_unmet` | Rule depends on another flag whose decision is `false`. Default applied. |
+| `rollout` | Boolean flag, rule + rollout matched. Returned `!default_value`. |
+| `variant_assigned` | Variant flag matched a rule; specific variant assigned via stable hashing. |
+| Custom rule reason | A predicate inside the rule rejected (e.g. `country_excluded`, `cohort_mismatch`). Default applied. |
+
+## ETag refresh
+
+The Switch slice has its own `etag` (separate from the composite ETag the engine computes for the whole handshake response).
+
+When the SDK refreshes:
+
+<Steps>
+  <Step title="SDK sends If-None-Match">
+    The handshake request includes `If-None-Match: "<previous_composite_etag>"`.
+  </Step>
+  <Step title="Engine recomputes">
+    Engine computes the new composite ETag (SHA-256 hash of every module's per-module ETag, sorted).
+  </Step>
+  <Step title="304 if unchanged">
+    If matches: returns `304 Not Modified`. Body empty. SDK keeps its cached snapshot. No JSON, no parse, no allocation.
+  </Step>
+  <Step title="200 + new body if changed">
+    If different: returns `200` with the new body. SDK swaps its cached snapshot.
+  </Step>
+</Steps>
+
+This is how steady-state production traffic stays at ~one 304 per 30 seconds for a fully-instrumented session.
+
+## Quota gate
+
+If the project has exceeded its monthly handshake quota, the engine returns the modules **enabled** but their payloads empty, with `reason: "quota_exceeded"`. The SDK falls back to bundled defaults gracefully.
+
+## Asynchronous decision logging
+
+Each flag decision sample is fire-and-forget written to ClickHouse for telemetry — the engine never blocks the handshake response on this. If the telemetry write fails, the user still gets the right decision.
+
+## Variant assignment
+
+Variant assignment uses the stable hash `SHA-256(distinct_id + flag_key)`. The same user gets the same variant on every device + session. Bumping rollout % from 10% → 30% never reshuffles the original 10%.
+
+If `anon_id` is supplied alongside `distinct_id`, the engine evaluates cohorts that the user matched anonymously — useful for keeping experiment continuity across the login boundary.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/switch/exposures" eyebrow="Adjacent" title="Exposures">
+    Per-call exposure recording (web SDK).
+  </Card>
+  <Card href="/api/switch/halt-webhook" eyebrow="Adjacent" title="Halt webhook">
+    The kill-switch path Catch alerts use.
+  </Card>
+  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="Decision handshake">
+    The cross-product view — why one endpoint serves all modules.
+  </Card>
+</CardGrid>

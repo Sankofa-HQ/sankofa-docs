@@ -1,0 +1,138 @@
+---
+title: API reference
+description: REST surface for Sankofa — ingestion, decisions, exposures, and per-product management. Auth via x-api-key for ingestion, Authorization Bearer JWT for dashboard / management.
+toc: true
+---
+
+The Sankofa API is the wire that every SDK is implemented against. If your platform doesn't have an SDK, or if you need direct control (server-to-server flows, custom pipelines, mainframes), you call the API directly.
+
+This section is the canonical reference. Each page documents one endpoint or one cross-cutting concern. The pages map 1:1 to the engine's HTTP handlers — when something on this site says "POST /api/v1/track returns 200 + commands array," it's because the handler at `cmd/sankofa/ingest_handlers.go:49` does exactly that.
+
+## Base URL
+
+| Endpoint type | URL | Used by |
+|---|---|---|
+| Production | `https://api.sankofa.dev` | Live + test ingestion, decisions, dashboard / management API |
+| Region-pinned (Enterprise) | Routed at the ingress layer; same URL — region selection happens at API-key resolution | Enterprise customers with data-residency requirements |
+
+There are no region-suffixed URLs. Regional projects use the same base URL; the ingress layer routes by API key.
+
+## Authentication at a glance
+
+Two auth schemes, used by different endpoint groups:
+
+| Endpoints | Auth | Header |
+|---|---|---|
+| Ingestion (`/api/v1/{track,people,alias,batch}`) | Project API key | `x-api-key: sk_live_…` (or `sk_test_…`) |
+| Decision handshake, Switch / Config / Pulse / Catch reads from SDKs | Project API key | `x-api-key: sk_live_…` (or `sk_test_…`) |
+| Dashboard / management API (CRUD on flags, configs, surveys, projects, members, etc.) | User JWT | `Authorization: Bearer <jwt>` |
+| Deploy operations (release, patch, etc.) | Deploy token | `Authorization: Bearer sk_deploy_…` |
+
+Full details on each scheme + key types: [Authentication](/api/authentication).
+
+## Environments
+
+The engine resolves environment (`live` vs `test`) from the API key on every request. There's no environment header, no project ID in the URL — the key alone determines routing:
+
+- `sk_live_…` → `live` environment of the matching project
+- `sk_test_…` → `test` environment of the matching project
+
+This means: **the same code path works for dev and prod; you just use a different key.** See [Environments and API keys](/concepts/environments-and-api-keys).
+
+## Response format
+
+Every endpoint returns JSON. The shape varies by endpoint, but two conventions hold across all of them:
+
+### Successful responses
+
+Most endpoints return:
+
+<CodeBlock lang="json" code={`{
+  "ok": true,
+  "...": "endpoint-specific fields"
+}`} />
+
+Specific ingestion endpoints add fields like `commands` (heatmap self-healing hints) or `events_received` (batch counts).
+
+### Error responses
+
+Every error follows the same shape:
+
+<CodeBlock lang="json" code={`{
+  "ok": false,
+  "error": "Human-readable message"
+}`} />
+
+The HTTP status code carries the type of failure; the `error` field carries the message. There's no machine-readable error code today — match on HTTP status.
+
+Full status-code table + common messages: [Errors](/api/errors).
+
+## Rate limits
+
+Ingestion endpoints (per API key, or per IP if no key):
+
+- **500 requests per minute**
+- Returns `429 Too Many Requests` with `{ok: false, error: "Rate limit exceeded. Please wait a moment."}`
+- **No `Retry-After` or `X-RateLimit-*` headers** — back off client-side
+
+Full details: [Rate limits](/api/rate-limits).
+
+## Endpoint groups
+
+<CardGrid cols={3}>
+  <Card href="/api/authentication" eyebrow="Auth" title="Authentication">
+    Three key types, Origin/IP allowlists, JWT for dashboard, key rotation.
+  </Card>
+  <Card href="/api/rate-limits" eyebrow="Limits" title="Rate limits">
+    500/min per key. The 429 response and how to handle it.
+  </Card>
+  <Card href="/api/errors" eyebrow="Errors" title="Error format">
+    `{ok, error}` shape, status-code table, common messages.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Ingestion" title="Track events">
+    `POST /api/v1/track` — the busiest endpoint on the engine.
+  </Card>
+  <Card href="/api/ingestion/people" eyebrow="Ingestion" title="People profiles">
+    `POST /api/v1/people` — set traits on a user.
+  </Card>
+  <Card href="/api/ingestion/alias" eyebrow="Ingestion" title="Alias">
+    `POST /api/v1/alias` — connect identifiers.
+  </Card>
+  <Card href="/api/ingestion/batch" eyebrow="Ingestion" title="Batch">
+    `POST /api/v1/batch` — track + people + alias in one request.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Every field on every ingestion shape, with types + defaults.
+  </Card>
+</CardGrid>
+
+## Per-product endpoints
+
+These endpoints exist and are partially documented in the SDK pages but don't yet have their own dedicated reference pages — they'll get full coverage in a follow-up phase:
+
+- **Decision handshake** — `POST /api/v1/decisions` (called by every client SDK on session start)
+- **Switch** — `GET/POST/PUT/DELETE /api/v1/switch/flags/...`, `POST /api/switch/halt-webhook`, `POST /api/switch/exposures`
+- **Config** — `GET/POST/PUT/DELETE /api/v1/config/items/...`
+- **Pulse** — `GET/POST /api/v1/pulse/surveys/...`
+- **Deploy** — `POST /api/deploy/check`, `/api/deploy/report`, `/api/v1/deploy/releases/...`
+- **Catch** — `POST /api/ee/catch/ingest/{events,transactions,vitals,profiles}`, `GET /api/v1/catch/issues`
+- **Vision** — `GET/POST /api/v1/vision/{boards,pages,roadmap,okr,initiatives,docs,...}` (full surface listed in [Vision overview](/products/vision/overview))
+- **Plan** — `GET/POST /api/v1/plan/{boards,tickets,sprints,releases,workflows,pages,...}` (full surface listed in [Plan overview](/products/plan/overview))
+
+## Versioning
+
+The wire is versioned via the URL prefix — `/api/v1/...`. We have not broken `v1` since launch and we don't intend to. When we eventually need an incompatible wire change, we'll ship `v2` alongside `v1` and run both for at least 18 months. See [SDK versioning policy](/sdks/versioning-policy) — the same rules apply to the engine.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/authentication" eyebrow="Start here" title="Authentication">
+    The three key types you'll work with.
+  </Card>
+  <Card href="/api/ingestion/track" eyebrow="Most common" title="Track events">
+    The endpoint behind every `Sankofa.track(...)` call.
+  </Card>
+  <Card href="/api/payload-reference" eyebrow="Reference" title="Payload reference">
+    Field-by-field reference for every ingestion shape.
+  </Card>
+</CardGrid>

@@ -118,15 +118,21 @@ export const SECTIONS: NavSection[] = [
   {
     key: "products",
     title: "Products",
-    description: "Plan, Catch, Switch, Deploy, Analytics, Pulse, Config, A/B Switch.",
+    description: "Vision, Plan, Catch, Switch, Deploy, Analytics, Pulse, Remote Config.",
     order: 3,
     topNav: true,
     groups: [
       { pages: [{ slug: "overview" }] },
       {
+        title: "Strategy & planning",
+        pages: [
+          { slug: "vision/overview", title: "Vision" },
+          { slug: "plan/overview", title: "Plan" },
+        ],
+      },
+      {
         title: "Engineering",
         pages: [
-          { slug: "plan/overview", title: "Plan" },
           { slug: "catch/overview", title: "Catch" },
           { slug: "deploy/overview", title: "Deploy" },
         ],
@@ -136,7 +142,6 @@ export const SECTIONS: NavSection[] = [
         pages: [
           { slug: "switch/overview", title: "Switch" },
           { slug: "config/overview", title: "Remote Config" },
-          { slug: "ab-switch/overview", title: "A/B Switch" },
         ],
       },
       {
