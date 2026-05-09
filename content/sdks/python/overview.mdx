@@ -1,0 +1,238 @@
+---
+title: Python SDK
+description: Server-side error tracking for Python — sankofa-catch on PyPI. Errors, transactions, profiling, and WSGI + ASGI middlewares.
+toc: true
+sdks: [python]
+---
+
+The Sankofa Python SDK is published to PyPI as `sankofa-catch`. Like the other server SDKs, it focuses on **Catch** — error capture, breadcrumbs, transactions, profiling — with WSGI and ASGI middleware adapters for any Python web framework.
+
+<Callout tone="note" title="Server-side SDK scope">
+Server SDKs do not expose `sankofa.flags.get(...)` or `sankofa.config.get(...)` calls. Sankofa Switch and Config evaluate against a per-session decision snapshot from your client SDKs. If you want to attach the user's flag context to a Python-side error, pass `read_flag_snapshot` / `read_config_snapshot` callbacks at init time.
+</Callout>
+
+<Callout tone="note" title="Framework integrations status">
+The Python SDK currently ships **WSGI** and **ASGI** middlewares. Dedicated Django / Flask / FastAPI / Celery integrations are not yet shipped — you wire them through the WSGI/ASGI adapters or call the SDK directly from your error handlers.
+</Callout>
+
+For installation and project setup, see [Install on Python](/get-started/install/python).
+
+## Requirements
+
+- **Python 3.9+** (3.11+ recommended)
+- **pip 22+**
+
+## Build artifact identifiers
+
+| Field | Value |
+|---|---|
+| PyPI package | `sankofa-catch` |
+| Import name | `sankofa_catch` |
+| Version | `0.1.0` |
+
+## Initialize
+
+Call `init` once at startup, before any imports that may throw:
+
+<CodeBlock lang="python" filename="app.py" code={`import os
+import sankofa_catch
+
+sankofa_catch.init(
+    api_key=os.environ["SANKOFA_KEY"],
+    endpoint="https://api.sankofa.dev",
+    release=os.environ.get("RELEASE_SHA"),
+    environment=os.environ.get("ENV", "production"),
+    traces_sample_rate=0.1,
+)`} />
+
+### Init parameters
+
+<ParameterTable
+  params={[
+    { name: "api_key", type: "str", required: true, description: "Server-side API key." },
+    { name: "endpoint", type: "str", required: true, description: "Server base URL." },
+    { name: "release", type: "str", description: "Commit SHA / version tag for source-map matching." },
+    { name: "environment", type: "str", default: "production", description: "Free-form label tagged onto every event." },
+    { name: "app_version", type: "str", description: "Your app's user-facing version string." },
+    { name: "server_name", type: "str", description: "Hostname / pod identifier — auto-detected if omitted." },
+    { name: "autocapture_console", type: "bool", default: "True", description: "Capture print() / logging.error as breadcrumbs." },
+    { name: "capture_unhandled", type: "bool", default: "True", description: "Auto-capture sys.excepthook." },
+    { name: "traces_sample_rate", type: "float", default: "0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
+    { name: "disable_disk_queue", type: "bool", default: "False", description: "Set True for short-lived processes." },
+    { name: "read_flag_snapshot", type: "Callable[[], dict]", description: "Optional callback for flag context on error events." },
+    { name: "read_config_snapshot", type: "Callable[[], dict]", description: "Optional callback for config context on error events." },
+    { name: "debug", type: "bool", default: "False", description: "Verbose logging." },
+  ]}
+/>
+
+## Capture errors
+
+<CodeBlock lang="python" code={`import sankofa_catch
+
+try:
+    charge_card(amount)
+except Exception as exc:
+    event_id = sankofa_catch.capture_exception(exc)
+    print(f"Captured exception {event_id}")
+
+# Non-error event
+sankofa_catch.capture_message("Payment retry attempted", level="info")`} />
+
+## WSGI middleware
+
+For any WSGI framework (Flask, Django, Pyramid, Bottle, etc.):
+
+<CodeBlock lang="python" filename="app.py" code={`from flask import Flask
+import sankofa_catch
+from sankofa_catch.wsgi import SankofaWSGI
+
+sankofa_catch.init(api_key=os.environ["SANKOFA_KEY"], endpoint="https://api.sankofa.dev")
+
+app = Flask(__name__)
+app.wsgi_app = SankofaWSGI(app.wsgi_app)
+
+@app.route("/")
+def home():
+    return "ok"`} />
+
+For Django:
+
+<CodeBlock lang="python" filename="wsgi.py" code={`import os
+import sankofa_catch
+from sankofa_catch.wsgi import SankofaWSGI
+from django.core.wsgi import get_wsgi_application
+
+sankofa_catch.init(api_key=os.environ["SANKOFA_KEY"], endpoint="https://api.sankofa.dev")
+
+application = SankofaWSGI(get_wsgi_application())`} />
+
+## ASGI middleware
+
+For FastAPI, Starlette, or any ASGI framework:
+
+<CodeBlock lang="python" filename="main.py" code={`from fastapi import FastAPI
+import sankofa_catch
+from sankofa_catch.asgi import SankofaASGI
+
+sankofa_catch.init(api_key=os.environ["SANKOFA_KEY"], endpoint="https://api.sankofa.dev")
+
+app = FastAPI()
+app.add_middleware(SankofaASGI)
+
+@app.get("/")
+async def home():
+    return {"ok": True}`} />
+
+Both middlewares:
+
+- Generate a unique request ID (or read incoming `traceparent`);
+- Stamp `$request_method`, `$request_path`, `$user_agent` on every event;
+- Catch unhandled exceptions in the request and forward them to `capture_exception`.
+
+## User context, tags, breadcrumbs
+
+<CodeBlock lang="python" code={`sankofa_catch.set_user({
+    "id": "user_123",
+    "email": "ada@example.com",
+    "plan": "pro",
+})
+
+sankofa_catch.set_tags({"feature": "billing", "region": "eu-west"})
+sankofa_catch.set_extra("amount", 49.99)
+
+sankofa_catch.add_breadcrumb({
+    "category": "user-action",
+    "message": "Clicked checkout",
+    "level": "info",
+    "data": {"form_id": "checkout"},
+})`} />
+
+## Transactions and spans
+
+<CodeBlock lang="python" code={`tx = sankofa_catch.start_transaction(
+    name="checkout_handler",
+    op="http.server",
+)
+
+try:
+    span = tx.start_child(name="db.query.orders", op="db")
+    orders = run_db_query()
+    span.finish()
+
+    tx.set_status("ok")
+except Exception:
+    tx.set_status("internal_error")
+    raise
+finally:
+    tx.finish()`} />
+
+## Profiling
+
+<CodeBlock lang="python" code={`profiler = sankofa_catch.start_profile(sampling_interval_us=10_000)
+try:
+    # ... do work ...
+    pass
+finally:
+    profiler.stop()`} />
+
+## Web vitals
+
+<CodeBlock lang="python" code={`sankofa_catch.capture_vital(
+    name="lcp",
+    value=2400.0,
+    rating="needs-improvement",
+    url=request.path,
+)`} />
+
+## Graceful shutdown
+
+For long-running processes:
+
+<CodeBlock lang="python" code={`import atexit
+atexit.register(sankofa_catch.flush)
+atexit.register(sankofa_catch.shutdown)`} />
+
+For Celery workers, hook the `worker_shutdown` signal:
+
+<CodeBlock lang="python" code={`from celery.signals import worker_shutdown
+
+@worker_shutdown.connect
+def on_worker_shutdown(**kwargs):
+    sankofa_catch.flush()
+    sankofa_catch.shutdown()`} />
+
+For Django, manually call `sankofa_catch.capture_exception` from your `process_exception` middleware or signal handlers — there's no automatic Django integration today.
+
+## API summary
+
+| Function | Description |
+|---|---|
+| `sankofa_catch.init(...)` | Initialize the SDK. |
+| `sankofa_catch.get_client()` | Get the global client. |
+| `sankofa_catch.capture_exception(err)` | Record an error, returns event ID. |
+| `sankofa_catch.capture_message(msg, level=...)` | Record a non-error event. |
+| `sankofa_catch.add_breadcrumb(crumb)` | Add a breadcrumb. |
+| `sankofa_catch.set_user(user)` | Set the current user. |
+| `sankofa_catch.set_tags(tags)` | Set tags. |
+| `sankofa_catch.set_extra(key, value)` | Set un-indexed extras. |
+| `sankofa_catch.start_transaction(...)` | Begin a transaction. |
+| `sankofa_catch.start_profile(...)` | Begin a profile. |
+| `sankofa_catch.capture_vital(...)` | Record a Web-Vitals-style metric. |
+| `sankofa_catch.flush()` | Drain the queue. |
+| `sankofa_catch.shutdown()` | Flush + dispose. |
+| `sankofa_catch.wsgi.SankofaWSGI` | WSGI middleware. |
+| `sankofa_catch.asgi.SankofaASGI` | ASGI middleware. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/node/overview" eyebrow="SDKs" title="Node SDK">
+    The Node counterpart with Express + Fastify integrations.
+  </Card>
+  <Card href="/sdks/go/overview" eyebrow="SDKs" title="Go SDK">
+    For high-throughput Go workloads.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
+    Source-map upload via `sankofa catch symbols upload`.
+  </Card>
+</CardGrid>

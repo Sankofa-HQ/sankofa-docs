@@ -1,0 +1,252 @@
+---
+title: Node SDK
+description: Server-side error tracking for Node.js. Errors, breadcrumbs, transactions, profiles, and Express/Fastify middleware. Flag and config evaluation are not server-side products.
+toc: true
+sdks: [node]
+---
+
+`@sankofa/node` is the official server-side SDK for Node.js. Like the other server SDKs, it focuses on **Catch** — error capture, breadcrumbs, transactions, and profiling — with first-class Express and Fastify integration via subpath imports.
+
+<Callout tone="note" title="Server-side SDK scope">
+Server SDKs do **not** expose `Sankofa.flags.get(...)` or `Sankofa.config.get(...)` calls. Sankofa Switch and Config evaluate against a per-session decision snapshot from your client SDKs, not on a per-request basis on the server. If you want to attach the user's flag context to an error captured server-side, pass a `readFlagSnapshot` / `readConfigSnapshot` callback at init time.
+</Callout>
+
+For installation and project setup, see [Install on Node](/get-started/install/node).
+
+## Requirements
+
+- **Node.js 18+** (we test 18, 20, and 22)
+- **TypeScript 5+** recommended
+- ESM and CommonJS both supported via dual-format builds
+
+## Initialize
+
+<CodeBlock lang="ts" filename="server.ts" code={`import { init } from "@sankofa/node";
+
+init({
+  apiKey: process.env.SANKOFA_KEY!,
+  endpoint: "https://api.sankofa.dev",
+  release: process.env.RELEASE_SHA ?? "dev",
+  environment: process.env.NODE_ENV ?? "development",
+});`} />
+
+### `init` options
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "string", required: true, description: "Server-side API key. Never expose in a client bundle." },
+    { name: "endpoint", type: "string", required: true, description: "Server base URL." },
+    { name: "release", type: "string", description: "Build identifier — used by Catch for source-map matching." },
+    { name: "environment", type: "string", default: "production", description: "Free-form label tagged onto every event." },
+    { name: "appVersion", type: "string", description: "Your app's user-facing version string." },
+    { name: "serverName", type: "string", description: "Hostname / pod identifier — auto-detected if omitted." },
+    { name: "autocaptureConsole", type: "boolean", default: "true", description: "Capture console.error / console.warn as breadcrumbs." },
+    { name: "captureUnhandled", type: "boolean", default: "true", description: "Auto-capture uncaughtException." },
+    { name: "captureRejections", type: "boolean", default: "true", description: "Auto-capture unhandledRejection." },
+    { name: "tracesSampleRate", type: "number", default: "0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
+    { name: "disableDiskQueue", type: "boolean", default: "false", description: "Set true for serverless / Lambda where disk persistence isn't needed." },
+    { name: "readFlagSnapshot", type: "() => Record<string, unknown>", description: "Optional callback returning the user's flag values for inclusion on error events." },
+    { name: "readConfigSnapshot", type: "() => Record<string, unknown>", description: "Optional callback returning the user's config values for inclusion on error events." },
+    { name: "debug", type: "boolean", default: "false", description: "Verbose logging." },
+  ]}
+/>
+
+## Capture errors
+
+<CodeBlock lang="ts" code={`import { captureException, captureMessage } from "@sankofa/node";
+
+try {
+  await chargeCard(amount);
+} catch (err) {
+  captureException(err);
+}
+
+// Non-error event
+captureMessage("Payment retry attempted", "info");`} />
+
+Both functions return the captured event ID — useful for surfacing in API responses for support correlation.
+
+## Express middleware
+
+<CodeBlock lang="ts" filename="server.ts" code={`import express from "express";
+import { init } from "@sankofa/node";
+import { catchRequestHandler, catchErrorHandler } from "@sankofa/node/express";
+
+init({ apiKey: process.env.SANKOFA_KEY!, endpoint: "https://api.sankofa.dev" });
+
+const app = express();
+
+// Must be the first middleware — captures request context.
+app.use(catchRequestHandler());
+
+app.get("/", (req, res) => {
+  res.send("ok");
+});
+
+// Must be the last middleware — captures uncaught errors.
+app.use(catchErrorHandler());`} />
+
+The middleware:
+
+- Generates a unique request ID (or reads incoming `traceparent`) and attaches it to every event fired during the request;
+- Catches errors thrown in route handlers and feeds them to `captureException`;
+- Stamps `$request_method`, `$request_path`, `$user_agent` on every captured event.
+
+## Fastify plugin
+
+<CodeBlock lang="ts" filename="server.ts" code={`import Fastify from "fastify";
+import { init } from "@sankofa/node";
+import { catchFastifyPlugin } from "@sankofa/node/fastify";
+
+init({ apiKey: process.env.SANKOFA_KEY!, endpoint: "https://api.sankofa.dev" });
+
+const app = Fastify({ logger: true });
+await app.register(catchFastifyPlugin);
+
+app.get("/", async (request) => {
+  return { ok: true };
+});
+
+await app.listen({ port: 3000 });`} />
+
+## User context, tags, breadcrumbs
+
+<CodeBlock lang="ts" code={`import { setUser, setTags, setExtra, addBreadcrumb } from "@sankofa/node";
+
+// Per-request user (typically set inside middleware/auth)
+setUser({ id: "user_123", email: "ada@example.com", plan: "pro" });
+
+// Tag (indexed) — searchable in the dashboard
+setTags({ feature: "billing", region: "eu-west" });
+
+// Extra (un-indexed) — context attached to events
+setExtra("amount", 49.99);
+
+// Breadcrumbs (low-noise events that ride on the next capture)
+addBreadcrumb({
+  category: "user-action",
+  message: "Clicked checkout",
+  level: "info",
+  data: { form_id: "checkout" },
+});`} />
+
+## Transactions and spans
+
+`startTransaction` wraps a unit of work in a trace span:
+
+<CodeBlock lang="ts" code={`import { startTransaction } from "@sankofa/node";
+
+const tx = startTransaction({
+  name: "checkout_handler",
+  op: "http.server",
+  traceId: req.headers.traceparent,  // continue an upstream trace
+});
+
+try {
+  const span = tx.startChild({ name: "db.query.orders", op: "db" });
+  const orders = await db.query("SELECT * FROM orders");
+  span.finish();
+
+  res.json(orders);
+  tx.setStatus("ok");
+} catch (err) {
+  tx.setStatus("internal_error");
+  throw err;
+} finally {
+  tx.finish();
+}`} />
+
+Transactions automatically carry the user, tags, and breadcrumbs set on the current scope.
+
+## Profiling
+
+For deep performance investigation:
+
+<CodeBlock lang="ts" code={`import { NodeProfiler } from "@sankofa/node";
+
+const profiler = new NodeProfiler({ samplingIntervalUs: 10_000 });
+profiler.start();
+
+// ... do work ...
+
+const profile = await profiler.stop();
+// Profile is uploaded automatically; profile.id is the engine-side ID.`} />
+
+## Web vitals
+
+<CodeBlock lang="ts" code={`import { captureVital } from "@sankofa/node";
+
+captureVital({
+  name: "lcp",
+  value: 2400,
+  rating: "needs-improvement",
+  url: req.url,
+});`} />
+
+For rendering-layer metrics emitted from edge / SSR responses.
+
+## Graceful shutdown
+
+Always flush on shutdown — the in-memory queue is lost on hard kill:
+
+<CodeBlock lang="ts" code={`import { shutdown } from "@sankofa/node";
+
+async function gracefulExit() {
+  await shutdown(2000);  // flush within 2 seconds
+  process.exit(0);
+}
+
+process.on("SIGTERM", gracefulExit);
+process.on("SIGINT", gracefulExit);`} />
+
+For Lambda / serverless functions, call `flush()` (synchronous) at the end of every handler:
+
+<CodeBlock lang="ts" code={`import { init, captureException, flush } from "@sankofa/node";
+
+init({ /* ... */ });
+
+export async function handler(event: AWSEvent) {
+  try {
+    return await processEvent(event);
+  } catch (err) {
+    captureException(err);
+    throw err;
+  } finally {
+    await flush();
+  }
+}`} />
+
+## API summary
+
+| Symbol | Description |
+|---|---|
+| `init(options)` | Initialize the SDK. |
+| `getClient()` | Get the global client for advanced usage. |
+| `captureException(err, options?)` | Record an error. |
+| `captureMessage(msg, level?)` | Record a non-error event. |
+| `setUser(user)` | Set the current user on the active scope. |
+| `setTags(tags)` | Set tags on the active scope. |
+| `setExtra(key, value)` | Set un-indexed extras. |
+| `addBreadcrumb(breadcrumb)` | Add a breadcrumb that rides on the next capture. |
+| `startTransaction(options)` | Begin a transaction with optional spans. |
+| `captureVital(vital)` | Record a Web-Vitals-style metric. |
+| `flush(timeoutMs?)` | Drain the queue. |
+| `shutdown(timeoutMs?)` | Flush + dispose. |
+| `catchRequestHandler()` (subpath: `/express`) | First Express middleware. |
+| `catchErrorHandler()` (subpath: `/express`) | Last Express middleware. |
+| `catchFastifyPlugin` (subpath: `/fastify`) | Fastify plugin. |
+| `NodeProfiler` | Sampling profiler for performance analysis. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/go/overview" eyebrow="SDKs" title="Go SDK">
+    Same product surface, allocation-conscious Go client.
+  </Card>
+  <Card href="/sdks/python/overview" eyebrow="SDKs" title="Python SDK">
+    Python equivalent with WSGI + ASGI middleware.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Product" title="Catch product">
+    Server-side error tracking, breadcrumbs, source-map upload.
+  </Card>
+</CardGrid>

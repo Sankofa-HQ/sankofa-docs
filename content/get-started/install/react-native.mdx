@@ -6,7 +6,7 @@ toc: true
 sdks: [react-native]
 ---
 
-The `@sankofa/react-native` package wraps the native iOS and Android Sankofa SDKs and exposes a single JavaScript surface. It bundles all eight Sankofa products and ships an Expo Config Plugin that applies the native setup at prebuild time.
+The `@sankofa/react-native` package wraps the native iOS and Android Sankofa SDKs and exposes a single JavaScript surface. It bundles seven products (Analytics, Catch, Switch, Config, Pulse, Replay, **Deploy/OTA**) — RN is the only mobile SDK that ships OTA Deploy at the package level — and includes an Expo Config Plugin that applies the native setup at prebuild time.
 
 <Callout tone="warning" title="Development build required">
 React Native SDKs touch native modules, so this package will not run inside Expo Go. Use a development build (`expo run:ios` / `expo run:android`) or a bare React Native project.

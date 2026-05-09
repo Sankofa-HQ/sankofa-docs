@@ -1,48 +1,41 @@
 ---
 title: Install on Java
-description: Add the Sankofa Java SDK to your JVM project — Spring Boot, plain Servlet, or any framework — via Gradle or Maven.
+description: Add the Sankofa Java SDK (sankofa-catch on Maven Central) to your JVM project. Server-side error tracking with a Servlet filter for HTTP context.
 badge: 5 min
 toc: true
 sdks: [java]
 ---
 
-The Sankofa Java SDK targets server-side JVM workloads. It bundles analytics, error capture, feature flags, and remote config into a single artifact, with Spring Boot starters and Servlet filters for first-class framework integration.
+The Sankofa Java SDK targets server-side JVM workloads. The artifact is `dev.sankofa:sankofa-catch` on Maven Central and ships error capture, transactions, vitals, and a drop-in Servlet filter.
+
+<Callout tone="note" title="Server-side scope">
+The Java SDK focuses on **Catch** (error tracking) — there's no `Sankofa.flags()` or `Sankofa.config()` API today, no Spring Boot starter, and no `@SankofaFlag` / `@SankofaCapture` annotations. To attach the user's flag context to a server-side error, pass `readFlagSnapshot` / `readConfigSnapshot` callbacks at init time.
+</Callout>
 
 ## Requirements
 
-- **JDK 17+** (we test 17 and 21; 11 works but is unsupported)
+- **JDK 11+** (we test 11, 17, 21)
 - **Gradle 8+** or **Maven 3.9+**
-- **Spring Boot 3+** (if using the starter)
 
 ## 1. Add the dependency
 
 <Tabs defaultValue="kts">
   <Tab value="kts" label="Gradle (Kotlin DSL)">
     <CodeBlock lang="kotlin" filename="build.gradle.kts" code={`dependencies {
-    implementation("dev.sankofa:sankofa-java:1.0.0")
-    // Optional Spring Boot starter
-    implementation("dev.sankofa:sankofa-spring-boot-starter:1.0.0")
+    implementation("dev.sankofa:sankofa-catch:0.1.0")
 }`} />
   </Tab>
   <Tab value="groovy" label="Gradle (Groovy)">
     <CodeBlock lang="groovy" filename="build.gradle" code={`dependencies {
-    implementation 'dev.sankofa:sankofa-java:1.0.0'
-    implementation 'dev.sankofa:sankofa-spring-boot-starter:1.0.0'
+    implementation 'dev.sankofa:sankofa-catch:0.1.0'
 }`} />
   </Tab>
   <Tab value="maven" label="Maven">
-    <CodeBlock lang="xml" filename="pom.xml" code={`<dependencies>
-    <dependency>
-        <groupId>dev.sankofa</groupId>
-        <artifactId>sankofa-java</artifactId>
-        <version>1.0.0</version>
-    </dependency>
-    <dependency>
-        <groupId>dev.sankofa</groupId>
-        <artifactId>sankofa-spring-boot-starter</artifactId>
-        <version>1.0.0</version>
-    </dependency>
-</dependencies>`} />
+    <CodeBlock lang="xml" filename="pom.xml" code={`<dependency>
+    <groupId>dev.sankofa</groupId>
+    <artifactId>sankofa-catch</artifactId>
+    <version>0.1.0</version>
+</dependency>`} />
   </Tab>
 </Tabs>
 
@@ -50,63 +43,60 @@ Make sure Maven Central is in your repositories (default for new projects).
 
 ## 2. Initialize the SDK
 
-### Spring Boot
-
-The starter wires `Sankofa.init` from `application.properties` (or YAML) automatically:
-
-<CodeBlock lang="properties" filename="application.properties" code={`sankofa.api-key=\${SANKOFA_KEY}
-sankofa.endpoint=https://api.sankofa.dev
-sankofa.environment=production
-sankofa.release=\${RELEASE_SHA}`} />
-
-A request filter is registered automatically; every HTTP request gets a Sankofa context attached.
-
-### Plain Java / Servlet
-
-If you're not on Spring Boot, initialize manually in your application's bootstrap:
-
-<CodeBlock lang="java" filename="App.java" code={`import dev.sankofa.Sankofa;
-import dev.sankofa.SankofaConfig;
+<CodeBlock lang="java" filename="App.java" code={`import dev.sankofa.sankofacatch.SankofaCatch;
+import dev.sankofa.sankofacatch.Options;
 
 public class App {
     public static void main(String[] args) {
-        Sankofa.init(SankofaConfig.builder()
+        SankofaCatch.init(Options.builder()
             .apiKey(System.getenv("SANKOFA_KEY"))
             .endpoint("https://api.sankofa.dev")
             .environment(System.getenv().getOrDefault("ENV", "production"))
             .release(System.getenv("RELEASE_SHA"))
             .build());
 
-        Runtime.getRuntime().addShutdownHook(new Thread(Sankofa::flush));
+        Runtime.getRuntime().addShutdownHook(new Thread(() ->
+            SankofaCatch.flush(2000)
+        ));
 
         // ... start the server
     }
 }`} />
 
-For a Servlet container, register `dev.sankofa.servlet.SankofaFilter` in `web.xml` or via a `ServletContainerInitializer`.
+For a Servlet container, register `dev.sankofa.sankofacatch.servlet.SankofaCatchFilter` in `web.xml` or via a `ServletContextListener`:
+
+<CodeBlock lang="java" filename="WebInit.java" code={`import dev.sankofa.sankofacatch.servlet.SankofaCatchFilter;
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+
+public class WebInit implements ServletContextListener {
+    @Override
+    public void contextInitialized(ServletContextEvent sce) {
+        SankofaCatch.init(/* ... */);
+        sce.getServletContext()
+            .addFilter("sankofa", SankofaCatchFilter.class)
+            .addMappingForUrlPatterns(null, true, "/*");
+    }
+}`} />
 
 ### Common config options
 
 <ParameterTable
   params={[
     { name: "apiKey", type: "String", required: true, description: "Your project's server-side API key." },
-    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL." },
-    { name: "release", type: "String", description: "Commit SHA or version tag — used to group source-mapped errors." },
+    { name: "endpoint", type: "String", required: true, description: "Server base URL." },
+    { name: "release", type: "String", description: "Commit SHA or version tag — used by Catch for source-map matching." },
     { name: "environment", type: "String", default: "production", description: "Free-form label (development, staging, production)." },
+    { name: "appVersion", type: "String", description: "Your app's user-facing version string." },
     { name: "tracesSampleRate", type: "double", default: "0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
-    { name: "flushIntervalSeconds", type: "long", default: "30", description: "How often the queue uploads while the process is running." },
   ]}
 />
 
 ## 3. Verify the install
 
-<CodeBlock lang="java" code={`Sankofa.track("install_check", Map.of("from", "java-quickstart"));`} />
+<CodeBlock lang="java" code={`SankofaCatch.captureMessage("install_check");`} />
 
-Build and run, then open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. The event should appear within seconds with a `java` source label and the JVM version captured under default properties.
-
-<Callout tone="tip" title="Spring Boot Actuator">
-With the starter present, an Actuator-exposed `sankofa` endpoint reports the SDK's queue depth, last successful flush, and configured key prefix — useful for diagnosing prod issues.
-</Callout>
+Build and run, then open [app.sankofa.dev](https://app.sankofa.dev) → **Live events**. The message should appear within seconds with a `java` source label and the JVM version captured under default properties.
 
 ## What's next
 
@@ -115,9 +105,9 @@ With the starter present, an Actuator-exposed `sankofa` endpoint reports the SDK
     Multi-platform first-event walkthrough.
   </Card>
   <Card href="/sdks/java/overview" eyebrow="Reference" title="Java SDK reference">
-    All public types, the Spring Boot starter, and tracing utilities.
+    Capture, breadcrumbs, transactions, and the Servlet filter.
   </Card>
-  <Card href="/concepts/decision-handshake" eyebrow="Concepts" title="Decision handshake">
-    How feature flags and config decisions are batched per request.
+  <Card href="/products/catch/overview" eyebrow="Catch" title="Catch product">
+    Server-side error tracking, breadcrumbs, source-map upload.
   </Card>
 </CardGrid>

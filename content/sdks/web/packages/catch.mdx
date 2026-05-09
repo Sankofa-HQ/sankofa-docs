@@ -1,6 +1,6 @@
 ---
 title: "@sankofa/catch"
-description: Error capture, breadcrumbs, source-mapped stack traces, and custom fingerprinting for the web. Layers on @sankofa/browser via the plugin protocol.
+description: Error capture, breadcrumbs, and source-mapped stack traces for the web. Layers on @sankofa/browser via the plugin protocol.
 toc: true
 sdks: [web]
 ---
@@ -16,14 +16,17 @@ It's a plugin to `@sankofa/browser` — once registered, error capture happens a
 ## Register the plugin
 
 <CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
-import { catchPlugin } from "@sankofa/catch";
+import { catchPlugin, getCatch } from "@sankofa/catch";
 
 Sankofa.init({
   apiKey: "sk_live_...",
   endpoint: "https://api.sankofa.dev",
   release: process.env.GIT_SHA,
   plugins: [catchPlugin()],
-});`} />
+});
+
+// Once init resolves, the plugin client is available:
+const catcher = getCatch()!;`} />
 
 The `release` option is critical for source-map matching — it's the bundle identifier Catch uses to look up your source maps. Pass your commit SHA, build number, or version tag.
 
@@ -35,7 +38,7 @@ Once `catchPlugin()` is registered, all of these route to Catch with no further 
 |---|---|
 | Uncaught exceptions | `window.onerror` listener captures, fingerprints, uploads. |
 | Unhandled promise rejections | `window.unhandledrejection` listener does the same. |
-| Console errors | `console.error` calls become breadcrumbs (not their own crash report — see below). |
+| Console errors | `console.error` calls become breadcrumbs (not their own crash report). |
 | Failed `fetch` / `XHR` requests | 4xx and 5xx responses become breadcrumbs. |
 | Page navigations | `$pageview` events become breadcrumbs. |
 | Custom events | Any `Sankofa.track(...)` call becomes a breadcrumb on the next error. |
@@ -44,65 +47,44 @@ Once `catchPlugin()` is registered, all of these route to Catch with no further 
 
 For caught exceptions you want to report:
 
-<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+<CodeBlock lang="ts" code={`import { getCatch } from "@sankofa/catch";
+
+const catcher = getCatch()!;
 
 try {
   await chargeCard(amount);
 } catch (err) {
-  Sankofa.captureException(err, {
-    tags: { feature: "billing" },
-    extra: { amount, currency: "USD" },
-    fingerprint: ["billing-charge-failed"],
-  });
+  catcher.captureException(err);
 }`} />
 
-### Parameters
+For non-error events worth reporting:
 
-<ParameterTable
-  params={[
-    { name: "error", type: "Error | unknown", required: true, description: "The error to capture. Plain strings and `Error` subclasses both work." },
-    { name: "options.tags", type: "Record<string, string>", description: "Searchable, indexed key/values. Use for feature, route, tenant_id." },
-    { name: "options.extra", type: "Record<string, unknown>", description: "Free-form context. Indexed by event ID; not searchable." },
-    { name: "options.fingerprint", type: "string[]", description: "Override the default fingerprint algorithm. Errors with the same fingerprint are grouped into one issue." },
-    { name: "options.level", type: "'error' | 'warning' | 'info'", default: "'error'", description: "Severity. Warnings and info don't trigger alerts." },
-  ]}
-/>
+<CodeBlock lang="ts" code={`catcher.captureMessage("Payment retry attempted");`} />
 
-## Capture a message (no exception)
+## Breadcrumbs, user, tags
 
-For "this happened and we want to know" events that aren't actually errors:
-
-<CodeBlock lang="ts" code={`Sankofa.captureMessage("Payment retry attempted", {
-  level: "info",
-  extra: { retry_count: 3 },
-});`} />
-
-## Breadcrumbs
-
-A breadcrumb is a low-noise record of "something happened." When an error fires, the last 50 breadcrumbs are attached to the report. You can add custom ones:
-
-<CodeBlock lang="ts" code={`Sankofa.addBreadcrumb({
+<CodeBlock lang="ts" code={`// Add a breadcrumb (rides on the next captured event)
+catcher.addBreadcrumb({
   category: "user-action",
   message: "Clicked the submit button",
   level: "info",
   data: { form_id: "checkout-form" },
-});`} />
+});
 
-Breadcrumbs aren't uploaded on their own — they only ride attached to the next error or message capture.
+// Attach a user
+catcher.setUser({
+  id: "user_123",
+  email: "ada@example.com",
+});
+
+// Set tags (indexed in the dashboard)
+catcher.setTag("feature", "billing");`} />
 
 ## Fingerprinting
 
 By default, Catch generates a fingerprint from the error's normalized stack trace + message. Errors with the same fingerprint are grouped into one **issue**, so the dashboard shows you "this issue has fired 423 times across 187 users" instead of 423 individual rows.
 
-Override the fingerprint when:
-
-- The default groups things you want separate. E.g. errors at a generic util keep merging different upstream crashes into one issue. Override with a key from your call site.
-- The default keeps things separate that should be grouped. E.g. dynamically-named functions create unique stacks. Override with a static string.
-
-<CodeBlock lang="ts" code={`Sankofa.captureException(err, {
-  // Force grouping by user-facing action, not technical stack.
-  fingerprint: ["checkout-payment-failed", err.code],
-});`} />
+You can override the fingerprint when you need a different grouping than the default. The exact API is documented in the SDK's `@sankofa/catch` source — most apps don't need to override.
 
 ## Source maps
 
@@ -113,9 +95,10 @@ Production bundles are minified. To get readable stack traces in the dashboard:
     Vite, Next.js, Remix all support `sourcemap: true` (or equivalent) in production builds. The `.map` file should sit next to the bundle.
   </Step>
   <Step title="Upload source maps with the CLI">
-    <CodeBlock lang="bash" code={`npx @sankofa/cli sourcemaps upload \\
+    <CodeBlock lang="bash" code={`npx sankofa-cli catch symbols upload \\
+  --kind js_sourcemap \\
   --release "$GIT_SHA" \\
-  --dist-folder ./dist`} />
+  --dir ./dist`} />
 
     The CLI walks `./dist`, finds every `.map` file, and uploads them tagged with the release. Run this in CI after the build, before deploying.
   </Step>
@@ -124,43 +107,21 @@ Production bundles are minified. To get readable stack traces in the dashboard:
   </Step>
 </Steps>
 
-## Filtering noise
-
-Two ways to drop noisy errors before they leave the browser:
-
-<CodeBlock lang="ts" code={`Sankofa.init({
-  // ...
-  plugins: [catchPlugin({
-    // Drop errors whose message matches any of these.
-    ignoreErrors: [
-      /ResizeObserver loop limit/,
-      /Non-Error promise rejection captured/,
-    ],
-    // Drop errors fired from these origins.
-    ignoreUrls: [
-      /chrome-extension:\\/\\//,
-      /^moz-extension:/,
-    ],
-    // Per-error final filter.
-    beforeSend: (event) => {
-      if (event.tags?.tenant === "stress-test") return null;
-      return event;
-    },
-  })],
-});`} />
-
-`beforeSend` returning `null` drops the report. Use it for tenant-aware redaction, PII scrubbing, or rate-limiting client-side.
-
 ## Privacy
 
-`captureException` sends the error message and stack trace. **Don't put PII in error messages.** If your code does (`new Error("user@example.com not found")`), use `beforeSend` to redact:
+`captureException` sends the error message and stack trace. **Don't put PII in error messages.** If your code does (`new Error("user@example.com not found")`), redact at the source — replace dynamic email/SSN/phone fragments with generic placeholders before throwing.
 
-<CodeBlock lang="ts" code={`catchPlugin({
-  beforeSend: (event) => {
-    event.message = event.message?.replace(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/g, "[email]");
-    return event;
-  },
-});`} />
+## API summary
+
+| Symbol | Description |
+|---|---|
+| `catchPlugin(options?)` | Plugin to register at `Sankofa.init`. |
+| `getCatch()` | Returns the singleton catch client. |
+| `catcher.captureException(err)` | Manually capture an error. |
+| `catcher.captureMessage(msg, options?)` | Manually capture a non-error event. |
+| `catcher.addBreadcrumb(crumb)` | Add a breadcrumb that rides on the next event. |
+| `catcher.setUser(user)` | Set the active user for subsequent captures. |
+| `catcher.setTag(key, value)` | Set a free-form indexed tag. |
 
 ## What's next
 
@@ -172,6 +133,6 @@ Two ways to drop noisy errors before they leave the browser:
     The wire that captureException posts to.
   </Card>
   <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
-    Source-map upload, release tagging, and more.
+    Source-map upload via `sankofa catch symbols upload`.
   </Card>
 </CardGrid>

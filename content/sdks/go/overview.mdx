@@ -1,0 +1,221 @@
+---
+title: Go SDK
+description: Allocation-conscious Go client for server-side error tracking. Errors, transactions, profiles, and net/http middleware. Package name is sankofacatch.
+toc: true
+sdks: [go]
+---
+
+The Sankofa Go SDK lives at `github.com/sankofa-hq/sankofa_sdk_go` and is imported as the package `sankofacatch`. Like the other server SDKs, it focuses on **Catch** — error capture, transactions, profiling, and HTTP middleware.
+
+<Callout tone="note" title="Server-side SDK scope">
+Server SDKs do not expose `client.Flags.Get(...)` or `client.Config.Get(...)` calls. Sankofa Switch and Config evaluate against a per-session decision snapshot from your client SDKs. If you want to attach the user's flag context to an error captured server-side, pass `ReadFlagSnapshot` / `ReadConfigSnapshot` callbacks in the `Options` struct.
+</Callout>
+
+For installation and project setup, see [Install on Go](/get-started/install/go).
+
+## Requirements
+
+- **Go 1.22+**
+- Module-aware project (`go.mod` present)
+
+## Initialize
+
+<CodeBlock lang="go" filename="main.go" code={`package main
+
+import (
+    "context"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    sankofa "github.com/sankofa-hq/sankofa_sdk_go"
+)
+
+func main() {
+    client := sankofa.Init(sankofa.Options{
+        APIKey:      os.Getenv("SANKOFA_KEY"),
+        Endpoint:    "https://api.sankofa.dev",
+        Release:     os.Getenv("RELEASE_SHA"),
+        Environment: os.Getenv("ENV"),
+    })
+    if client == nil {
+        log.Fatal("sankofa init failed")
+    }
+
+    // Always flush on shutdown.
+    sigs := make(chan os.Signal, 1)
+    signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+    go func() {
+        <-sigs
+        client.Shutdown(context.Background())
+        os.Exit(0)
+    }()
+
+    // ... start the server
+}`} />
+
+### `Options` fields
+
+<ParameterTable
+  params={[
+    { name: "APIKey", type: "string", required: true, description: "Server-side API key." },
+    { name: "Endpoint", type: "string", required: true, description: "Server base URL." },
+    { name: "Release", type: "string", description: "Build identifier for source-map matching." },
+    { name: "Environment", type: "string", default: "live", description: "Free-form label tagged onto every event." },
+    { name: "AppVersion", type: "string", description: "Your app's user-facing version string." },
+    { name: "ServerName", type: "string", description: "Hostname / pod identifier — auto-detected if omitted." },
+    { name: "AutocaptureConsole", type: "bool", default: "true", description: "Capture stdlib log calls as breadcrumbs." },
+    { name: "CaptureUnhandled", type: "bool", default: "true", description: "Auto-capture panics via Recover helper." },
+    { name: "DisableDiskQueue", type: "bool", default: "false", description: "Set true for short-lived processes (Lambda, batch jobs)." },
+    { name: "HTTPClient", type: "*http.Client", description: "Override the underlying HTTP client (proxies, custom TLS)." },
+    { name: "Logger", type: "*log.Logger", description: "Override the SDK's debug logger." },
+    { name: "ReadFlagSnapshot", type: "func() map[string]any", description: "Optional callback returning the user's flag values for inclusion on error events." },
+    { name: "ReadConfigSnapshot", type: "func() map[string]any", description: "Optional callback returning the user's config values for inclusion on error events." },
+  ]}
+/>
+
+There's also `sankofa.NewClient(Options)` if you want a non-global client (better for tests + multi-tenant code).
+
+## Capture errors
+
+<CodeBlock lang="go" code={`import sankofa "github.com/sankofa-hq/sankofa_sdk_go"
+
+client := sankofa.Default()
+
+// Capture
+if err := chargeCard(ctx, amount); err != nil {
+    eventID := client.CaptureException(err, &sankofa.CaptureOptions{
+        Tags:   map[string]string{"feature": "billing"},
+        Extras: map[string]any{"amount": amount},
+    })
+    log.Printf("Captured exception %s", eventID)
+    return err
+}
+
+// Non-error event
+client.CaptureMessage("Payment retry attempted", &sankofa.CaptureOptions{Level: sankofa.LevelInfo})
+
+// Recover from a goroutine panic
+defer sankofa.Recover(client)`} />
+
+`Recover(client)` is an idiomatic helper — call it via `defer` at the start of any goroutine that should report panics to Catch. It re-panics after capturing.
+
+## net/http middleware
+
+<CodeBlock lang="go" filename="main.go" code={`mux := http.NewServeMux()
+mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "ok")
+})
+
+handler := client.Middleware(mux)
+http.ListenAndServe(":3000", handler)`} />
+
+The middleware:
+
+- Generates a unique request ID (or reads incoming `traceparent`);
+- Stamps `$request_method`, `$request_path`, `$user_agent` on every event;
+- Recovers from panics in handler chains and forwards them to Catch.
+
+### Framework adapters
+
+| Framework | Adapter pattern |
+|---|---|
+| Gin | Wrap `gin.Engine` with `client.Middleware` — Gin engines satisfy `http.Handler`. |
+| Echo | `e.Use(echo.WrapMiddleware(client.Middleware))`. |
+| Fiber | Use `client.Middleware` via `gofiber/adaptor/v2`. |
+| Chi | `r.Use(client.Middleware)`. |
+
+## User context, tags, breadcrumbs
+
+<CodeBlock lang="go" code={`client.SetUser(&sankofa.UserContext{
+    ID:    "user_123",
+    Email: "ada@example.com",
+    Plan:  "pro",
+})
+
+client.SetTags(map[string]string{"feature": "billing", "region": "eu-west"})
+client.SetExtra("amount", 49.99)
+
+client.AddBreadcrumb(sankofa.Breadcrumb{
+    Category: "user-action",
+    Message:  "Clicked checkout",
+    Level:    "info",
+    Data:     map[string]any{"form_id": "checkout"},
+})`} />
+
+## Transactions and spans
+
+<CodeBlock lang="go" code={`tx, ctx := client.StartTransaction(ctx, sankofa.TransactionOptions{
+    Name: "checkout_handler",
+    Op:   "http.server",
+})
+
+span := tx.StartChild(ctx, "db.query.orders", "db")
+orders, err := db.QueryContext(ctx, "SELECT * FROM orders")
+span.Finish()
+
+if err != nil {
+    tx.SetStatus(sankofa.StatusInternalError)
+} else {
+    tx.SetStatus(sankofa.StatusOK)
+}
+tx.Finish()`} />
+
+The `context.Context` returned by `StartTransaction` carries the trace context — pass it through to spawn child spans and propagate `traceparent` on outbound HTTP.
+
+## Profiling
+
+<CodeBlock lang="go" code={`profiler := client.StartProfile(sankofa.ProfileOptions{
+    SamplingIntervalUs: 10_000,
+})
+defer profiler.Stop()
+
+// ... do work ...`} />
+
+## Graceful shutdown
+
+`client.Shutdown(ctx)` flushes the queue and waits for in-flight uploads. Always call it from your shutdown handler:
+
+<CodeBlock lang="go" code={`func shutdown(client *sankofa.Client) {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := client.Shutdown(ctx); err != nil {
+        log.Printf("sankofa: shutdown failed: %v", err)
+    }
+}`} />
+
+## API summary
+
+| Function | Description |
+|---|---|
+| `sankofa.Init(Options)` | Construct + register the global client. |
+| `sankofa.NewClient(Options)` | Construct a non-global client. |
+| `sankofa.Default()` | Get the global client. |
+| `sankofa.Recover(client)` | Defer-friendly panic recovery. |
+| `client.CaptureException(err, opts)` | Record an error, returns event ID. |
+| `client.CaptureMessage(msg, opts)` | Record a non-error event. |
+| `client.AddBreadcrumb(b)` | Add a breadcrumb. |
+| `client.SetUser(user)` | Set the current user on the active scope. |
+| `client.SetTags(tags)` | Set tags. |
+| `client.SetExtra(key, value)` | Set un-indexed extras. |
+| `client.StartTransaction(ctx, opts)` | Begin a transaction. |
+| `client.StartProfile(opts)` | Begin a profile. |
+| `client.Middleware(next)` | net/http middleware. |
+| `client.Flush(ctx)` | Drain the queue. |
+| `client.Shutdown(ctx)` | Flush + dispose. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/node/overview" eyebrow="SDKs" title="Node SDK">
+    The TypeScript counterpart with Express + Fastify integrations.
+  </Card>
+  <Card href="/sdks/java/overview" eyebrow="SDKs" title="Java SDK">
+    JVM error tracking with Servlet filter.
+  </Card>
+  <Card href="/api/overview" eyebrow="Reference" title="API reference">
+    The wire that every SDK is implemented against.
+  </Card>
+</CardGrid>

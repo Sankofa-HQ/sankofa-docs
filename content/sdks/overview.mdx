@@ -1,117 +1,132 @@
 ---
 title: SDKs overview
-description: One platform, ten SDKs. The web ships as a multi-package monorepo so you can pick what you need; every other platform ships as a single SDK that bundles every product.
+description: One platform, ten SDKs. The web ships as a multi-package monorepo so you can pick what you need; mobile platforms ship every product in a single SDK; server SDKs focus on Catch + tracing.
 toc: true
 ---
 
-Sankofa speaks to your code through SDKs. Every official SDK calls into the same engine using the same two protocols — [event ingestion](/concepts/ingestion-model) and the [decision handshake](/concepts/decision-handshake) — so a flag change, a config publish, or a survey trigger reaches every platform identically.
+Sankofa speaks to your code through SDKs. Every official SDK calls into the same engine using the [event ingestion](/concepts/ingestion-model) and (where applicable) the [decision handshake](/concepts/decision-handshake) protocols.
 
-This page is the bird's-eye view of the SDK matrix. Pick the platform you want and follow its dedicated guide.
+Pick the platform you want and follow its dedicated guide.
 
 ## The asymmetric matrix
 
-Web is split into **seven small packages**. Every other platform is **one SDK** that bundles all eight products.
+The matrix splits into three groups:
+
+<Steps>
+  <Step title="Web — multi-package">
+    Seven small packages. Install only what you use. Tree-shakeable. Every product (Catch, Switch, Config, Pulse, Replay, React) is an optional plugin to `@sankofa/browser`.
+  </Step>
+  <Step title="Mobile — single SDK">
+    Flutter, React Native, iOS, and Android each ship a single SDK that bundles every supported client product (Analytics, Catch, Switch, Config, Pulse, Replay). Of these, **only React Native ships Deploy/OTA** at the SDK level today.
+  </Step>
+  <Step title="Server — Catch-focused">
+    Node, Go, Java, and Python SDKs focus on **Catch** (error tracking) plus distributed tracing. Server-side flag and config evaluation is not built into these SDKs — instead they accept optional `readFlagSnapshot` / `readConfigSnapshot` callbacks so captured error events can include flag context.
+  </Step>
+</Steps>
 
 <CardGrid cols={3}>
   <Card href="/sdks/web/overview" eyebrow="Multi-package" title="Web">
-    `@sankofa/browser` (core), plus optional packages for Catch, Switch, Config, Pulse, Replay, and React hooks. Tree-shakeable.
+    `@sankofa/browser` (core), plus optional packages for Catch, Switch, Config, Pulse, Replay, and React hooks.
   </Card>
   <Card href="/sdks/flutter/overview" eyebrow="Single SDK" title="Flutter">
-    `sankofa_flutter` on pub.dev. iOS, Android, web, and desktop targets.
+    `sankofa_flutter` on pub.dev. Six products bundled.
   </Card>
-  <Card href="/sdks/react-native/overview" eyebrow="Single SDK" title="React Native">
-    `@sankofa/react-native`. Bare RN and Expo. Config plugin auto-applies native setup.
+  <Card href="/sdks/react-native/overview" eyebrow="Single SDK + Deploy" title="React Native">
+    `@sankofa/react-native`. The only mobile SDK shipping OTA Deploy.
   </Card>
   <Card href="/sdks/ios/overview" eyebrow="Single SDK" title="iOS">
-    Native Swift, with Objective-C interop. Swift Package Manager and CocoaPods.
+    Native Swift framework. Six products bundled.
   </Card>
   <Card href="/sdks/android/overview" eyebrow="Single SDK" title="Android">
-    Kotlin-first, Java-compatible. Maven Central. Auto-registered lifecycle.
+    Kotlin-first library on Maven Central. Six products bundled.
   </Card>
-  <Card href="/sdks/node/overview" eyebrow="Single SDK" title="Node">
-    `@sankofa/node`. Express + Fastify subpath exports. ESM and CommonJS.
+  <Card href="/sdks/node/overview" eyebrow="Catch + tracing" title="Node">
+    `@sankofa/node`. Express + Fastify subpath exports.
   </Card>
-  <Card href="/sdks/go/overview" eyebrow="Single SDK" title="Go">
-    `github.com/sankofa-hq/sankofa_sdk_go`. `net/http` middleware, context-aware.
+  <Card href="/sdks/go/overview" eyebrow="Catch + tracing" title="Go">
+    Catch-focused; package name is `sankofacatch`.
   </Card>
-  <Card href="/sdks/java/overview" eyebrow="Single SDK" title="Java">
-    JVM + Spring Boot starter + Servlet filter. Gradle and Maven.
+  <Card href="/sdks/java/overview" eyebrow="Catch + tracing" title="Java">
+    `dev.sankofa:sankofa-catch` on Maven Central. Servlet filter included.
   </Card>
-  <Card href="/sdks/python/overview" eyebrow="Single SDK" title="Python">
-    `sankofa-catch` on PyPI. Django, Flask, FastAPI, Celery integrations.
+  <Card href="/sdks/python/overview" eyebrow="Catch + tracing" title="Python">
+    `sankofa-catch` on PyPI. WSGI + ASGI middlewares.
   </Card>
   <Card href="/sdks/cli/overview" eyebrow="Tooling" title="CLI">
-    `sankofa init`, `release`, `flags`, `config`, `demo`. Detects your stack.
+    `sankofa-cli`. Init, check, flags, config, deploy releases, demo seeding.
   </Card>
 </CardGrid>
 
 ## Feature × platform matrix
 
-The table below shows what's currently shipped per platform. `✓` = full support; `◐` = partial support (some sub-features missing); `—` = not yet shipped.
+`✓` = full support; `◐` = partial; `—` = not shipped at the SDK level.
 
 <PlatformMatrix
   rows={[
-    { feature: "Analytics — events, identify", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
-    { feature: "Catch — error capture", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "yes" } },
-    { feature: "Switch — feature flags", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "partial" } },
-    { feature: "Remote Config", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "partial", Python: "no" } },
+    { feature: "Analytics — events, identify", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "yes" } },
+    { feature: "Catch — error capture", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "yes", Go: "yes", Python: "yes" } },
+    { feature: "Switch — feature flags", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Remote Config", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
     { feature: "Pulse — surveys", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
-    { feature: "Deploy — OTA", support: { Web: "no", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
+    { feature: "Deploy — OTA", support: { Web: "no", Flutter: "no", RN: "yes", iOS: "no", Android: "no", Node: "no", Go: "no", Python: "no" } },
     { feature: "Session replay", support: { Web: "yes", Flutter: "yes", RN: "yes", iOS: "yes", Android: "yes", Node: "no", Go: "no", Python: "no" } },
-    { feature: "Per-call exposures", support: { Web: "yes", Flutter: "partial", RN: "partial", iOS: "partial", Android: "partial", Node: "partial", Go: "partial", Python: "no" } },
-    { feature: "Distributed tracing", support: { Web: "no", Flutter: "no", RN: "no", iOS: "no", Android: "no", Node: "yes", Go: "yes", Python: "yes" } },
+    { feature: "Distributed tracing (transactions)", support: { Web: "no", Flutter: "no", RN: "no", iOS: "no", Android: "no", Node: "yes", Go: "yes", Python: "yes" } },
+    { feature: "Flag/Config snapshot read-callback", support: { Web: "no", Flutter: "no", RN: "no", iOS: "no", Android: "no", Node: "yes", Go: "yes", Python: "yes" } },
   ]}
 />
 
-The "no" cells aren't permanent — they're roadmap. Most are scheduled for the next two minor releases.
+A few specific notes from this matrix:
+
+- **A/B Switch is part of Switch.** It's the variant + experiment-result side of the same product, not a separate SDK module.
+- **Deploy / OTA is React-Native only at the SDK layer.** Native iOS / Android / Flutter SDKs do not export a `SankofaDeploy` class today. Pure-native apps use Switch for feature gating + the platform's standard staged rollouts.
+- **Pulse is mobile + web only.** Server SDKs don't render UI, so they don't ship Pulse.
+- **Server SDKs are Catch-focused.** They expose error capture, breadcrumbs, transactions, and profiling. They do *not* expose `Sankofa.flags.get(...)` / `Sankofa.config.get(...)` calls — instead, they accept callbacks (`readFlagSnapshot`, `readConfigSnapshot`) that you wire to your own flag system, so error events can include flag context.
 
 ## Where they're hosted
 
-| SDK | Registry | Source |
+| SDK | Registry | Coordinates |
 |---|---|---|
-| `@sankofa/browser`, `@sankofa/catch`, `@sankofa/config`, `@sankofa/switch`, `@sankofa/pulse`, `@sankofa/replay-rrweb`, `@sankofa/react` | npmjs.com | github.com/sankofa-hq/sankofa-web |
-| `sankofa_flutter` | pub.dev | github.com/sankofa-hq/sankofa-flutter |
-| `@sankofa/react-native` | npmjs.com | github.com/sankofa-hq/sankofa-react-native |
-| `Sankofa` (iOS) | Swift Package Manager + CocoaPods | github.com/sankofa-hq/sankofa-ios |
-| `dev.sankofa:sankofa-android` | Maven Central | github.com/sankofa-hq/sankofa-android |
-| `dev.sankofa:sankofa-java` | Maven Central | github.com/sankofa-hq/sankofa-java |
-| `github.com/sankofa-hq/sankofa_sdk_go` | Go modules | github.com/sankofa-hq/sankofa_sdk_go |
-| `sankofa-catch` | PyPI | github.com/sankofa-hq/sankofa-python |
-| `@sankofa/cli` | npmjs.com | github.com/sankofa-hq/sankofa-cli |
+| Web — 7 packages | npmjs.com | `@sankofa/{browser,catch,config,switch,pulse,replay-rrweb,react}` (each `0.1.2`) |
+| Flutter | pub.dev | `sankofa_flutter` (`0.1.0`) |
+| React Native | npmjs.com | `@sankofa/react-native` (`0.1.0`) |
+| iOS | Swift Package Manager | `SankofaIOS` (Swift target name) |
+| Android | Maven Central | `dev.sankofa.sdk:sankofa-android:1.0.0` |
+| Node | npmjs.com | `@sankofa/node` (`0.1.0`) — subpaths `./express`, `./fastify` |
+| Go | Go modules | `github.com/sankofa-hq/sankofa_sdk_go` (package: `sankofacatch`) |
+| Java | Maven Central | `dev.sankofa:sankofa-catch:0.1.0` (JDK 11+) |
+| Python | PyPI | `sankofa-catch` (`0.1.0`); import as `sankofa_catch` |
+| CLI | npmjs.com | `sankofa-cli` (`0.1.0`) — binary: `sankofa` |
 
-All SDKs are **open source under permissive licenses** (MIT or Apache-2.0 per repo). The Sankofa platform — engine, dashboard, admin — is proprietary; only the SDKs are open.
+All SDKs are open source under permissive licenses. The Sankofa platform — engine, dashboard, admin — is proprietary; only the SDKs are open.
 
 ## Common ground across all SDKs
 
-Every official SDK shares the same surface for the things that matter:
+Every SDK ships a consistent API for the basics:
 
 <Steps>
   <Step title="Initialize once, as early as possible">
-    Every SDK has an `init` (or `initialize`) call that takes an `apiKey` and an optional `endpoint`. Subsequent calls are no-ops. Initialize before you fire any tracking calls.
+    `init` (or `initialize`) takes an `apiKey` and an `endpoint`. Subsequent calls are no-ops. Initialize before you fire any tracking calls.
   </Step>
-  <Step title="Track events with `track`">
-    Every SDK exposes `track(eventName, properties?)` (mobile/web) or `Track(ctx, Event{...})` (Go) — same shape, same semantics, same wire format.
+  <Step title="Capture errors with `captureException`">
+    On the server SDKs and Web's `@sankofa/catch`, this is the primary product call. On mobile, it's also available via `SankofaCatch`.
   </Step>
-  <Step title="Identify users with `identify`">
-    Every SDK exposes `identify(userId, traits?)` to stitch anonymous traffic onto a known user. The `alias` HTTP transport is shared.
-  </Step>
-  <Step title="Reset on logout">
-    Every SDK exposes `reset()` — rotates the session, clears the cached identity, generates a fresh anonymous ID.
+  <Step title="Track events (where supported)">
+    Web and mobile SDKs expose `track(eventName, properties?)`. Server SDKs are Catch-focused — they capture errors, transactions, and breadcrumbs, but don't expose a generic `track(...)`.
   </Step>
   <Step title="Flush before exit">
-    Every SDK exposes `flush()` — drains the queue synchronously. Call it from your shutdown handler in long-running processes.
+    Every SDK exposes `flush()` (or equivalent) — drains the queue. Call it from your shutdown handler in long-running processes.
   </Step>
 </Steps>
 
 ## Common ground across all client SDKs (web + mobile)
 
-Client-side SDKs (web, Flutter, RN, iOS, Android) share three more things:
+Client SDKs (web, Flutter, RN, iOS, Android) share three more things that server SDKs do not:
 
 - **Offline-first event queue** — events are durable across app restarts and survive network failures.
 - **Decision handshake at session start** — one snapshot per session covers Switch, Config, Pulse, A/B Switch.
 - **Default property collection** — geo, OS, device, browser, app version, session — added automatically.
 
-Server SDKs (Node, Go, Python, Java) have an in-memory queue, no decision handshake (they fetch flags per call with their own short-TTL cache), and a smaller default-property set focused on runtime + request context.
+Server SDKs use an in-memory queue, no decision handshake, and a smaller default-property set focused on the runtime + request context.
 
 ## What's next
 
@@ -120,9 +135,9 @@ Server SDKs (Node, Go, Python, Java) have an in-memory queue, no decision handsh
     Semver, breaking-change cadence, LTS line, deprecation windows.
   </Card>
   <Card href="/sdks/web/overview" eyebrow="Web" title="Web SDK overview">
-    The multi-package philosophy, bundle sizes, and how the seven web packages compose.
+    The multi-package philosophy and how the seven web packages compose.
   </Card>
   <Card href="/get-started/quickstart" eyebrow="Hands-on" title="Quickstart">
-    Start with whichever platform you're integrating today.
+    Send your first event in under five minutes.
   </Card>
 </CardGrid>

@@ -1,11 +1,11 @@
 ---
 title: "@sankofa/config"
-description: Typed remote config for the web. getString, getBool, getInt, getNumber, getJSON — with cohort-targeted overrides, version history, and bundled defaults.
+description: Typed remote config for the web. A single generic get<T> that infers the return type from the default, plus decision envelopes, cohort-targeted overrides, and onChange subscriptions.
 toc: true
 sdks: [web]
 ---
 
-`@sankofa/config` exposes typed remote-config reads to your web code. It's a plugin to `@sankofa/browser` that consumes the config slice of the [decision handshake](/concepts/decision-handshake) and returns values synchronously, with bundled defaults as a fallback.
+`@sankofa/config` exposes typed remote-config reads to your web code. It's a plugin to `@sankofa/browser` that consumes the config slice of the [decision handshake](/concepts/decision-handshake) and returns values synchronously.
 
 If you've never wired remote config before, start with [Your first remote config](/get-started/first-remote-config). This page is the reference.
 
@@ -36,76 +36,63 @@ const config = getConfig()!;`} />
 
 `getConfig()` returns the singleton config client. It's `null` until `Sankofa.init` resolves; after that it's stable.
 
-## Reading values
+## `config.get<T>(key, default)` — single generic getter
 
-The client has one getter per type. Each takes the key and a default value to return when the key is missing or the engine hasn't responded yet.
+Reads are typed at the call site — pass the expected return type and a default. The default runs when the key is missing or the engine hasn't responded yet.
 
-<CodeGroup>
-<CodeGroupItem tab="string" label="getString">
-<CodeBlock lang="ts" code={`const supportEmail = config.getString("support_email", "help@example.com");`} />
-</CodeGroupItem>
-<CodeGroupItem tab="bool" label="getBool">
-<CodeBlock lang="ts" code={`const showBanner = config.getBool("show_promotion_banner", false);`} />
-</CodeGroupItem>
-<CodeGroupItem tab="int" label="getInt">
-<CodeBlock lang="ts" code={`const maxRetries = config.getInt("api_max_retries", 3);`} />
-</CodeGroupItem>
-<CodeGroupItem tab="number" label="getNumber">
-<CodeBlock lang="ts" code={`const conversionThreshold = config.getNumber("conversion_threshold", 0.05);`} />
-</CodeGroupItem>
-<CodeGroupItem tab="json" label="getJSON">
-<CodeBlock lang="ts" code={`type HomePageHero = { title: string; subtitle: string; ctaLabel: string };
+<CodeBlock lang="ts" code={`const supportEmail = config.get<string>("support_email", "help@example.com");
+const showBanner = config.get<boolean>("show_promotion_banner", false);
+const maxRetries = config.get<number>("api_max_retries", 3);
 
-const hero = config.getJSON<HomePageHero>("home_hero", {
+// Generic JSON values
+type HomePageHero = { title: string; subtitle: string; ctaLabel: string };
+
+const hero = config.get<HomePageHero>("home_hero", {
   title: "Welcome",
   subtitle: "Your default subtitle",
   ctaLabel: "Get started",
 });`} />
-</CodeGroupItem>
-</CodeGroup>
 
-Every getter is **synchronous**. The client returns either the cached value from the most recent decision handshake, or your bundled default if nothing's been fetched yet.
+A single generic `get<T>` covers strings, booleans, numbers, and JSON-shaped values. The SDK validates the engine's payload against the type the default suggests and falls back to the default if there's a type mismatch.
 
-## Type checking
+## `config.getDecision(key)` — full envelope
 
-If the dashboard publishes a value of a type that doesn't match the getter you used (e.g. you call `getInt` but the dashboard published a string), the client returns the default and emits a debug warning. Types are immutable once published, so this only happens if you change the getter at the call site.
+Sometimes you need more than the value — for example to log the rollout reason for analytics:
 
-For TypeScript callers using `getJSON`, the generic enforces the return type — but at runtime it's still your default that's used if the engine returns garbage. Validate the shape with [`zod`](https://zod.dev) for high-stakes config.
+<CodeBlock lang="ts" code={`const decision = config.getDecision("max_upload_mb");
+//   { value: 200, version: 7, reason: "cohort:pro" }`} />
 
-## Subscribe to changes
+## `config.onChange(key, listener)`
 
-If you need to re-render when a config value changes mid-session (e.g. an admin published a new override and you want the UI to refresh):
+Subscribe to mid-session value changes. Use this when an admin publishes a new override and you want the UI to refresh:
 
-<CodeBlock lang="ts" code={`const unsubscribe = config.onChange("home_hero", (newValue, oldValue) => {
-  // Re-render the home hero with the new copy.
-  rerenderHomeHero(newValue);
+<CodeBlock lang="ts" code={`const unsubscribe = config.onChange("home_hero", (decision) => {
+  rerenderHomeHero(decision.value);
 });
 
 // Later:
 unsubscribe();`} />
 
-`onChange` fires:
+The listener fires:
 - on the first decision handshake (with the initial value);
 - on every subsequent handshake that returns a different value;
 - never on the bundled default itself.
 
-In React, prefer the `useConfig` hook from `@sankofa/react` — it does this for you with proper subscription lifecycle.
+## `config.getAll()` / `config.getAllKeys()`
+
+Inspect every config key the engine returned. Useful for debugging, admin UIs, and dev-tools panels.
+
+<CodeBlock lang="ts" code={`const allValues = config.getAll();
+// Record<string, unknown>
+
+const allKeys = config.getAllKeys();
+// string[]`} />
+
+Don't drive logic off these — they're not stable across versions. Use `get<T>` with explicit defaults for any consumer.
 
 ## Cohort-targeted overrides
 
-Config items are inherently cohort-aware on the engine. From the SDK perspective, you don't think about cohorts at all — the engine resolves the right value for the user before sending it.
-
-But you can manually associate the user with a distinct ID for proper cohort targeting:
-
-<CodeBlock lang="ts" code={`// Either via Sankofa.identify (the typical path) ...
-await Sankofa.identify("user_123", { plan: "pro" });
-
-// ... or pass distinctId per call (server-render seeded contexts)
-const maxMB = config.getInt("max_upload_mb", 25, {
-  distinctId: "user_123",
-});`} />
-
-The per-call `distinctId` override is rare on web — `Sankofa.identify` is almost always the right place to set identity.
+Config items are inherently cohort-aware on the engine. From the SDK perspective you don't think about cohorts — the engine resolves the right value for the user before sending it. Make sure you've called `Sankofa.identify(userId)` for the user-targeted case to work; for anonymous targeting the SDK forwards `anon_id` automatically.
 
 ## Bundled defaults
 
@@ -113,7 +100,7 @@ Bundled defaults serve three purposes:
 
 <Steps>
   <Step title="Synchronous startup behavior">
-    Your code calls `config.getInt("max_upload_mb", 25)` immediately after init. The engine hasn't responded yet, so the SDK returns `25`. As soon as the handshake lands (typically &lt; 200ms), subsequent reads return the engine value.
+    Your code calls `config.get<number>("max_upload_mb", 25)` immediately after init. The engine hasn't responded yet, so the SDK returns `25`. As soon as the handshake lands (typically &lt; 200ms), subsequent reads return the engine value.
   </Step>
   <Step title="Offline fallback">
     On a fresh install with no cached snapshot and no network, all reads return defaults until connectivity returns.
@@ -123,23 +110,17 @@ Bundled defaults serve three purposes:
   </Step>
 </Steps>
 
-## Reading the version
+## API summary
 
-Each value comes with a version number. Useful for debugging and for telling whether a user has the latest:
-
-<CodeBlock lang="ts" code={`const item = config.getItem("max_upload_mb");
-//   { value: 200, version: 7, reason: "cohort:pro" }`} />
-
-`getItem` returns the full envelope including version, reason, and timestamp. Use this when you want to log which version a user evaluated.
-
-## Listing all keys
-
-For debugging:
-
-<CodeBlock lang="ts" code={`const allKeys = config.listKeys();
-// ["max_upload_mb", "support_email", "feature_modal_copy", ...]`} />
-
-Don't use this to drive logic — it's not stable across versions.
+| Symbol | Description |
+|---|---|
+| `configPlugin({ defaults? })` | Plugin to register at `Sankofa.init`. |
+| `getConfig()` | Returns the singleton config client. |
+| `config.get<T>(key, default)` | Generic typed read — the primary API. |
+| `config.getDecision(key)` | Full decision envelope (value + version + reason). |
+| `config.onChange(key, listener)` | Subscribe to mid-session changes. |
+| `config.getAll()` | Map of every key → current value. |
+| `config.getAllKeys()` | Array of every key. |
 
 ## What's next
 
@@ -148,7 +129,7 @@ Don't use this to drive logic — it's not stable across versions.
     Cohort targeting, version history, scheduled rollouts.
   </Card>
   <Card href="/sdks/web/packages/react" eyebrow="React" title="@sankofa/react">
-    `useConfig` hook with proper subscription lifecycle.
+    Render-on-change config in React via useState + onChange.
   </Card>
   <Card href="/api/config/decision" eyebrow="Reference" title="Config decision API">
     The wire format the SDK reads.

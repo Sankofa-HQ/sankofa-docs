@@ -1,13 +1,13 @@
 ---
 title: "@sankofa/switch"
-description: Feature flags + per-call exposure tracking for the web. getFlag, getVariant, halt-aware decisions, with bundled defaults and onChange subscriptions.
+description: Feature flags + per-call exposure tracking for the web. getFlag, getVariant, getDecision, halt-aware decisions with bundled defaults and onChange subscriptions.
 toc: true
 sdks: [web]
 ---
 
 `@sankofa/switch` is the web SDK's feature-flag client. It plugs into `@sankofa/browser` and consumes the switch slice of the [decision handshake](/concepts/decision-handshake), then exposes a synchronous lookup API.
 
-The web Switch package is also the only SDK in the matrix that does **per-call exposure tracking** — every `getFlag`/`getVariant` call records that the user actually evaluated the flag, deduplicated per session per (key, value, variant). This is the difference between "the user was assigned" and "the user actually saw" — see [Exposure tracking](/concepts/exposure-tracking).
+The web Switch package also does **per-call exposure tracking** — every `getFlag`/`getVariant` call records that the user actually evaluated the flag, deduplicated per session per (key, value, variant). This is the difference between "the user was assigned" and "the user actually saw" — see [Exposure tracking](/concepts/exposure-tracking).
 
 ## Install
 
@@ -33,7 +33,7 @@ await Sankofa.init({
 
 const flags = getSwitch()!;`} />
 
-`getSwitch()` returns the singleton flag client.
+`getSwitch()` returns the singleton flag client. It's `null` until `Sankofa.init` resolves; after that it's stable.
 
 ## Boolean flags
 
@@ -43,33 +43,30 @@ const flags = getSwitch()!;`} />
   renderClassicCheckout();
 }`} />
 
-`getFlag(key, defaultValue?)` returns a `boolean`. The default is the value passed to `switchPlugin({ defaults: {...} })` at init time, or `false` if not set, or whatever you pass as the second argument.
+`getFlag(key, defaultValue?)` returns a boolean. The default is the value passed to `switchPlugin({ defaults: {...} })` at init time, or `false` if not set, or whatever you pass as the second argument.
 
-## Variant flags (multi-value)
+## Variant flags
 
-Flags can have variants — `control`, `treatment_a`, `treatment_b`, etc. Use `getVariant` for these:
+Flags can have variants — `control`, `treatment_a`, `treatment_b`, etc. Use `getVariant`:
 
 <CodeBlock lang="ts" code={`const variant = flags.getVariant("checkout_redesign", "control");
 
 switch (variant) {
-  case "treatment_a":
-    return <CheckoutA />;
-  case "treatment_b":
-    return <CheckoutB />;
-  default:
-    return <ClassicCheckout />;
+  case "treatment_a": return <CheckoutA />;
+  case "treatment_b": return <CheckoutB />;
+  default: return <ClassicCheckout />;
 }`} />
 
-`getVariant(key, defaultValue?)` returns a `string`. Always handle the unknown-variant case (`default`) so a future variant added in the dashboard doesn't break your code.
+Always handle the unknown-variant case (`default`) so a future variant added in the dashboard doesn't break your code.
 
 ## Reading the full decision
 
-Sometimes you need more than just the value — for example to log the rollout reason for analytics:
+`getDecision` returns the value plus metadata — the rollout reason, the variant, etc.:
 
 <CodeBlock lang="ts" code={`const decision = flags.getDecision("new_checkout");
-//   { value: true, variant: null, reason: "rollout", isHalted: false }
+//   { value: true, variant: null, reason: "rollout" }
 
-console.log(decision.reason); // "rollout", "cohort:pro", "default", "halted", etc.`} />
+console.log(decision?.reason); // "rollout", "cohort:pro", "default", "halted", etc.`} />
 
 The reason field is documented in [The decision handshake](/concepts/decision-handshake#reason-tags-—-a-stable-contract).
 
@@ -77,71 +74,32 @@ The reason field is documented in [The decision handshake](/concepts/decision-ha
 
 For long-lived UIs that need to refresh when a flag flips mid-session (rare but real — usually because of a halt-webhook fire):
 
-<CodeBlock lang="ts" code={`const unsubscribe = flags.onChange("new_checkout", (newValue, oldValue) => {
-  if (oldValue === true && newValue === false) {
-    showHaltedToast();
-    rerenderUI();
-  }
+<CodeBlock lang="ts" code={`const unsubscribe = flags.onChange("new_checkout", (decision) => {
+  rerenderUI(decision.value);
 });`} />
 
-In React, the `useFlag` hook from `@sankofa/react` does this for you.
+In React, wrap this in `useState` + `useEffect`. See `@sankofa/react` for the recommended pattern.
 
 ## Halt-aware decisions
 
-When a flag is halted (manually or via halt-webhook), the engine immediately broadcasts the halt to every connected client. The next `getFlag` call returns the default value with `reason: "halted"`.
+When a flag is halted (manually or via halt-webhook), the engine immediately broadcasts the halt to every connected client. The next `getFlag` call returns the default value with `reason: "halted"`. Use this to surface admin-facing UI when an experiment is paused:
 
-If you want to react to the halt itself:
-
-<CodeBlock lang="ts" code={`flags.onChange("new_checkout", (newValue, oldValue, decision) => {
+<CodeBlock lang="ts" code={`flags.onChange("new_checkout", (decision) => {
   if (decision.reason === "halted") {
-    // Surface a banner to internal staff that a feature was rolled back.
-    showHaltBanner(\`new_checkout halted: \${decision.haltReason}\`);
+    showInternalBanner("new_checkout halted");
   }
 });`} />
 
-## Manually report an exposure
+## API summary
 
-The web SDK auto-reports an exposure on every `getFlag` / `getVariant` call. But you can manually report one for cases where the SDK can't tell you actually rendered the result:
-
-<CodeBlock lang="ts" code={`const variant = flags.getVariant("checkout_redesign", "control");
-
-// You read the variant earlier, but the user only just reached the actual checkout screen.
-// Report the exposure now, when the render path is confirmed.
-flags.reportExposure("checkout_redesign", { variant });`} />
-
-This is a no-op for repeat exposures (deduplicated per session per (key, value, variant)).
-
-## Listing all flags
-
-<CodeBlock lang="ts" code={`const flagKeys = flags.listFlags();
-// ["new_checkout", "dark_mode_default", "checkout_redesign", ...]`} />
-
-Useful for admin UIs that want to surface every active flag.
-
-## Using flags from server-rendered code
-
-Server-rendered React (Next.js App Router, Remix) needs flags resolved before the HTML ships, so the user doesn't see a flicker.
-
-The pattern: server-side, fetch the user's decision payload via the engine's REST API, pass it down via your framework's data layer, and seed the SDK on the client with it.
-
-<CodeBlock lang="ts" filename="app/checkout/page.tsx" code={`// Server component
-async function getInitialFlags(userId: string) {
-  const res = await fetch("https://api.sankofa.dev/api/v1/decisions", {
-    method: "POST",
-    headers: { "x-api-key": process.env.SANKOFA_KEY!, "content-type": "application/json" },
-    body: JSON.stringify({
-      distinct_id: userId,
-      modules: ["switch"],
-    }),
-  });
-  return res.json();
-}`} />
-
-<CodeBlock lang="tsx" code={`<SankofaProvider initialDecisions={initialDecisions}>
-  <CheckoutPage />
-</SankofaProvider>`} />
-
-See [`@sankofa/react`](/sdks/web/packages/react) for the full SSR-friendly hook setup.
+| Symbol | Description |
+|---|---|
+| `switchPlugin({ defaults? })` | Plugin to register at `Sankofa.init`. |
+| `getSwitch()` | Returns the singleton flag client. |
+| `flags.getFlag(key, default?)` | Boolean feature flag. |
+| `flags.getVariant(key, default?)` | Variant feature flag. |
+| `flags.getDecision(key)` | Full decision envelope (value + variant + reason). |
+| `flags.onChange(key, listener)` | Subscribe to mid-session changes. |
 
 ## What's next
 
@@ -153,6 +111,6 @@ See [`@sankofa/react`](/sdks/web/packages/react) for the full SSR-friendly hook 
     Why per-call exposures matter for honest experiment math.
   </Card>
   <Card href="/sdks/web/packages/react" eyebrow="React" title="@sankofa/react">
-    `useFlag` and `useVariant` hooks.
+    Subscribing to flag changes from React via useState + onChange.
   </Card>
 </CardGrid>

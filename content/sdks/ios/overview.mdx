@@ -1,0 +1,310 @@
+---
+title: iOS SDK
+description: Native Swift framework with Objective-C interop. Six products bundled — Analytics, Catch, Switch, Config, Pulse, Replay — distributed via Swift Package Manager.
+toc: true
+sdks: [ios]
+---
+
+The Sankofa iOS SDK is a native Swift framework with first-class Objective-C interop. The product set on iOS is **six**: Analytics, Catch, Switch, Config, Pulse, and Replay. Deploy / OTA is **not** available on iOS; the engine recognises the module on the handshake but the iOS SDK doesn't ship an implementation. For OTA on iOS, use the React Native SDK in a hybrid app.
+
+Distribution: Swift Package Manager. Apple Privacy Manifest support is bundled — the SDK ships its own `PrivacyInfo.xcprivacy`.
+
+For installation and project setup, see [Install on iOS](/get-started/install/ios). This page is the all-products reference.
+
+## Requirements
+
+- **Xcode 15+** (Swift 5.9+)
+- **iOS 13+** deployment target
+- **Swift Package Manager**
+
+## Initialize
+
+<CodeGroup>
+<CodeGroupItem tab="ios" label="Swift">
+<CodeBlock lang="swift" filename="App.swift" code={`import SwiftUI
+import SankofaIOS
+
+@main
+struct YourApp: App {
+    init() {
+        Sankofa.shared.initialize(
+            apiKey: "sk_live_...",
+            config: SankofaConfig(
+                endpoint: "https://api.sankofa.dev",
+                recordSessions: true,
+                maskAllInputs: true
+            )
+        )
+    }
+
+    var body: some Scene { WindowGroup { ContentView() } }
+}`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios-objc" label="Objective-C">
+<CodeBlock lang="objective-c" filename="AppDelegate.m" code={`#import <SankofaIOS/SankofaIOS-Swift.h>
+
+- (BOOL)application:(UIApplication *)application
+        didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    SankofaConfig *config = [[SankofaConfig alloc]
+        initWithEndpoint:@"https://api.sankofa.dev"
+                   debug:NO
+        trackLifecycleEvents:YES
+        flushIntervalSeconds:30
+                   batchSize:50
+              recordSessions:YES
+               maskAllInputs:YES];
+
+    [[Sankofa shared] initializeWithApiKey:@"sk_live_..." config:config];
+    return YES;
+}`} />
+</CodeGroupItem>
+</CodeGroup>
+
+### `SankofaConfig` properties
+
+<ParameterTable
+  params={[
+    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "debug", type: "Bool", default: "false", description: "Verbose console logging during development." },
+    { name: "trackLifecycleEvents", type: "Bool", default: "true", description: "Auto-track app open / foreground / background." },
+    { name: "flushIntervalSeconds", type: "TimeInterval", default: "30", description: "Foreground flush cadence." },
+    { name: "batchSize", type: "Int", default: "50", description: "Maximum events per batch upload." },
+    { name: "recordSessions", type: "Bool", default: "true", description: "Enable Replay capture (screenshot mode)." },
+    { name: "maskAllInputs", type: "Bool", default: "true", description: "Auto-mask all UITextField/UITextView views in replays." },
+    { name: "captureScale", type: "CGFloat", default: "0.35", description: "Replay screenshot resolution. Lower = smaller files, less detail." },
+  ]}
+/>
+
+## Analytics — events, identify, setPerson
+
+<CodeGroup>
+<CodeGroupItem tab="ios" label="Swift">
+<CodeBlock lang="swift" code={`// Track an event
+Sankofa.shared.track("checkout_started", properties: [
+    "cart_value": 49.99,
+    "item_count": 3
+])
+
+// Tag the current screen
+Sankofa.shared.screen("Checkout")
+
+// Identify after sign-in
+Sankofa.shared.identify(userId: "user_123")
+
+// Update profile traits
+Sankofa.shared.setPerson(
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    avatar: nil,
+    properties: ["company": "Sankofa Ltd"]
+)
+
+// Logout — rotates session, clears identity
+Sankofa.shared.reset()
+
+// Force-flush
+Sankofa.shared.flush()`} />
+</CodeGroupItem>
+<CodeGroupItem tab="ios-objc" label="Objective-C">
+<CodeBlock lang="objective-c" code={`[[Sankofa shared] track:@"checkout_started"
+              properties:@{@"cart_value": @49.99, @"item_count": @3}];
+
+[[Sankofa shared] identifyWithUserId:@"user_123"];
+
+[[Sankofa shared] reset];
+[[Sankofa shared] flush];`} />
+</CodeGroupItem>
+</CodeGroup>
+
+The SQLite-backed queue is thread-safe (GRDB takes care of write serialization). Events fired offline persist across app suspends and force-quits and replay on next launch.
+
+## Catch — error capture
+
+`SankofaCatch.shared` is the entry point. Initialize it after `Sankofa.shared.initialize`:
+
+<CodeBlock lang="swift" code={`SankofaCatch.shared.start(
+    environment: "production",
+    release: "your-app@2.4.1",
+    appVersion: "2.4.1"
+)`} />
+
+For caught errors:
+
+<CodeBlock lang="swift" code={`do {
+    try chargeCard(amount)
+} catch {
+    SankofaCatch.shared.captureException(error)
+}`} />
+
+The SDK installs `NSSetUncaughtExceptionHandler` and signal handlers (`SIGSEGV`, `SIGABRT`, `SIGBUS`, `SIGFPE`, `SIGILL`) on `start`. Crashes serialize to disk synchronously and upload on next launch.
+
+For non-error events:
+
+<CodeBlock lang="swift" code={`SankofaCatch.shared.captureMessage("Payment retry attempted")`} />
+
+Other helpers:
+
+<CodeBlock lang="swift" code={`// Attach a user
+SankofaCatch.shared.setUser(SankofaCatchUser(id: "user_123", email: "ada@example.com"))
+
+// Add a breadcrumb (rides on the next captured event)
+SankofaCatch.shared.addBreadcrumb(SankofaCatchBreadcrumb(
+    category: "user-action",
+    message: "Tapped checkout button"
+))
+
+// Free-form tags
+SankofaCatch.shared.setTag(key: "feature", value: "billing")`} />
+
+## Switch — feature flags
+
+`SankofaSwitch.shared` is a singleton that self-registers with the Module Registry on first access. Seed bundled defaults via `withDefaults`:
+
+<CodeBlock lang="swift" code={`import SankofaIOS
+
+Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(endpoint: "https://api.sankofa.dev")
+)
+
+_ = SankofaSwitch.shared.withDefaults([
+    "new_checkout": false,
+    "dark_mode_default": false
+])
+
+// Boolean flag
+if SankofaSwitch.shared.getFlag("new_checkout") {
+    showNewCheckout()
+}
+
+// Variant flag
+let variant = SankofaSwitch.shared.getVariant("checkout_redesign", default: "control")
+
+// Full decision envelope
+if let decision = SankofaSwitch.shared.getDecision("new_checkout") {
+    print(decision.value, decision.reason)
+}
+
+// Subscribe to changes (e.g. halt-webhook fire)
+let token = SankofaSwitch.shared.onChange("new_checkout") { decision in
+    DispatchQueue.main.async { /* update UI */ }
+}
+
+// Cancel later
+token.cancel()
+
+// Inspect available keys
+let keys = SankofaSwitch.shared.getAllKeys()`} />
+
+The SDK forwards `anon_id` automatically on the next handshake after `Sankofa.shared.identify(...)` runs, so cohort-targeted decisions stay continuous across the login boundary.
+
+## Config — remote config
+
+`SankofaRemoteConfig.shared` is named distinctly from `SankofaConfig` (the init-options struct). Different responsibility, different type.
+
+<CodeBlock lang="swift" code={`_ = SankofaRemoteConfig.shared.withDefaults([
+    "max_upload_mb": 25,
+    "support_email": "help@example.com"
+])
+
+// Generic typed read
+let maxMB: Int = SankofaRemoteConfig.shared.get("max_upload_mb", default: 25)
+let email: String = SankofaRemoteConfig.shared.get("support_email", default: "help@example.com")
+
+// Decision envelope
+let decision = SankofaRemoteConfig.shared.getDecision("max_upload_mb")
+
+// Inspect everything
+let allValues = SankofaRemoteConfig.shared.getAll()
+let keys = SankofaRemoteConfig.shared.getAllKeys()
+
+// Subscribe to changes
+let token = SankofaRemoteConfig.shared.onChange("max_upload_mb") { decision in
+    print("max_upload_mb is now \\(decision.value)")
+}`} />
+
+A single generic `get<T>(_:default:)` infers the return type from the default. The SDK validates the engine's payload against the declared type at decode time.
+
+## Pulse — surveys
+
+Register Pulse after `Sankofa.shared.initialize`:
+
+<CodeBlock lang="swift" code={`Task {
+    let registered = await SankofaPulse.shared.register()
+    if !registered {
+        print("Sankofa Core must be initialized before Pulse.")
+    }
+}`} />
+
+Show a survey:
+
+<CodeBlock lang="swift" code={`SankofaPulse.shared.show(surveyId: "srv_post_purchase_feedback")`} />
+
+Listen for events:
+
+<CodeBlock lang="swift" code={`let subscription = SankofaPulse.shared.on(.completed) { event in
+    print("Survey \\(event.surveyId) completed")
+}
+// later: subscription.cancel()`} />
+
+Inspect which surveys are eligible for the current user:
+
+<CodeBlock lang="swift" code={`SankofaPulse.shared.activeMatchingSurveys { surveys in
+    print("Eligible:", surveys.map(\\.id))
+}`} />
+
+## Session replay
+
+The replay engine renders a copy of your view hierarchy to an off-screen `UIGraphicsImageRenderer` buffer and applies masks before serialization. The live UI is never touched. Mode is **screenshot only** on iOS today — there's no wireframe / screenshot mode toggle.
+
+### Masking
+
+Masking is automatic when `config.maskAllInputs` is `true` (the default) — every `UITextField` and `UITextView` is blacked out in the buffer.
+
+For custom masking, tag a view by setting `view.tag` to a sentinel value the SDK looks for. The exact tag-name convention and any SwiftUI view-modifier helpers are documented in the SDK's `replay/SankofaMask.swift` source.
+
+### Privacy Manifest
+
+The SDK bundles `PrivacyInfo.xcprivacy` declaring:
+
+- `NSPrivacyAccessedAPICategoryUserDefaults` (CA92.1)
+- `NSPrivacyAccessedAPICategoryFileTimestamp` (C617.1)
+- Device ID + product interaction tracking categories
+- No method swizzling
+
+App Store Connect picks up these declarations alongside your own.
+
+## API summary
+
+| Method | Description |
+|---|---|
+| `Sankofa.shared.initialize(apiKey:config:)` | Initialize the SDK. |
+| `Sankofa.shared.track(_:properties:)` | Record an event. |
+| `Sankofa.shared.screen(_:properties:)` | Tag the current screen. |
+| `Sankofa.shared.identify(userId:)` | Stitch anonymous → known. |
+| `Sankofa.shared.setPerson(name:email:avatar:properties:)` | Update profile traits. |
+| `Sankofa.shared.reset()` | Rotate session + clear identity. |
+| `Sankofa.shared.flush()` | Force-drain the queue. |
+| `SankofaCatch.shared.start(environment:release:appVersion:)` | Initialize Catch. |
+| `SankofaCatch.shared.captureException(_:)` | Manually capture an error. |
+| `SankofaCatch.shared.captureMessage(_:)` | Capture a non-error event. |
+| `SankofaSwitch.shared.getFlag(_:default:)` | Boolean feature flag. |
+| `SankofaSwitch.shared.getVariant(_:default:)` | Variant feature flag. |
+| `SankofaSwitch.shared.getDecision(_:)` | Full decision envelope. |
+| `SankofaRemoteConfig.shared.get<T>(_:default:)` | Typed remote config. |
+| `SankofaPulse.shared.register()` | Initialize Pulse (async). |
+| `SankofaPulse.shared.show(surveyId:)` | Manually show a survey. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/android/overview" eyebrow="SDKs" title="Android SDK">
+    The Android counterpart with the same product surface.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="SDKs" title="React Native SDK">
+    Bridges to this native layer for hybrid apps; ships Deploy/OTA.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Product" title="Catch product">
+    Crash detection, signal handling, automatic rollback hooks.
+  </Card>
+</CardGrid>

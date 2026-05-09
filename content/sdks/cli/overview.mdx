@@ -1,0 +1,298 @@
+---
+title: CLI
+description: One terminal tool for setting up SDK integrations, verifying configurations, shipping OTA releases (RN), managing flags + config + symbols, and seeding demos.
+toc: true
+---
+
+The Sankofa CLI is a Node-based command-line tool published as `sankofa-cli` on npm with binary name `sankofa`. It handles project-level operations: SDK setup, integration verification, OTA bundle releases (React Native), feature flag and config management, error-tracking symbol uploads, and demo seeding.
+
+## Install
+
+<CodeBlock lang="bash" code={`npm install -g sankofa-cli`} />
+
+### Requirements
+
+- **Node.js 18+**
+- For iOS builds: macOS + Xcode
+- For Android builds: Android SDK + JDK 17
+
+## Quick start
+
+<CodeBlock lang="bash" code={`# 1. Set up the project — auto-detects platform, patches native files
+sankofa init
+
+# 2. Log in to your Sankofa account
+sankofa login
+
+# 3. Verify everything is wired up
+sankofa check`} />
+
+For React Native (analytics + OTA deploy):
+
+<CodeBlock lang="bash" code={`sankofa release ios     # Ship the first base release
+sankofa patch ios       # Push a JS-only patch`} />
+
+## Top-level commands
+
+The CLI exposes these top-level commands:
+
+| Command | Purpose |
+|---|---|
+| `init` | Set up Sankofa in any project. Auto-detects platform. |
+| `check` | Verify SDK integration is correct. |
+| `doctor` | Low-level toolchain diagnostics (Node, Xcode, Java, etc.). |
+| `login` / `logout` | Browser-based or CI-token authentication. |
+| `switch` | Switch the active project / environment. |
+| `release` | Build + publish a base release (React Native). |
+| `patch` | Ship a JS-only patch against an existing release. |
+| `preview` | Download + install a published release locally. |
+| `status` | Show all releases for the current project. |
+| `releases` | List releases (read-only management). |
+| `patches` | List patches (read-only management). |
+| `rules` | Manage deployment gating rules. |
+| `schedule` | Manage rollout schedules. |
+| `defaults` | Manage default configurations per project. |
+| `dist` | Build the signed store binary (no OTA). |
+| `submit` | Upload signed binary to App Store Connect / Play Console. |
+| `flags` | Manage feature flags (Switch). |
+| `config` | Manage remote config items. |
+| `catch` | Catch / error-tracking triage + symbol upload. |
+| `demo` | Seed demo flags + config items. |
+| `upgrade` | Update the CLI to the latest version. |
+
+## Setup commands
+
+### `sankofa init`
+
+Idempotent — safe to re-run. Creates `.sankofa.json`, updates `.gitignore`, and handles platform-specific native setup.
+
+<CodeBlock lang="bash" code={`sankofa init
+sankofa init --endpoint https://api.sankofa.dev --project-id proj_...
+sankofa init --force    # overwrite existing config`} />
+
+### `sankofa check`
+
+Verifies SDK integration with detailed pass/fail output:
+
+<CodeBlock lang="bash" code={`sankofa check              # all modules
+sankofa check analytics    # analytics-specific
+sankofa check deploy       # deploy-specific (RN only)`} />
+
+### `sankofa doctor`
+
+Toolchain diagnostics — reports Node version, Xcode availability, Java/Gradle, and server reachability.
+
+## Authentication
+
+### `sankofa login`
+
+Browser-based OAuth-style login. Creates a Deploy Token bound to the selected project.
+
+<CodeBlock lang="bash" code={`sankofa login
+sankofa login --deploy-token sk_deploy_... --project-id proj_...   # CI/CD
+sankofa login --region eu                                          # pin EU residency`} />
+
+### `sankofa logout` / `sankofa switch`
+
+<CodeBlock lang="bash" code={`sankofa logout              # both project + global scopes
+sankofa logout --project    # project-scoped only
+sankofa switch              # change to a different project without re-auth`} />
+
+## Deploy commands (React Native)
+
+### `sankofa release`
+
+Build and publish a base release — native binary + OTA bundle in one step.
+
+<CodeBlock lang="bash" code={`sankofa release ios
+sankofa release android
+sankofa release ios --publish --rollout 50 --description "v1.2.0"`} />
+
+Pass `--skip-distribution` to publish only the OTA bundle.
+
+### `sankofa patch`
+
+Ship a JavaScript-only update against an existing base release.
+
+<CodeBlock lang="bash" code={`sankofa patch ios
+sankofa patch android --publish --mandatory`} />
+
+### `sankofa preview` / `sankofa status`
+
+<CodeBlock lang="bash" code={`# Local install of a published release
+sankofa preview ios
+sankofa preview ios --label v1.2.0-patch.3
+
+# Dashboard of releases
+sankofa status
+sankofa status --env live --platform ios`} />
+
+### `sankofa releases` / `sankofa patches`
+
+Read-only listing of releases / patches. Useful for CI scripts that need to fetch the current release SHA without dashboard access.
+
+### `sankofa rules` / `sankofa schedule` / `sankofa defaults`
+
+Manage deployment-time gating: rules to halt rollouts, schedules for time-based releases, default configurations per project.
+
+### `sankofa dist` / `sankofa submit`
+
+<CodeBlock lang="bash" code={`# Build only the signed store binary, no OTA
+sankofa dist ios
+sankofa dist android --android-format aab
+
+# Upload signed binary to App Store Connect or Play Console
+sankofa submit ios --apple-api-key-id ABC --apple-api-issuer UUID
+sankofa submit android --google-service-account ~/sa.json --google-track internal`} />
+
+## Switch commands
+
+Flag CRUD authenticates with your **dashboard JWT** (not the Deploy Token) — flag operations need full user + project-role RBAC.
+
+### Flag subcommands
+
+<CodeBlock lang="bash" code={`sankofa flags list                                                # list all flags
+sankofa flags list --env test --include-archived                  # include archived
+sankofa flags get new_checkout                                    # show full details
+
+sankofa flags create new_checkout --description "..." --default false
+
+# Progressive rollout
+sankofa flags toggle new_checkout 10                              # 10%
+sankofa flags toggle new_checkout 50                              # 50%
+sankofa flags toggle new_checkout 100                             # full
+
+# Kill switch
+sankofa flags halt new_checkout --reason "spike in errors"
+sankofa flags resume new_checkout
+
+sankofa flags archive new_checkout                                # archive
+
+# Stale-flag scanner
+sankofa flags scan
+sankofa flags scan --strict                                       # fail CI on warnings`} />
+
+The stale-flag scanner walks your code for `.getFlag(...)` and `.getVariant(...)` calls across JS/TS/Dart/Swift/Kotlin and cross-references the keys against the server.
+
+## Config commands
+
+<CodeBlock lang="bash" code={`sankofa config list
+sankofa config list --env test
+sankofa config get max_upload_mb
+
+# Type is required on create; updates require matching type.
+sankofa config set max_upload_mb int 25 --description "Max file upload"
+sankofa config set support_url string "https://support.acme.com"
+sankofa config set trial_discount_pct float 0.2
+sankofa config set maintenance_banner_enabled bool true
+sankofa config set pricing json '{"pro":9.99,"growth":49}'
+
+sankofa config history max_upload_mb
+sankofa config history max_upload_mb --limit 5
+
+# Non-destructive — writes a new version whose snapshot matches the target.
+sankofa config rollback max_upload_mb 3 --note "revert accidental bump"`} />
+
+## Catch commands
+
+Error-tracking triage and symbol management:
+
+<CodeBlock lang="bash" code={`# Issue triage
+sankofa catch issues list
+sankofa catch issues get isu_abc123
+sankofa catch issues assign isu_abc123 --to alice@example.com
+
+# Event inspection
+sankofa catch events list --issue isu_abc123
+sankofa catch events get evt_xyz789
+
+# Alerts
+sankofa catch alerts list
+sankofa catch alerts test alt_def456
+
+# Symbol upload (sourcemaps, dSYM, ProGuard mapping, NDK, Flutter)
+sankofa catch symbols upload --kind js_sourcemap --release "$RELEASE_SHA" --dir ./dist
+sankofa catch symbols upload --kind dsym --release "$RELEASE_SHA" --dir ./build/dSYMs
+sankofa catch symbols upload --kind proguard_mapping --release "$RELEASE_SHA" --file ./build/outputs/mapping/release/mapping.txt
+sankofa catch symbols upload --kind ndk --release "$RELEASE_SHA" --dir ./obj
+sankofa catch symbols upload --kind flutter --release "$RELEASE_SHA" --dir ./build/symbols
+
+sankofa catch symbols list --release "$RELEASE_SHA"
+sankofa catch symbols delete --kind js_sourcemap --id sym_abc
+
+# Statistics
+sankofa catch stats --since 7d
+
+# Reverse-lookup obfuscated stacks
+sankofa catch symbolicate --release "$RELEASE_SHA" --stack ./crash.txt
+
+# Manifest helpers (used by CI integrations)
+sankofa catch make-dsym-manifest --dir ./build/dSYMs
+sankofa catch make-ndk-manifest --dir ./obj`} />
+
+The `symbols upload` subcommand replaces what was historically a top-level `sourcemaps upload` — there's no separate `sourcemaps` command today.
+
+## Demo fixtures
+
+### `sankofa demo seed`
+
+<CodeBlock lang="bash" code={`sankofa demo seed
+sankofa demo seed --force           # overwrite existing values
+sankofa demo seed --skip-flags      # only seed config items
+sankofa demo seed --skip-config     # only seed feature flags`} />
+
+Creates 6 flags + 6 config items used by every Sankofa example app — `new_home_layout`, `checkout_cta_variant`, `onboarding_v2_rollout`, `ai_summary_kill_switch`, `ab_pricing_page`, `premium_badge_visible` (flags) and `support_url`, `max_uploads_per_day`, `trial_discount_pct`, `maintenance_banner_enabled`, `pricing_table`, `theme_colors` (config).
+
+## Authentication resolution
+
+Credentials are resolved in this order (highest wins):
+
+<Steps>
+  <Step title="Environment variables">
+    `SANKOFA_DEPLOY_TOKEN`, `SANKOFA_JWT`, `SANKOFA_PROJECT_ID`, `SANKOFA_ENDPOINT`, `SANKOFA_ENVIRONMENT`.
+  </Step>
+  <Step title="Project config">
+    `.sankofa.json` in the project root (created by `sankofa init`).
+  </Step>
+  <Step title="Global config">
+    `~/.sankofa/credentials.json` (written by `sankofa login`).
+  </Step>
+</Steps>
+
+<Callout tone="note" title="Two auth tokens, different commands">
+**Deploy commands** (`release`, `patch`, `submit`, `dist`, `status`, `preview`) use `SANKOFA_DEPLOY_TOKEN` — pre-mint one from the dashboard's "Deploy tokens" panel for CI runs.
+
+**Switch / Config / Catch / demo commands** use `SANKOFA_JWT` because they require full user auth and project-role RBAC.
+</Callout>
+
+## Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `SANKOFA_DEPLOY_TOKEN` | CI-friendly Deploy auth token. |
+| `SANKOFA_JWT` | CI-friendly dashboard JWT. |
+| `SANKOFA_PROJECT_ID` | Project ID. |
+| `SANKOFA_ENDPOINT` | Server base URL. |
+| `SANKOFA_ENVIRONMENT` | `live` or `test`. |
+
+## Build artifact identifiers
+
+| Field | Value |
+|---|---|
+| npm package | `sankofa-cli` |
+| Binary name | `sankofa` |
+| Version | `0.1.0` |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/web/overview" eyebrow="SDKs" title="Web SDK">
+    The multi-package web setup the CLI scaffolds.
+  </Card>
+  <Card href="/sdks/react-native/overview" eyebrow="SDKs" title="React Native SDK">
+    OTA deploy lifecycle and `sankofa release` mechanics.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Product" title="Deploy product">
+    Bundle release strategies and gating rules.
+  </Card>
+</CardGrid>

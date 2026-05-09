@@ -6,7 +6,7 @@ toc: true
 sdks: [node]
 ---
 
-The `@sankofa/node` package is the official server-side SDK for Node.js. It captures events, errors, distributed traces, and integrates with Express and Fastify via dedicated subpath imports.
+The `@sankofa/node` package is the official server-side SDK for Node.js. It focuses on **Catch** — error capture, breadcrumbs, transactions, and profiling — with first-class Express and Fastify integration via dedicated subpath imports. Server-side flag and config evaluation is not built in; the SDK accepts optional `readFlagSnapshot` / `readConfigSnapshot` callbacks so captured error events can include flag context.
 
 ## Requirements
 

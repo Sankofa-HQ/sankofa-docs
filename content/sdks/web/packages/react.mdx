@@ -1,34 +1,39 @@
 ---
 title: "@sankofa/react"
-description: React hooks and a context provider for declarative flag, config, and experiment consumption. Works with React 18 and 19, including Next.js Server Components.
+description: A minimal React layer for Sankofa — provider, useSankofa hook, and Pulse helpers. For flag/config consumption from React, use the underlying clients directly.
 toc: true
 sdks: [web]
 ---
 
-`@sankofa/react` is the React-friendly layer on top of the other web packages. It exposes hooks that subscribe to flag and config changes with proper React lifecycle, plus a `<SankofaProvider>` context that handles SSR seeding for flicker-free server-rendered apps.
+`@sankofa/react` is a small React companion to the rest of the web SDK. It exposes a `<SankofaProvider>` context, a `useSankofa()` hook to access the active client, and Pulse-related helpers. Flag and config consumption from React works through the underlying `@sankofa/switch` / `@sankofa/config` packages directly — there are no `useFlag` / `useVariant` / `useConfig` hooks in this package today.
 
-You can use the underlying `@sankofa/browser`/`@sankofa/switch`/`@sankofa/config` APIs from React without this package — but the hooks are usually what you want.
+<Callout tone="note" title="No flag/config hooks today">
+This package does not ship `useFlag`, `useVariant`, `useConfig`, `useDecision`, or `useExperiment`. If you want subscription-based re-renders, wrap the imperative `getSwitch()` / `getConfig()` clients yourself with `useState` + `onChange`. The roadmap may add hooks later — track the SDK changelog.
+</Callout>
 
 ## Install
 
 <CodeBlock lang="bash" code={`npm install @sankofa/react`} />
 
-Peer dependencies: `react ^18 || ^19`. The package is itself bundler-agnostic — works in Next.js, Vite, Remix, and any modern React setup.
+Peer dependencies: `react ^18 || ^19`.
 
-## Quick start
+## Provider
+
+Wrap your app's root with `<SankofaProvider>`. The provider gives every child access to the SDK client via `useSankofa()` and is required for the Pulse helpers.
 
 <CodeBlock lang="tsx" filename="app/SankofaSetup.tsx" code={`"use client";
 
 import { Sankofa } from "@sankofa/browser";
 import { switchPlugin } from "@sankofa/switch";
 import { configPlugin } from "@sankofa/config";
+import { pulsePlugin } from "@sankofa/pulse";
 import { SankofaProvider } from "@sankofa/react";
 
 if (typeof window !== "undefined") {
   Sankofa.init({
     apiKey: process.env.NEXT_PUBLIC_SANKOFA_KEY!,
     endpoint: "https://api.sankofa.dev",
-    plugins: [switchPlugin(), configPlugin()],
+    plugins: [switchPlugin(), configPlugin(), pulsePlugin()],
   });
 }
 
@@ -36,169 +41,129 @@ export function SankofaSetup({ children }: { children: React.ReactNode }) {
   return <SankofaProvider>{children}</SankofaProvider>;
 }`} />
 
-Wrap your app's root with `<SankofaSetup>` once. Every hook below works inside it.
+## `useSankofa()`
 
-## Hooks
-
-### `useFlag(key, defaultValue?)`
-
-Returns the current value of a boolean feature flag and re-renders on change.
-
-<CodeBlock lang="tsx" code={`import { useFlag } from "@sankofa/react";
-
-function CheckoutButton() {
-  const useNewCheckout = useFlag("new_checkout", false);
-  return useNewCheckout ? <NewCheckout /> : <ClassicCheckout />;
-}`} />
-
-The hook handles subscription, cleanup, and SSR-safe rendering.
-
-### `useVariant(key, defaultValue?)`
-
-Returns the current variant string and re-renders on change.
-
-<CodeBlock lang="tsx" code={`import { useVariant } from "@sankofa/react";
-
-function CheckoutVariant() {
-  const variant = useVariant("checkout_redesign", "control");
-
-  switch (variant) {
-    case "treatment_a": return <CheckoutA />;
-    case "treatment_b": return <CheckoutB />;
-    default: return <ClassicCheckout />;
-  }
-}`} />
-
-### `useConfig(key, defaultValue, type?)`
-
-Reads a typed config value:
-
-<CodeBlock lang="tsx" code={`import { useConfig } from "@sankofa/react";
-
-function UploadForm() {
-  const maxMB = useConfig("max_upload_mb", 25, "int");
-
-  return <input type="file" data-max-size={maxMB * 1024 * 1024} />;
-}`} />
-
-The `type` argument disambiguates the getter to use under the hood (`getInt`, `getString`, `getBool`, `getNumber`, `getJSON`). Default is inferred from the type of `defaultValue`.
-
-### `useDecision(key)`
-
-Returns the full decision envelope, not just the value. Useful for logging or reason-aware UI:
-
-<CodeBlock lang="tsx" code={`import { useDecision } from "@sankofa/react";
-
-function ExperimentBanner() {
-  const decision = useDecision("checkout_redesign");
-
-  if (decision.reason === "halted") {
-    return <Banner>Reverted to classic checkout — incident in progress</Banner>;
-  }
-  if (decision.variant === "treatment_a") {
-    return <NewBanner />;
-  }
-  return null;
-}`} />
-
-### `useExperiment(key, options?)`
-
-A higher-level hook that combines variant fetching with manual exposure tracking. Use it when the SDK can't tell whether your variant render path actually ran:
-
-<CodeBlock lang="tsx" code={`import { useExperiment } from "@sankofa/react";
-
-function CheckoutPage() {
-  const { variant, reportExposure } = useExperiment("checkout_redesign", {
-    autoExpose: false,
-  });
-
-  // Only report exposure once the user reaches the actual checkout step.
-  useEffect(() => {
-    if (atStep === "review") reportExposure();
-  }, [atStep, reportExposure]);
-
-  // ...
-}`} />
-
-`autoExpose: true` (the default) reports an exposure on first render. `autoExpose: false` returns a `reportExposure` function you call manually when the render path is confirmed.
-
-### `useSankofa()`
-
-Returns the SDK client itself for advanced cases (manual track calls from a hook, identity reads, flush triggers):
+Returns the active SDK client. Use it for `track`, `identify`, identity reads, and manual flushes:
 
 <CodeBlock lang="tsx" code={`import { useSankofa } from "@sankofa/react";
 
 function FormFooter() {
   const sankofa = useSankofa();
-  const { distinctId, isIdentified } = sankofa.getUser();
-
-  return <p>Logged in as: {isIdentified ? distinctId : "guest"}</p>;
+  // sankofa.track(...), sankofa.identify(...), sankofa.flush(), etc.
+  return <button onClick={() => sankofa.track("footer_clicked")}>Click</button>;
 }`} />
 
-## SSR + initial decisions
+## Reading flags + config from React
 
-For frameworks with server-side rendering (Next.js App Router, Remix), passing `initialDecisions` to the provider eliminates the post-hydration flicker:
+Use the imperative clients from `@sankofa/switch` and `@sankofa/config`. To re-render on change, wrap the read in `useState` + the client's `onChange`:
 
-<CodeBlock lang="tsx" filename="app/page.tsx" code={`// Server component
-async function Page() {
-  const initialDecisions = await fetch("https://api.sankofa.dev/api/v1/decisions", {
-    method: "POST",
-    headers: { "x-api-key": process.env.SANKOFA_KEY!, "content-type": "application/json" },
-    body: JSON.stringify({ distinct_id: getCurrentUserId(), modules: ["switch", "config"] }),
-  }).then((r) => r.json());
+<CodeBlock lang="tsx" code={`import { useEffect, useState } from "react";
+import { getSwitch } from "@sankofa/switch";
+import { getConfig } from "@sankofa/config";
 
-  return (
-    <SankofaProvider initialDecisions={initialDecisions}>
-      <CheckoutPage />
-    </SankofaProvider>
-  );
-}`} />
+function CheckoutButton() {
+  const flags = getSwitch()!;
+  const [enabled, setEnabled] = useState(() => flags.getFlag("new_checkout"));
 
-When seeded with `initialDecisions`, hooks return the server-known value on the very first render. The first client-side decision handshake then refreshes the value in the background.
+  useEffect(() => {
+    const unsubscribe = flags.onChange("new_checkout", (decision) => {
+      setEnabled(Boolean(decision.value));
+    });
+    return unsubscribe;
+  }, [flags]);
 
-## React Suspense
-
-`useFlag`, `useConfig`, etc. are synchronous and never suspend by default — they return the bundled default if the engine hasn't responded yet. For pages where you'd rather suspend until decisions land:
-
-<CodeBlock lang="tsx" code={`import { Suspense } from "react";
-import { useFlag } from "@sankofa/react";
-
-function CheckoutGate() {
-  // Throws a promise on first render until decisions arrive.
-  const enabled = useFlag("new_checkout", false, { suspend: true });
   return enabled ? <NewCheckout /> : <ClassicCheckout />;
 }
 
-<Suspense fallback={<CheckoutSkeleton />}>
-  <CheckoutGate />
-</Suspense>`} />
+function MaxUploadInput() {
+  const config = getConfig()!;
+  const [maxMB, setMaxMB] = useState(() => config.get<number>("max_upload_mb", 25));
 
-Use `suspend: true` sparingly — it adds latency. Most apps want the synchronous bundled-default fallback.
+  useEffect(() => {
+    const unsubscribe = config.onChange("max_upload_mb", (decision) => {
+      setMaxMB(Number(decision.value));
+    });
+    return unsubscribe;
+  }, [config]);
 
-## Server Components
+  return <input type="file" data-max-size={maxMB * 1024 * 1024} />;
+}`} />
 
-In Next.js App Router server components, the React hooks won't run (server components don't have hooks). Read decisions via the REST API as shown in the SSR section, then pass values down to client components as props.
+This pattern is two lines per consumer; if you find yourself duplicating it, factor it into a project-local `useFlag` / `useConfig` hook.
 
-## TypeScript inference
+## Pulse helpers
 
-Hooks are fully typed:
+`@sankofa/react` re-exports the Pulse types and ships helpers for survey rendering:
 
-<CodeBlock lang="tsx" code={`const enabled = useFlag("new_checkout", false);  // boolean
-const variant = useVariant("checkout_redesign", "control");  // string
-const maxMB = useConfig("max_upload_mb", 25, "int");  // number
-const hero = useConfig<HomeHero>("home_hero", DEFAULT_HERO, "json");  // HomeHero
-`} />
+<CodeBlock lang="tsx" code={`import { usePulse, usePulseEvent, SurveyModal } from "@sankofa/react";
+
+function Layout({ children }: { children: React.ReactNode }) {
+  const pulse = usePulse();
+
+  // Listen for survey lifecycle events
+  usePulseEvent("completed", (event) => {
+    console.log("Survey", event.surveyId, "completed");
+  });
+
+  return (
+    <>
+      {children}
+      {/* SurveyModal mounts the active survey when one is shown */}
+      <SurveyModal />
+    </>
+  );
+}
+
+// Trigger a survey programmatically
+function FeedbackButton() {
+  const pulse = usePulse();
+  return <button onClick={() => pulse.show("srv_feedback")}>Give feedback</button>;
+}`} />
+
+`usePulse()` returns the `PulseClient` instance from `@sankofa/pulse`. `usePulseEvent(event, listener)` subscribes to lifecycle events (`shown`, `completed`, `dismissed`) with proper cleanup on unmount.
+
+## Server-side (Next.js App Router, Remix)
+
+The provider is a client component — it must be rendered inside a `"use client"` boundary. For SSR pages that want flag values rendered on the server, fetch decisions from the engine via REST and pass them down to a hydration-safe wrapper:
+
+<CodeBlock lang="tsx" filename="app/checkout/page.tsx" code={`async function getInitialDecisions(userId: string) {
+  const res = await fetch("https://api.sankofa.dev/api/v1/decisions", {
+    method: "POST",
+    headers: { "x-api-key": process.env.SANKOFA_KEY!, "content-type": "application/json" },
+    body: JSON.stringify({ distinct_id: userId, modules: ["switch", "config"] }),
+  });
+  return res.json();
+}
+
+export default async function Page() {
+  const initialDecisions = await getInitialDecisions(currentUserId());
+  // Pass initialDecisions into a client component that seeds the Sankofa client
+  return <CheckoutClient initial={initialDecisions} />;
+}`} />
+
+Inside `CheckoutClient` ("use client"), call `Sankofa.init` with the `initialDecisions` opt available on `switchPlugin` / `configPlugin` (see those package pages) — this eliminates flicker on first render.
+
+## API summary
+
+| Symbol | Description |
+|---|---|
+| `<SankofaProvider>` | Context provider — wraps your app once at the root. |
+| `useSankofa()` | Hook returning the active SDK client. |
+| `usePulse()` | Hook returning the Pulse client. |
+| `usePulseEvent(event, listener)` | Hook subscribing to Pulse lifecycle events. |
+| `<SurveyModal>` | Component that renders the active survey. |
+| Re-exports from `@sankofa/pulse` | `PulseClient`, `SurveyRenderer`, `SurveyState`, etc. |
 
 ## What's next
 
 <CardGrid cols={3}>
   <Card href="/sdks/web/packages/browser" eyebrow="Reference" title="@sankofa/browser">
-    The core API the hooks are built on.
+    The core API the provider wraps.
   </Card>
   <Card href="/sdks/web/packages/switch" eyebrow="Reference" title="@sankofa/switch">
-    The flag client.
+    The flag client to call from your useState hooks.
   </Card>
-  <Card href="/sdks/web/packages/config" eyebrow="Reference" title="@sankofa/config">
-    The config client.
+  <Card href="/sdks/web/packages/pulse" eyebrow="Reference" title="@sankofa/pulse">
+    The Pulse client `usePulse()` returns.
   </Card>
 </CardGrid>

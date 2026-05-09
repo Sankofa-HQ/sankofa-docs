@@ -1,6 +1,6 @@
 ---
 title: "@sankofa/browser"
-description: The core web SDK package. Init, track, identify, setPerson, flush, reset, getUser — the foundation every other web package builds on.
+description: The core web SDK package. init, track, screen, identify, peopleSet/setPerson, reset, flush, shutdown — plus snapshot and transport status accessors.
 badge: Core
 toc: true
 sdks: [web]
@@ -23,28 +23,25 @@ await Sankofa.init({
   endpoint: "https://api.sankofa.dev",
 });`} />
 
-### Parameters
+### Common options
 
 <ParameterTable
   params={[
-    { name: "apiKey", type: "string", required: true, description: "Your project's API key. The engine resolves environment (live/test) from the key." },
-    { name: "endpoint", type: "string", default: "https://api.sankofa.dev", description: "Server base URL. Use a regional endpoint to pin data residency (e.g. https://api-eu.sankofa.dev)." },
-    { name: "debug", type: "boolean", default: "false", description: "Verbose logging. Leave on during local development." },
-    { name: "autocapture", type: "boolean", default: "true", description: "Auto-tracks pageviews + URL changes. Disable if you want full manual control." },
-    { name: "flushIntervalMs", type: "number", default: "5000", description: "How often the queued events are uploaded while the tab is foregrounded." },
-    { name: "batchSize", type: "number", default: "100", description: "Maximum events per upload batch." },
-    { name: "maxQueueSize", type: "number", default: "5000", description: "Max events buffered before the oldest are dropped on overflow." },
-    { name: "sessionTimeoutMs", type: "number", default: "1800000 (30 min)", description: "Time the tab can be backgrounded before the next foreground starts a new session." },
-    { name: "maxSessionDurationMs", type: "number", default: "14400000 (4 hours)", description: "Hard cap on session length." },
-    { name: "plugins", type: "Plugin[]", description: "An ordered list of plugin instances (catchPlugin, switchPlugin, etc.) to register at init." },
-    { name: "release", type: "string", description: "Build identifier — used by Catch for source-mapped error grouping." },
-    { name: "environment", type: "string", default: "production", description: "Free-form label (development, staging, production). Tagged onto every event." },
+    { name: "apiKey", type: "string", required: true, description: "Project API key. The engine resolves environment (live/test) from the key." },
+    { name: "endpoint", type: "string", required: true, description: "Server base URL." },
+    { name: "debug", type: "boolean", default: "false", description: "Verbose logging during development." },
+    { name: "trackLifecycleEvents", type: "boolean", description: "Auto-track $app_opened and visibility transitions." },
+    { name: "flushIntervalMs", type: "number", description: "How often the queued events are uploaded while the tab is foregrounded." },
+    { name: "batchSize", type: "number", description: "Maximum events per upload batch." },
+    { name: "plugins", type: "Plugin[]", description: "Ordered list of plugin instances (catchPlugin, switchPlugin, etc.) to register at init." },
+    { name: "release", type: "string", description: "Build identifier — used by Catch for source-map matching." },
+    { name: "environment", type: "string", description: "Free-form label (development, staging, production). Tagged onto every event." },
   ]}
 />
 
-`init` returns a Promise that resolves after the first decision handshake completes (or fails). You don't need to `await` it — `track`/`identify` work synchronously and queue. But `await` is useful if you want to ensure flag defaults are loaded before rendering.
+`init` returns a `Promise` that resolves once initial setup completes. You don't need to `await` it for `track`/`identify` — those queue synchronously.
 
-## `Sankofa.track(event, properties?, options?)`
+## `Sankofa.track(event, properties?)`
 
 Records an event.
 
@@ -60,63 +57,47 @@ Records an event.
   params={[
     { name: "event", type: "string", required: true, description: "Event name. snake_case, present tense, verb-noun. See [naming guide](/concepts/events)." },
     { name: "properties", type: "Record<string, unknown>", description: "Custom properties. Strings, numbers, booleans, arrays, and JSON objects supported." },
-    { name: "options", type: "TrackOptions", description: "Per-call overrides — `timestamp`, `distinctId`, `groups`." },
   ]}
 />
 
-Returns `void`. The event is queued synchronously and flushed on the next batch.
+## `Sankofa.screen(name, properties?)`
 
-## `Sankofa.identify(userId, traits?)`
+Tags the current screen / route. Auto-fires `$screen_view` and stamps the screen name on subsequent events until the next `screen()` call.
 
-Sets the active distinct ID and (optionally) updates the user's profile traits.
+<CodeBlock lang="ts" code={`Sankofa.screen("Checkout", { step: "review" });`} />
 
-<CodeBlock lang="ts" code={`await Sankofa.identify("user_123", {
-  email: "ada@example.com",
-  plan: "pro",
-});`} />
+For SPAs with client-side routing, call `screen` from your route-change effect.
 
-### What this does, in order
+## `Sankofa.identify(userId)`
 
-1. Calls `alias` from the previous anonymous ID to `user_123`.
-2. Switches the SDK's active `distinct_id` to `user_123` for all subsequent events.
-3. Forwards `anon_id` on the next decision handshake (so cohort-targeted decisions stay continuous).
-4. If `traits` provided, also calls `setPerson(traits)`.
+Sets the active distinct ID. The previous anonymous ID is auto-aliased onto the new user.
 
-### Parameters
+<CodeBlock lang="ts" code={`Sankofa.identify("user_123");`} />
 
-<ParameterTable
-  params={[
-    { name: "userId", type: "string", required: true, description: "Your stable user identifier. Once shipped, never change it for the same person." },
-    { name: "traits", type: "Record<string, unknown>", description: "Profile traits — email, name, plan, role, etc." },
-  ]}
-/>
+If you want to update profile traits at the same time, follow with `peopleSet`:
 
-## `Sankofa.setPerson(traits)`
+<CodeBlock lang="ts" code={`Sankofa.identify("user_123");
+Sankofa.peopleSet({ email: "ada@example.com", plan: "pro" });`} />
+
+## `Sankofa.peopleSet(traits)` / `setPerson(...)`
 
 Updates the user's People profile **without** changing identity.
 
-<CodeBlock lang="ts" code={`await Sankofa.setPerson({
+<CodeBlock lang="ts" code={`// peopleSet — verbose, accepts any traits object
+Sankofa.peopleSet({
   plan: "growth",
   signup_source: "referral",
+});
+
+// setPerson — named common traits + a properties bag
+Sankofa.setPerson({
+  name: "Ada Lovelace",
+  email: "ada@example.com",
+  avatar: "https://...",
+  properties: { plan: "pro", signup_date: "2025-01-12" },
 });`} />
 
-Common traits are reserved (`name`, `email`, `avatar`) and surface in the dashboard's People view; everything else is custom.
-
-## `Sankofa.alias(aliasId, distinctId?)`
-
-Connects two identifiers as the same person, without switching the SDK's active identity.
-
-<CodeBlock lang="ts" code={`await Sankofa.alias("anon_a3b9ff", "user_123");`} />
-
-Use this from server-rendered code where you can't run `identify` (e.g. SSR matched a server-known user but the browser session hasn't run `identify` yet).
-
-## `Sankofa.flush()`
-
-Drains the queue immediately. Returns a Promise that resolves when the in-flight requests complete.
-
-<CodeBlock lang="ts" code={`await Sankofa.flush();`} />
-
-Most apps don't need this — the queue flushes automatically. Useful before `window.beforeunload` for analytics on outbound link clicks, or before logging out so the user's last session events ship before identity rotates.
+Both update the same People profile. Use `peopleSet` when your traits are arbitrary; use `setPerson` when you want the named common traits to surface in the dashboard's People view.
 
 ## `Sankofa.reset()`
 
@@ -126,40 +107,44 @@ Rotates the session, clears the active identity, and generates a fresh anonymous
 
 After `reset`, subsequent events use a new anonymous `distinct_id`. Decision handshakes refire to fetch flags / configs for the new identity.
 
-## `Sankofa.getUser()`
+## `Sankofa.flush()`
 
-Returns the current SDK user state.
+Drains the queue immediately. Returns a `Promise` that resolves when in-flight requests complete.
 
-<CodeBlock lang="ts" code={`const { distinctId, anonId, isIdentified, sessionId } = Sankofa.getUser();`} />
+<CodeBlock lang="ts" code={`await Sankofa.flush();`} />
 
-Useful for debugging and for your own analytics that want to log against the same identifiers.
+Most apps don't need this — the queue flushes automatically on schedule and on `pagehide`. Useful before navigations that bypass the lifecycle hook.
+
+## `Sankofa.shutdown()`
+
+Disposes the SDK — flushes pending events and detaches lifecycle listeners. Use it for tests or when your app needs to fully tear down.
+
+<CodeBlock lang="ts" code={`await Sankofa.shutdown();`} />
+
+## Inspect SDK state
+
+The browser SDK exposes a few read-only accessors useful for debugging or for your own analytics that want to attach the same identifiers:
+
+<CodeBlock lang="ts" code={`// Snapshot of the current decision/flag/config payload at this instant.
+const snapshot = Sankofa.getSnapshot();
+
+// Transport health — useful for status banners ("offline", "syncing", etc).
+const status = Sankofa.getTransportStatus();
+//   { state: "online" | "offline" | "syncing" | "error", lastSuccessAt: number }
+
+const unsub = Sankofa.onTransportStatus((status) => {
+  if (status.state === "offline") showOfflineBanner();
+});`} />
 
 ## Lifecycle integration
 
-The SDK auto-tracks lifecycle events in addition to your custom events:
+The SDK auto-tracks lifecycle events alongside your custom events:
 
 | Event | When |
 |---|---|
-| `$pageview` | Tab loads, `pushState`, `replaceState`, `popstate`. Disable via `autocapture: false`. |
-| `$session_start` | First event of a session. Carries `$session_index` (1, 2, 3…) and `$session_start_ts`. |
-| `$session_end` | Internal, fires on background. Replays and Pulse consume this. |
-| `$queue_overflow` | Fires once per drain cycle if the queue dropped events on overflow. |
-
-You can suppress any of these with `autocapture: false` and re-implement in user code if you want full control.
-
-## Error handling
-
-Every async API method throws on bad input (missing API key, malformed properties). Successful queueing returns immediately. Network failures are retried by the underlying HTTP client — you don't see them.
-
-To catch SDK-internal errors, listen to:
-
-<CodeBlock lang="ts" code={`Sankofa.on("error", (err) => {
-  console.error("[sankofa]", err);
-});
-
-Sankofa.on("flush", ({ events, success }) => {
-  if (!success) console.warn("flush failed for", events.length, "events");
-});`} />
+| `$pageview` | Tab loads, `pushState`, `replaceState`, `popstate`. |
+| `$session_start` | First event of a session. |
+| `$session_end` | Internal — fires on `pagehide`. Replays and Pulse consume this. |
 
 ## What's next
 
@@ -171,6 +156,6 @@ Sankofa.on("flush", ({ events, success }) => {
     Add feature flags.
   </Card>
   <Card href="/sdks/web/packages/react" eyebrow="React" title="@sankofa/react">
-    Use hooks for declarative flag/config consumption.
+    Use the provider + hooks for declarative integration.
   </Card>
 </CardGrid>

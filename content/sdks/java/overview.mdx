@@ -1,0 +1,195 @@
+---
+title: Java SDK
+description: JVM SDK for error tracking — sankofa-catch on Maven Central. SankofaCatch facade, transactions, vitals, and a Servlet filter.
+toc: true
+sdks: [java]
+---
+
+`dev.sankofa:sankofa-catch` is the official JVM SDK. Like the other server SDKs, it focuses on **Catch** — error capture, transactions, vitals — with a drop-in Servlet filter for HTTP context capture.
+
+<Callout tone="note" title="Server-side SDK scope">
+Server SDKs do not expose `Sankofa.flags().get(...)` or `Sankofa.config().get(...)` calls. Sankofa Switch and Config evaluate against a per-session decision snapshot from your client SDKs. The Java SDK does not currently ship a Spring Boot starter or `@SankofaCapture`/`@SankofaFlag` annotations.
+</Callout>
+
+For installation and project setup, see [Install on Java](/get-started/install/java).
+
+## Requirements
+
+- **JDK 11+**
+- **Gradle 8+** or **Maven 3.9+**
+
+## Build artifact identifiers
+
+| Field | Value |
+|---|---|
+| Group ID | `dev.sankofa` |
+| Artifact ID | `sankofa-catch` |
+| Version | `0.1.0` |
+| Repository | Maven Central |
+
+## Initialize
+
+<CodeBlock lang="java" filename="App.java" code={`import dev.sankofa.sankofacatch.SankofaCatch;
+import dev.sankofa.sankofacatch.Options;
+
+public class App {
+    public static void main(String[] args) {
+        SankofaCatch.init(Options.builder()
+            .apiKey(System.getenv("SANKOFA_KEY"))
+            .endpoint("https://api.sankofa.dev")
+            .environment(System.getenv().getOrDefault("ENV", "production"))
+            .release(System.getenv("RELEASE_SHA"))
+            .build());
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() ->
+            SankofaCatch.flush(2000)
+        ));
+
+        // ... start the server
+    }
+}`} />
+
+### `Options` builder
+
+<ParameterTable
+  params={[
+    { name: ".apiKey(String)", type: "required", description: "Server-side API key." },
+    { name: ".endpoint(String)", type: "required", description: "Server base URL." },
+    { name: ".release(String)", type: "optional", description: "Commit SHA / version tag for source-map matching." },
+    { name: ".environment(String)", type: "default \"production\"", description: "Free-form label tagged onto every event." },
+    { name: ".appVersion(String)", type: "optional", description: "Your app's user-facing version string." },
+    { name: ".serverName(String)", type: "optional", description: "Hostname / pod identifier — auto-detected if omitted." },
+    { name: ".tracesSampleRate(double)", type: "default 0.1", description: "Distributed-tracing sample rate (0.0–1.0)." },
+    { name: ".disableDiskQueue(boolean)", type: "default false", description: "Set true for short-lived processes." },
+    { name: ".readFlagSnapshot(Supplier<Map<String,Object>>)", type: "optional", description: "Callback for flag context on error events." },
+    { name: ".readConfigSnapshot(Supplier<Map<String,Object>>)", type: "optional", description: "Callback for config context on error events." },
+  ]}
+/>
+
+## Capture errors
+
+<CodeBlock lang="java" code={`import dev.sankofa.sankofacatch.SankofaCatch;
+
+try {
+    chargeCard(amount);
+} catch (Exception e) {
+    String eventId = SankofaCatch.captureException(e);
+    log.error("Captured exception {}", eventId);
+}
+
+// Non-error event
+SankofaCatch.captureMessage("Payment retry attempted");
+
+// With options
+SankofaCatch.captureException(e, CaptureOptions.builder()
+    .tags(Map.of("feature", "billing"))
+    .extras(Map.of("amount", amount))
+    .build());`} />
+
+For Kotlin callers in mixed projects, the same APIs work with named arguments.
+
+## Servlet filter
+
+For any Servlet container (Tomcat, Jetty, Undertow, etc.):
+
+<CodeBlock lang="java" filename="WebInit.java" code={`import dev.sankofa.sankofacatch.servlet.SankofaCatchFilter;
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+
+public class WebInit implements ServletContextListener {
+    @Override
+    public void contextInitialized(ServletContextEvent sce) {
+        SankofaCatch.init(/* ... */);
+        sce.getServletContext()
+            .addFilter("sankofa", SankofaCatchFilter.class)
+            .addMappingForUrlPatterns(null, true, "/*");
+    }
+}`} />
+
+The filter:
+
+- Generates a unique request ID;
+- Stamps `$request_method`, `$request_path`, `$user_agent` on every event;
+- Catches `ServletException` chains and forwards them to `captureException`.
+
+## User context, tags, breadcrumbs
+
+<CodeBlock lang="java" code={`SankofaCatch.setUser(new Wire.UserContext("user_123", "ada@example.com"));
+
+SankofaCatch.setTag("feature", "billing");
+SankofaCatch.setExtra("amount", 49.99);
+
+SankofaCatch.addBreadcrumb(
+    "user-action",      // type
+    "ui.click",         // category
+    "Clicked checkout", // message
+    "info",             // level
+    Map.of("form_id", "checkout")  // data
+);`} />
+
+## Transactions and spans
+
+<CodeBlock lang="java" code={`Transaction tx = SankofaCatch.getDefault().startTransaction(
+    "checkout_handler", "http.server"
+);
+
+try {
+    Span dbSpan = tx.startChild("db.query.orders", "db");
+    List<Order> orders = jdbcTemplate.query(SQL, mapper);
+    dbSpan.finish();
+
+    tx.setStatus("ok");
+} catch (Exception e) {
+    tx.setStatus("internal_error");
+    throw e;
+} finally {
+    tx.finish();
+}`} />
+
+## Web vitals
+
+<CodeBlock lang="java" code={`String eventId = SankofaCatch.getDefault().captureVital(
+    "lcp",                  // metric name
+    2400.0,                 // value
+    "needs-improvement",    // rating
+    request.getRequestURI() // url
+);`} />
+
+## Graceful shutdown
+
+<CodeBlock lang="java" code={`Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    SankofaCatch.flush(2000);          // 2-second timeout
+    SankofaCatch.shutdownDefault(2000); // dispose
+}));`} />
+
+## API summary
+
+| Method | Description |
+|---|---|
+| `SankofaCatch.init(options)` | Initialize the SDK. |
+| `SankofaCatch.getDefault()` | Get the global SDK instance for advanced usage. |
+| `SankofaCatch.captureException(throwable)` / `captureException(throwable, opts)` | Record an error, returns event ID. |
+| `SankofaCatch.captureMessage(message)` / `captureMessage(message, opts)` | Record a non-error event. |
+| `SankofaCatch.addBreadcrumb(type, category, message, level, data)` | Add a breadcrumb. |
+| `SankofaCatch.setUser(user)` | Set the current user. |
+| `SankofaCatch.setTag(key, value)` | Set a tag. |
+| `SankofaCatch.setExtra(key, value)` | Set un-indexed extras. |
+| `SankofaCatch.flush(timeoutMs)` | Drain the queue. |
+| `SankofaCatch.shutdownDefault(timeoutMs)` | Flush + dispose. |
+| `SankofaCatch.getDefault().startTransaction(name, op)` | Begin a transaction. |
+| `SankofaCatch.getDefault().captureVital(name, value, rating, url)` | Record a Web-Vitals-style metric. |
+| `SankofaCatchFilter` (servlet pkg) | Drop-in Servlet filter for HTTP context. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/node/overview" eyebrow="SDKs" title="Node SDK">
+    The Node counterpart with Express + Fastify integrations.
+  </Card>
+  <Card href="/sdks/python/overview" eyebrow="SDKs" title="Python SDK">
+    Python equivalent with WSGI + ASGI middleware.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Product" title="Catch product">
+    Server-side error tracking, breadcrumbs, source-map upload.
+  </Card>
+</CardGrid>

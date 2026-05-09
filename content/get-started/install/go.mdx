@@ -6,7 +6,7 @@ toc: true
 sdks: [go]
 ---
 
-The Sankofa Go SDK is a thin, allocation-conscious client for the Sankofa engine. It works with the standard `net/http` package and any framework on top of it (Echo, Gin, Fiber, Chi).
+The Sankofa Go SDK lives at `github.com/sankofa-hq/sankofa_sdk_go` and is imported as `sankofacatch`. It focuses on **Catch** — error capture, transactions, profiling — with `net/http` middleware. Server-side flag and config evaluation is not built in; the SDK accepts optional `ReadFlagSnapshot` / `ReadConfigSnapshot` callbacks so captured error events can include flag context.
 
 ## Requirements
 

@@ -6,7 +6,9 @@ toc: true
 sdks: [ios]
 ---
 
-The Sankofa iOS SDK is a native Swift library with Objective-C interop. It includes all eight Sankofa products and uses GRDB for thread-safe SQLite-backed offline queueing. Apple Privacy Manifest support is built in.
+The Sankofa iOS SDK is a native Swift library with Objective-C interop. It includes six Sankofa products (Analytics, Catch, Switch, Config, Pulse, Replay) and uses GRDB for thread-safe SQLite-backed offline queueing. Apple Privacy Manifest support is built in.
+
+OTA Deploy is not exposed on iOS — for hybrid apps that need OTA, use the React Native SDK.
 
 ## Requirements
 
@@ -22,22 +24,24 @@ The Sankofa iOS SDK is a native Swift library with Objective-C interop. It inclu
 
     1. Open **File → Add Package Dependencies…**
     2. Enter the URL: `https://github.com/sankofa-hq/sankofa-ios`
-    3. Pick **Up to Next Major Version** from `1.0.0`.
-    4. Add the `Sankofa` library to your app target.
+    3. Pick **Up to Next Major Version** from `0.1.0`.
+    4. Add the `SankofaIOS` library to your app target.
 
     Or pin in `Package.swift`:
 
-    <CodeBlock lang="swift" filename="Package.swift" code={`.package(url: "https://github.com/sankofa-hq/sankofa-ios.git", from: "1.0.0")`} />
+    <CodeBlock lang="swift" filename="Package.swift" code={`.package(url: "https://github.com/sankofa-hq/sankofa-ios.git", from: "0.1.0")`} />
   </Tab>
   <Tab value="cocoapods" label="CocoaPods">
     <CodeBlock lang="ruby" filename="Podfile" code={`platform :ios, '13.0'
 
 target 'YourApp' do
   use_frameworks!
-  pod 'Sankofa', '~> 1.0'
+  pod 'SankofaIOS', '~> 0.1'
 end`} />
 
     <CodeBlock lang="bash" code={`pod install`} />
+
+    Note: the Swift target name is `SankofaIOS`. Import with `import SankofaIOS`.
   </Tab>
 </Tabs>
 
@@ -48,7 +52,7 @@ Initialize early — in `@main`'s `init()` or `application(_:didFinishLaunchingW
 <CodeGroup>
 <CodeGroupItem tab="ios" label="Swift">
 <CodeBlock lang="swift" filename="App.swift" code={`import SwiftUI
-import Sankofa
+import SankofaIOS
 
 @main
 struct YourApp: App {
@@ -69,7 +73,7 @@ struct YourApp: App {
 }`} />
 </CodeGroupItem>
 <CodeGroupItem tab="ios-objc" label="Objective-C">
-<CodeBlock lang="objective-c" filename="AppDelegate.m" code={`#import <Sankofa/Sankofa-Swift.h>
+<CodeBlock lang="objective-c" filename="AppDelegate.m" code={`#import <SankofaIOS/SankofaIOS-Swift.h>
 
 - (BOOL)application:(UIApplication *)application
         didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
@@ -91,12 +95,13 @@ struct YourApp: App {
 <ParameterTable
   params={[
     { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL." },
-    { name: "recordSessions", type: "Bool", default: "true", description: "Enable session replay (Ghost Masking engine)." },
+    { name: "recordSessions", type: "Bool", default: "true", description: "Enable session replay (screenshot mode)." },
     { name: "maskAllInputs", type: "Bool", default: "true", description: "Automatically mask all UITextField/UITextView views in replays." },
     { name: "debug", type: "Bool", default: "false", description: "Verbose console logging during development." },
     { name: "trackLifecycleEvents", type: "Bool", default: "true", description: "Auto-track $app_opened, foreground/background." },
     { name: "flushIntervalSeconds", type: "TimeInterval", default: "30", description: "How often the queued events are uploaded while the app is foregrounded." },
     { name: "batchSize", type: "Int", default: "50", description: "Maximum events per upload batch." },
+    { name: "captureScale", type: "CGFloat", default: "0.35", description: "Replay screenshot resolution. Lower = smaller files." },
   ]}
 />
 
@@ -117,9 +122,9 @@ The SDK bundles its `PrivacyInfo.xcprivacy` declaration. App Store Connect will 
     Multi-platform first-event walkthrough.
   </Card>
   <Card href="/sdks/ios/overview" eyebrow="Reference" title="iOS SDK reference">
-    Singleton APIs, replay, identity, and Objective-C interop.
+    All six product APIs with Swift + Objective-C examples.
   </Card>
   <Card href="/products/catch/overview" eyebrow="Catch" title="Crash detection">
-    Symbolicated stack traces and automatic rollback hooks.
+    Signal handlers, breadcrumbs, and source-map upload via the CLI.
   </Card>
 </CardGrid>

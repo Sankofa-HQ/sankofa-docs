@@ -6,7 +6,7 @@ toc: true
 sdks: [android]
 ---
 
-The Sankofa Android SDK is a single Kotlin-first library, distributed through Maven Central. It bundles every Sankofa product, auto-registers across all Activities, and uses WorkManager for reliable background flushing.
+The Sankofa Android SDK is a single Kotlin-first library, distributed through Maven Central as `dev.sankofa.sdk:sankofa-android`. It bundles six products (Analytics, Catch, Switch, Config, Pulse, Replay), auto-registers across all Activities, and uses WorkManager for reliable background flushing. OTA Deploy is not exposed on Android — for hybrid apps that need OTA, use the React Native SDK.
 
 ## Requirements
 
@@ -20,17 +20,17 @@ The Sankofa Android SDK is a single Kotlin-first library, distributed through Ma
 <Tabs defaultValue="kts">
   <Tab value="kts" label="Gradle (Kotlin DSL)">
     <CodeBlock lang="kotlin" filename="app/build.gradle.kts" code={`dependencies {
-    implementation("dev.sankofa:sankofa-android:1.0.0")
+    implementation("dev.sankofa.sdk:sankofa-android:1.0.0")
 }`} />
   </Tab>
   <Tab value="groovy" label="Gradle (Groovy)">
     <CodeBlock lang="groovy" filename="app/build.gradle" code={`dependencies {
-    implementation 'dev.sankofa:sankofa-android:1.0.0'
+    implementation 'dev.sankofa.sdk:sankofa-android:1.0.0'
 }`} />
   </Tab>
   <Tab value="maven" label="Maven">
     <CodeBlock lang="xml" code={`<dependency>
-    <groupId>dev.sankofa</groupId>
+    <groupId>dev.sankofa.sdk</groupId>
     <artifactId>sankofa-android</artifactId>
     <version>1.0.0</version>
     <type>aar</type>
