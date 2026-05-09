@@ -1,0 +1,261 @@
+---
+title: React Native SDK
+description: One package, all products — @sankofa/react-native bridges to the native iOS and Android SDKs and exposes a unified TypeScript surface for analytics, errors, flags, config, surveys, replay, and OTA deploy.
+toc: true
+sdks: [react-native]
+---
+
+`@sankofa/react-native` wraps the native [iOS](/sdks/ios/overview) and [Android](/sdks/android/overview) Sankofa SDKs and exposes a single TypeScript surface. It works in both bare React Native and Expo development builds, ships an Expo Config Plugin for prebuild-time native setup, and includes hooks like `useSankofaScreen` for screen-tagging.
+
+For installation and project setup, see [Install on React Native](/get-started/install/react-native). This page is the all-products reference.
+
+<Callout tone="warning" title="Development build required">
+RN packages with native modules don't work in Expo Go. You need either a development build (`expo run:ios` / `expo run:android`) or a bare React Native project.
+</Callout>
+
+## Initialize
+
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { Sankofa } from "@sankofa/react-native";
+
+Sankofa.initialize(process.env.EXPO_PUBLIC_SANKOFA_KEY!, {
+  endpoint: "https://api.sankofa.dev",
+  recordSessions: true,
+  maskAllInputs: true,
+  debug: __DEV__,
+});`} />
+
+### `Sankofa.initialize` options
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "string", required: true, description: "Project API key (live or test)." },
+    { name: "endpoint", type: "string", default: "https://api.sankofa.dev", description: "Server base URL." },
+    { name: "recordSessions", type: "boolean", default: "true", description: "Enable native session replay capture." },
+    { name: "maskAllInputs", type: "boolean", default: "true", description: "Auto-mask all <TextInput> components in replays." },
+    { name: "trackLifecycleEvents", type: "boolean", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
+    { name: "flushIntervalSeconds", type: "number", default: "30", description: "Foreground flush cadence." },
+    { name: "batchSize", type: "number", default: "50", description: "Maximum events per upload batch." },
+    { name: "sessionTimeoutSeconds", type: "number", default: "1800", description: "Time the app can be backgrounded before a new session." },
+    { name: "maxSessionDurationSeconds", type: "number", default: "14400", description: "Hard cap on session length (4 hours)." },
+    { name: "debug", type: "boolean", default: "false", description: "Verbose console logging." },
+  ]}
+/>
+
+## Analytics — track, identify, screen
+
+<CodeBlock lang="tsx" code={`import { Sankofa, useSankofaScreen } from "@sankofa/react-native";
+
+function CheckoutScreen() {
+  // Tag the screen — powers heatmaps, funnels, and replay context.
+  useSankofaScreen("Checkout");
+
+  return (
+    <Pressable onPress={() => Sankofa.track("pay_clicked", { amount: 29.99 })}>
+      <Text>Pay</Text>
+    </Pressable>
+  );
+}
+
+// On sign-in
+Sankofa.identify("user_123", { email: "ada@example.com", plan: "pro" });
+
+// On profile update without identity change
+Sankofa.setPerson({ plan: "growth" });
+
+// On logout
+Sankofa.reset();`} />
+
+The `useSankofaScreen` hook stamps the screen name on every event fired during that screen, plus tracks an implicit `$screen_view` event for navigation funnels.
+
+For navigation libraries (`@react-navigation/native`, Expo Router) the SDK provides automatic screen tracking — wire it via `<SankofaNavigationContainer>`.
+
+## Catch — error capture
+
+The SDK auto-captures unhandled JS errors plus native crashes from both iOS and Android. The wrapper produces unified stack traces showing JS frames at the top and native frames below.
+
+For caught errors:
+
+<CodeBlock lang="tsx" code={`try {
+  await chargeCard(amount);
+} catch (err) {
+  Sankofa.captureException(err, {
+    tags: { feature: "billing" },
+    extra: { amount, currency: "USD" },
+  });
+}`} />
+
+For React error boundaries:
+
+<CodeBlock lang="tsx" code={`import { SankofaErrorBoundary } from "@sankofa/react-native";
+
+<SankofaErrorBoundary fallback={<ErrorScreen />}>
+  <App />
+</SankofaErrorBoundary>`} />
+
+The boundary captures any error thrown during render, while preserving the user-facing fallback flow.
+
+## Switch — feature flags
+
+Construct `SankofaSwitch` **before** `Sankofa.initialize` so the first decision handshake routes its payload correctly:
+
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaSwitch } from "@sankofa/react-native";
+
+const flags = new SankofaSwitch({
+  defaults: { new_checkout: false, dark_mode_default: false },
+});
+
+Sankofa.initialize("sk_live_...", { endpoint: "https://api.sankofa.dev" });
+
+if (flags.getFlag("new_checkout")) showNewCheckout();
+const variant = flags.getVariant("checkout_redesign", "control");`} />
+
+For React-flavored consumption with auto-rerender, use `useFlag` / `useVariant` hooks:
+
+<CodeBlock lang="tsx" code={`import { useFlag, useVariant } from "@sankofa/react-native";
+
+function CheckoutScreen() {
+  const useNewCheckout = useFlag("new_checkout", false);
+  const variant = useVariant("checkout_redesign", "control");
+  // ...
+}`} />
+
+## Config — remote config
+
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaConfig, useConfig } from "@sankofa/react-native";
+
+const config = new SankofaConfig({
+  defaults: { max_upload_mb: 25, support_email: "help@example.com" },
+});
+
+Sankofa.initialize("sk_live_...");
+
+// Direct API
+const maxMB = config.get<number>("max_upload_mb", 25);
+
+// React hook
+function UploadButton() {
+  const maxMB = useConfig("max_upload_mb", 25, "int");
+  // ...
+}`} />
+
+## Pulse — surveys
+
+Wrap your root with `<SankofaPulseProvider>`; the SDK renders surveys with a built-in modal that you can theme via `pulseTheme:`:
+
+<CodeBlock lang="tsx" code={`<SankofaPulseProvider>
+  <App />
+</SankofaPulseProvider>`} />
+
+For full control over rendering, register a custom renderer:
+
+<CodeBlock lang="tsx" code={`<SankofaPulseProvider
+  renderer="custom"
+  onSurveyFired={(survey, controller) => {
+    showCustomSurveyUI(survey, controller);
+  }}
+>
+  <App />
+</SankofaPulseProvider>`} />
+
+## Deploy — OTA releases
+
+`SankofaDeploy` ships JavaScript updates without an App Store / Play Store review:
+
+<CodeBlock lang="tsx" code={`import { SankofaDeploy } from "@sankofa/react-native";
+
+const deploy = new SankofaDeploy({ checkOnResume: true });
+
+// Confirm successful boot — prevents auto-rollback.
+deploy.notifyAppReady();
+
+// Check for updates
+const update = await deploy.checkForUpdate();
+
+if (update.updateAvailable) {
+  if (update.isMandatory) {
+    await deploy.downloadAndApply(update);
+  } else {
+    await deploy.downloadInBackground(update);
+  }
+}`} />
+
+### Deploy API summary
+
+<ParameterTable
+  params={[
+    { name: "checkForUpdate()", type: "Promise<UpdateInfo>", description: "Polls the server for a new bundle." },
+    { name: "downloadAndApply(update)", type: "Promise<void>", description: "Downloads and restarts to apply immediately." },
+    { name: "downloadInBackground(update)", type: "Promise<void>", description: "Downloads silently; applies on next launch." },
+    { name: "notifyAppReady()", type: "Promise<void>", description: "Marks the bundle healthy. Call after first successful render." },
+    { name: "applyPending()", type: "Promise<void>", description: "Apply a previously downloaded update on demand." },
+    { name: "reportError(err, opts?)", type: "Promise<void>", description: "Report an error for crash-rate tracking — feeds auto-rollback." },
+    { name: "getStatus()", type: "Promise<DeployStatus>", description: "Current deploy state — rollback eligible, last update timestamp, etc." },
+  ]}
+/>
+
+<Callout tone="warning" title="notifyAppReady is required">
+If your app crashes twice within 30 seconds without `notifyAppReady()` being called, the SDK auto-rolls back to the previous bundle. Without this call, every successful boot eventually restores the prior version.
+</Callout>
+
+For broken bundles you want to opt-out of crash-rate tracking, call `deploy.reportError(error, { fatal: true })` from your error boundary's `componentDidCatch`.
+
+## Session replay
+
+Replay capture happens at the native layer — the SDK forwards your masking rules to the native iOS / Android boundaries. Recording is enabled when `recordSessions: true` (default).
+
+### Privacy and masking
+
+<CodeBlock lang="tsx" code={`import { SankofaMask, SankofaBlock } from "@sankofa/react-native";
+
+// Mask text content
+<SankofaMask>
+  <Text>Account balance: \\\${balance}</Text>
+</SankofaMask>
+
+// Block subtree entirely
+<SankofaBlock>
+  <CreditCardInputs />
+</SankofaBlock>`} />
+
+The native crash handlers automatically mask the entire screen during fatal-error capture, so the final pre-crash frame doesn't leak PII.
+
+## Demo manifest
+
+<CodeBlock lang="bash" code={`npm install -g @sankofa/cli
+sankofa login
+sankofa demo seed`} />
+
+Then run the [example app](https://github.com/sankofa-hq/sankofa-react-native/tree/main/example) — every flag, config item, and survey trigger repaints from the dashboard live.
+
+## API summary
+
+| Method | Description |
+|---|---|
+| `Sankofa.initialize(apiKey, config?)` | Initialize the SDK. |
+| `Sankofa.track(event, props?)` | Record an event. |
+| `Sankofa.identify(userId, traits?)` | Stitch anonymous → known. |
+| `Sankofa.setPerson(traits)` | Update profile traits. |
+| `Sankofa.reset()` | Rotate session + clear identity. |
+| `Sankofa.flush()` | Force-drain the queue. |
+| `Sankofa.captureException(err, opts?)` | Manually capture an error. |
+| `useSankofaScreen(name)` | Hook — tags the current screen. |
+| `useFlag(key, default?)` | Hook — feature flag. |
+| `useVariant(key, default?)` | Hook — variant flag. |
+| `useConfig(key, default, type?)` | Hook — typed remote config. |
+| `new SankofaSwitch({defaults?})` | Direct flag client. |
+| `new SankofaConfig({defaults?})` | Direct config client. |
+| `new SankofaDeploy(opts?)` | OTA deploy controller. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/ios/overview" eyebrow="SDKs" title="iOS SDK">
+    The native layer this package bridges to.
+  </Card>
+  <Card href="/sdks/android/overview" eyebrow="SDKs" title="Android SDK">
+    Same — the Android side of the bridge.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Product" title="OTA Deploy">
+    Rollout strategies, gating rules, and recovery patterns.
+  </Card>
+</CardGrid>

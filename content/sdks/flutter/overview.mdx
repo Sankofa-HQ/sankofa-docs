@@ -1,0 +1,259 @@
+---
+title: Flutter SDK
+description: A single Flutter package — sankofa_flutter on pub.dev — that bundles every Sankofa product. Analytics, error capture, feature flags, remote config, surveys, OTA deploy, and session replay.
+toc: true
+sdks: [flutter]
+---
+
+`sankofa_flutter` is the official Flutter SDK. Unlike the [web SDK](/sdks/web/overview), which splits into seven packages, every product on Flutter ships in the **same** pub.dev package. One install, one initialization, every product available.
+
+This page is the all-products reference. For installation and project setup, see [Install on Flutter](/get-started/install/flutter).
+
+## Initialize
+
+Initialize before `runApp` so default properties (device, OS, locale) are captured from the first frame.
+
+<CodeBlock lang="dart" filename="lib/main.dart" code={`import 'package:flutter/material.dart';
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Sankofa.instance.init(
+    apiKey: const String.fromEnvironment('SANKOFA_KEY'),
+    endpoint: 'https://api.sankofa.dev',
+    debug: !const bool.fromEnvironment('dart.vm.product'),
+  );
+  runApp(const MyApp());
+}`} />
+
+### `Sankofa.instance.init` parameters
+
+<ParameterTable
+  params={[
+    { name: "apiKey", type: "String", required: true, description: "Project API key (live or test). The engine resolves the environment from the key." },
+    { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL. Pass a regional endpoint to pin data residency." },
+    { name: "debug", type: "bool", default: "false", description: "Verbose logging. Disable in production." },
+    { name: "trackLifecycleEvents", type: "bool", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
+    { name: "flushIntervalSeconds", type: "int", default: "30", description: "How often the queued events are uploaded while the app is foregrounded." },
+    { name: "batchSize", type: "int", default: "50", description: "Maximum events per upload batch." },
+    { name: "sessionTimeoutSeconds", type: "int", default: "1800", description: "Time the app can be backgrounded before the next foreground starts a new session." },
+    { name: "maxSessionDurationSeconds", type: "int", default: "14400", description: "Hard cap on session length (4 hours)." },
+    { name: "enableSessionReplay", type: "bool", default: "false", description: "Wrap your app in <SankofaReplayBoundary> to actually capture replays." },
+    { name: "release", type: "String?", description: "Build identifier — used by Catch for source-map matching." },
+    { name: "environment", type: "String?", default: "production", description: "Free-form label tagged onto every event." },
+  ]}
+/>
+
+The SDK normalizes endpoint shapes — server base, API base, or full ingest URL all work.
+
+## Analytics — events, identify, setPerson
+
+<CodeBlock lang="dart" code={`// Track an event
+await Sankofa.instance.track('checkout_started', {
+  'cart_value': 49.99,
+  'item_count': 3,
+});
+
+// Identify after sign-in (auto-aliases anon → user)
+await Sankofa.instance.identify('user_123', traits: {
+  'email': 'ada@example.com',
+  'plan': 'pro',
+});
+
+// Update profile traits without changing identity
+await Sankofa.instance.peopleSet({
+  'plan': 'growth',
+  'role': 'operator',
+});
+
+// Logout
+await Sankofa.instance.reset();
+
+// Force-flush before a known shutdown
+await Sankofa.instance.flush();`} />
+
+Events are queued in SQLite (via `sqflite`) so they survive app restarts and offline gaps. The queue flushes on schedule, on backgrounding, on `flush()`, and on connectivity restoration.
+
+## Catch — error capture
+
+The SDK auto-captures Dart `unhandledException` and Flutter framework errors. Surface custom errors yourself when you catch them:
+
+<CodeBlock lang="dart" code={`try {
+  await chargeCard(amount);
+} catch (err, stack) {
+  await Sankofa.instance.captureException(err, stackTrace: stack, extras: {
+    'amount': amount,
+    'currency': 'USD',
+  });
+}`} />
+
+For platform-specific crashes (iOS NSException, Android JVM crashes), the SDK hooks into the native crash handlers automatically. Stack traces include both Dart and platform frames.
+
+## Switch — feature flags
+
+Construct `SankofaSwitch` with bundled defaults **before** `Sankofa.instance.init` so the first decision handshake routes its payload correctly.
+
+<CodeBlock lang="dart" code={`import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+final flags = SankofaSwitch(defaults: {
+  'new_checkout': false,
+  'dark_mode_default': false,
+});
+
+await Sankofa.instance.init(
+  apiKey: 'sk_live_...',
+  endpoint: 'https://api.sankofa.dev',
+);
+
+// Boolean flags
+if (flags.getFlag('new_checkout')) {
+  showNewCheckout();
+}
+
+// Variant flags
+final variant = flags.getVariant('checkout_redesign', defaultValue: 'control');
+
+// Subscribe to changes (e.g. when a halt webhook fires)
+final token = flags.onChange('new_checkout', (decision) {
+  setState(() => _newCheckoutEnabled = decision.value as bool);
+});
+
+// Cancel the subscription
+token.cancel();`} />
+
+`anon_id` is forwarded automatically on the next handshake after `identify` runs, so cohort-targeted decisions stay continuous across sign-in.
+
+## Config — remote config
+
+`SankofaConfig` shares the same lifecycle pattern as `SankofaSwitch`:
+
+<CodeBlock lang="dart" code={`final config = SankofaConfig(defaults: {
+  'max_upload_mb': 25,
+  'support_email': 'help@example.com',
+});
+
+await Sankofa.instance.init(/* ... */);
+
+final maxMB = config.get<int>('max_upload_mb', 25);
+final email = config.get<String>('support_email', 'help@example.com');
+final hero = config.getJson<Map<String, dynamic>>('home_hero', {});`} />
+
+`config.get<T>` is generic — pass the expected return type and a default. Type mismatches between code and dashboard publish return the default.
+
+## Pulse — surveys
+
+Wrap your app in `SankofaPulseBoundary` to enable in-app survey rendering:
+
+<CodeBlock lang="dart" filename="lib/main.dart" code={`runApp(
+  SankofaPulseBoundary(
+    child: MaterialApp(home: HomePage()),
+  ),
+);`} />
+
+Triggers (defined in the dashboard) evaluate client-side against the user's session events and cohort membership. When a trigger fires, the bundled survey UI shows. Customize the look by passing a `pulseTheme:` argument to the boundary.
+
+## Deploy — OTA releases
+
+OTA bundle delivery is wired through `SankofaDeploy`:
+
+<CodeBlock lang="dart" code={`final deploy = SankofaDeploy(checkOnResume: true);
+
+// Confirm the app booted successfully — prevents auto-rollback.
+await deploy.notifyAppReady();
+
+// Check for an update.
+final update = await deploy.checkForUpdate();
+if (update.updateAvailable) {
+  if (update.isMandatory) {
+    await deploy.downloadAndApply(update);
+  } else {
+    await deploy.downloadInBackground(update);
+  }
+}`} />
+
+If the app crashes twice within 30 seconds without `notifyAppReady()` being called, the previous bundle auto-restores on next launch. See [Deploy product](/products/deploy/overview) for rollout strategies and gating rules.
+
+## Session replay
+
+Two recording modes:
+
+| Mode | Payload | Best for |
+|---|---|---|
+| `wireframe` | Lightweight JSON skeletons of the UI tree (~5 KB/s) | Default. Good UX for replays of structural flow. |
+| `screenshot` | Pixel-perfect snapshots throttled by `CADisplayLink`-equivalent (~50 KB/s) | High-fidelity debugging of visual bugs. |
+
+Wrap your app in `SankofaReplayBoundary` and pass `enableSessionReplay: true` to `init`:
+
+<CodeBlock lang="dart" code={`void main() {
+  runApp(
+    SankofaReplayBoundary(
+      mode: ReplayMode.wireframe,
+      child: MyApp(),
+    ),
+  );
+}`} />
+
+### Privacy
+
+By default every `TextField` is masked (text replaced with asterisks). Manually mark sensitive widgets:
+
+<CodeBlock lang="dart" code={`SankofaMask(
+  child: Text('Account balance: \\\$4,238'),
+)`} />
+
+For elements that shouldn't appear at all (not even masked), use `SankofaBlock`:
+
+<CodeBlock lang="dart" code={`SankofaBlock(
+  child: CreditCardForm(),
+)`} />
+
+<Callout tone="warning" title="Common gotcha — Row constraints inside ListView">
+If you wrap a `Row(crossAxisAlignment: CrossAxisAlignment.stretch)` inside `ListView`, you'll hit `BoxConstraints forces an infinite height`. The replay boundary doesn't cause this — but it's the single most common Flutter SDK bug report we get from new integrators. Use `IntrinsicHeight` or set explicit child heights.
+</Callout>
+
+## Distinct ID and identity stitching
+
+`Sankofa.instance.identify(userId)` automatically aliases the previous anonymous ID and switches the active distinct ID. The `anon_id` is forwarded on the next handshake so cohort-targeted decisions stay continuous.
+
+For multi-account apps (e.g. switching workspaces), call `reset()` between accounts. This rotates the session, clears identity, and fires a fresh handshake.
+
+## Demo manifest
+
+To seed your project with a canonical 6-flag, 6-config-item demo set so you can experiment with the example app:
+
+<CodeBlock lang="bash" code={`npm install -g @sankofa/cli
+sankofa login
+sankofa demo seed`} />
+
+Then open the example at [`sdks/sankofa_sdk_flutter/example`](https://github.com/sankofa-hq/sankofa-flutter) and run it. Dashboard edits repaint the example screens live.
+
+## API summary
+
+| Method | Description |
+|---|---|
+| `Sankofa.instance.init(...)` | Initialize the SDK. |
+| `Sankofa.instance.track(event, props?)` | Record an event. |
+| `Sankofa.instance.identify(userId, traits?)` | Stitch anonymous → known. |
+| `Sankofa.instance.peopleSet(traits)` | Update profile traits. |
+| `Sankofa.instance.alias(aliasId, distinctId?)` | Connect identifiers without changing active identity. |
+| `Sankofa.instance.reset()` | Rotate session + clear identity. |
+| `Sankofa.instance.flush()` | Force-drain the queue. |
+| `Sankofa.instance.captureException(err, stackTrace?)` | Manually capture an error. |
+| `SankofaSwitch(defaults?).getFlag(key)` | Boolean feature flag. |
+| `SankofaSwitch.getVariant(key, defaultValue?)` | Variant feature flag. |
+| `SankofaConfig(defaults?).get<T>(key, default)` | Typed remote config. |
+| `SankofaDeploy(...).checkForUpdate()` | OTA update check. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/react-native/overview" eyebrow="SDKs" title="React Native SDK">
+    The bridge-based RN SDK with the same product surface.
+  </Card>
+  <Card href="/get-started/first-feature-flag" eyebrow="Hands-on" title="First feature flag">
+    Walk through Switch end to end with a real rollout.
+  </Card>
+  <Card href="/products/deploy/overview" eyebrow="Product" title="OTA Deploy">
+    Bundle release strategies and gating rules.
+  </Card>
+</CardGrid>
