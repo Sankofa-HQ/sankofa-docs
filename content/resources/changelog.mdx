@@ -1,0 +1,83 @@
+---
+title: Changelog
+description: Per-product release notes for Sankofa — engine, SDKs, and dashboard. New features, breaking changes, deprecations, and bug fixes, oldest at the bottom.
+toc: false
+---
+
+Sankofa publishes release notes at every meaningful boundary — major engine releases, SDK version bumps, dashboard feature ships. This page is the canonical timeline.
+
+For programmatic access (RSS, ATOM, JSON feeds), see the **Subscribe** section at the bottom.
+
+## 2026
+
+### 2026-05-09 · Vision GA
+
+**Engine** — `ee/vision/` shipped. Five surfaces (Canvas, Roadmap, OKRs, Initiatives, Strategy Docs) live behind one board container. Cross-product bonds via `InitiativeTicketLink` and `InitiativeObjectiveLink` — Plan ticket close auto-progresses linked OKR Key Results.
+
+**Dashboard** — `/dashboard/vision/` route, with multi-page editor + cross-surface index pages (`/canvases`, `/roadmaps`, `/okrs`, `/initiatives`, `/docs`).
+
+**API** — Full REST surface at `/api/v1/vision/*`. Public read-only sharing for Roadmaps + Docs.
+
+### 2026-04-17 · Catch profiles GA
+
+**Engine** — `/api/catch/profiles` endpoint accepts wallclock + CPU profiler output up to 20 MB per profile.
+
+**SDKs** — Node + Go + Python + Java sampling profilers. Web profiles deferred (browser limitations).
+
+### 2026-04-12 · Decision-handshake unification
+
+**Engine** — `GET /api/v1/handshake` consolidates Switch + Config + Deploy + Catch + Analytics module decisions in a single ETag-cached response. Deprecates per-product decision endpoints (still served for backward compatibility).
+
+**SDKs** — every client SDK migrates to the unified handshake. The change is internal — no app-code change required.
+
+### 2026-03-08 · Pulse branching
+
+**Engine** — `ee/pulse/` adds `pulse_survey_branching_rules` table. Server-side branching evaluator — the SDK only fetches questions the user qualifies for.
+
+**Dashboard** — visual branching editor with mock-answer preview.
+
+### 2026-02-22 · Web SDK v0.1.2
+
+**SDKs** — `@sankofa/browser`, `@sankofa/catch`, `@sankofa/switch`, `@sankofa/config`, `@sankofa/pulse`, `@sankofa/replay-rrweb`, `@sankofa/react` all bumped to `0.1.2`. New: `getSnapshot()`, `getTransportStatus()`, `onTransportStatus()` accessors on the core client. React: `usePulse` + `usePulseEvent` hooks.
+
+### 2026-01-30 · Outbound webhooks GA
+
+**Engine** — `/ee/webhooks/` framework live. ~40 event types across products (catch.alert.fired, deploy.release.promoted, switch.flag.halted, plan.ticket.transitioned, etc.). HMAC-SHA256 signing, exponential-backoff retries, dead-letter queue with manual replay.
+
+## 2025
+
+### 2025-Q4 · Public beta
+
+Soft launch of the Sankofa platform. Hobby tier free, Pro and Growth on Stripe checkout.
+
+### 2025-Q3 · Closed beta
+
+Selected design partners. Engine in production for first customer in Sept.
+
+## Subscribe to changelog updates
+
+Three options:
+
+- **RSS** — `https://docs.sankofa.dev/resources/changelog/feed.xml` (planned).
+- **Webhook** — subscribe to the `changelog.entry.published` event via the [outbound webhook framework](/api/webhooks). Same delivery + signing as product events.
+- **Email digest** — opt in at `/dashboard/account/notifications → Changelog digest`. Weekly or per-release.
+
+## How we version
+
+- **Engine** — semver. Major bump only on incompatible wire changes (we've never bumped past `v1` and don't expect to soon). Minor every ~4 weeks; patch as bugs are fixed. See [SDK versioning policy](/sdks/versioning-policy) — same rules apply.
+- **SDKs** — semver per SDK, independent. Minor releases ~monthly per SDK. Major bumps coordinated across the matrix.
+- **Dashboard** — continuously deployed. The "release" notion is per-feature, not per-version. Notable shipments are recorded above with a date.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/versioning-policy" eyebrow="SDK" title="Versioning policy">
+    How semver applies across the SDK matrix.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Stream" title="Webhooks">
+    Subscribe to changelog events programmatically.
+  </Card>
+  <Card href="/resources/status" eyebrow="Status" title="Service status">
+    Real-time service health.
+  </Card>
+</CardGrid>

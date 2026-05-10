@@ -1,0 +1,134 @@
+---
+title: Compliance
+description: Sankofa's compliance posture — what we currently attest to (GDPR-ready operations, regional data residency), what's in audit (SOC 2 Type II in progress), and how to request DPAs and BAAs.
+toc: false
+---
+
+Sankofa is **GDPR-ready** — we operate the technical and procedural controls a GDPR data controller needs to fulfill its obligations to data subjects (right to access, deletion, rectification, restriction, portability, objection). We are **not currently certified** under SOC 2 Type II or ISO 27001 — those certifications are in progress and we expect attestation in 2026. This page is honest about what we have, what we're working toward, and what each tier gets.
+
+## What we offer today
+
+| Compliance area | Status |
+|---|---|
+| GDPR-ready operations (rights of data subjects) | ✓ Implemented (all tiers) |
+| Regional data residency | ✓ 4 regions (all tiers) — see [Data residency](/account/data-residency) |
+| Encryption at rest + in transit | ✓ All data, all tiers |
+| Audit log + retention | ✓ All tiers; export Pro+ |
+| SSO + SCIM | ✓ Enterprise |
+| MFA enforcement | ✓ Available all tiers; required for Owner/Admin on Enterprise |
+| Data Processing Agreement (DPA) | ✓ Available on request — Pro and above |
+| Business Associate Agreement (BAA) for HIPAA | ✓ Enterprise (case-by-case) |
+| Sub-processor list | ✓ Maintained at [Trust center](/resources/trust-center) |
+| Vendor security questionnaires (SIG, CAIQ) | ✓ Pre-filled on request — Enterprise |
+
+## In progress
+
+| Certification | Status | Expected |
+|---|---|---|
+| SOC 2 Type II | In audit period; engaged with auditor | 2026-Q3 |
+| ISO 27001 | Gap analysis complete; ISMS in build | 2026-Q4 |
+| HIPAA | BAA available case-by-case; full attestation roadmapped | 2027 |
+| FedRAMP | Pre-engagement | 2027+ |
+
+We're transparent about timelines — if a certification slips past these dates, we'll publish the new ETA on this page and notify Enterprise customers directly.
+
+## Not yet planned
+
+- **PCI DSS** — we don't process payment cards directly. Stripe is our payment processor; their PCI DSS Level 1 attestation covers the payment surface.
+- **SOC 2 Type I** — going straight to Type II.
+- **Regional compliance frameworks beyond what's listed above** — talk to your CSM if you need a specific framework attestation.
+
+## GDPR specifics
+
+Per Article 28 GDPR, Sankofa acts as a **data processor** on customer data. Customers are the **data controller**. The split:
+
+- **Customer is responsible for**: lawful basis for collection, providing privacy notices to users, fulfilling data-subject requests on user data, configuring retention windows + region pinning per their legal basis.
+- **Sankofa is responsible for**: implementing technical + organizational measures to protect the data, fulfilling sub-processor management, notifying customers of breaches within 72 hours, supporting data-subject requests on the technical level.
+
+Our DPA codifies this split. To execute one:
+
+<Steps>
+  <Step title="Pro and Growth">
+    Self-serve at `/dashboard/account/billing → Compliance → Generate DPA`. Pre-filled with your org details. Sign + counter-sign in the dashboard.
+  </Step>
+  <Step title="Enterprise">
+    Your CSM provides the DPA at contract signing. Custom amendments accepted.
+  </Step>
+</Steps>
+
+The standard DPA references our [Trust center](/resources/trust-center) for the sub-processor list — that page is the source of truth for current sub-processors. Material changes are notified per the DPA's notice clause (typically 30 days).
+
+## Sub-processors
+
+We maintain an up-to-date sub-processor list at [Trust center](/resources/trust-center). Categories:
+
+- Cloud infrastructure (AWS, Cloudflare)
+- Database hosting (managed Postgres provider, ClickHouse Cloud)
+- Object storage (Backblaze B2 / S3-compatible)
+- Email delivery (Resend, MailerSend)
+- Payment processing (Stripe)
+- Analytics + telemetry on our own platform (Sankofa)
+- Security scanning + monitoring
+
+Each sub-processor has a defined role + data scope. Region-pinned customers' data does not cross region boundaries via sub-processors either.
+
+## Data Processing Records
+
+Per GDPR Article 30, we maintain Records of Processing Activities (RoPAs) for every processing flow. Available on request to data-protection officers (Enterprise tier).
+
+## Breach notification
+
+In the event of a personal-data breach:
+
+| Timeframe | Action |
+|---|---|
+| Detection | Internal incident response activates |
+| Detection + 24 hours | Affected customers' DPOs / privacy contacts notified by email |
+| Detection + 72 hours | Public disclosure (if required by GDPR + the customer's residency) + DPA-mandated communication |
+| Detection + 14 days | Public postmortem at `/resources/changelog` |
+
+For Enterprise customers, the breach-notification plan is included in the Master Subscription Agreement.
+
+## Children's data
+
+Sankofa does not knowingly collect data from users under 16 (EU + UK threshold) or 13 (US COPPA threshold). If you're building a product for children, age-gate before initializing the SDK and don't pass child users' identifiers to Sankofa.
+
+## US privacy laws (CCPA, CPRA, VCDPA, etc.)
+
+The same data-controller / data-processor split applies. Sankofa serves as the "service provider" or "processor" depending on the framework. Standard contractual clauses cover the data-flows; specific opt-out mechanisms are honored at the customer level via the GDPR-ready deletion / restriction endpoints.
+
+## Acceptable Use Policy
+
+Sankofa's AUP prohibits using the platform for:
+
+- Illegal activity
+- Tracking users without lawful basis
+- Children's data without parental consent
+- Discriminatory targeting (cohort + targeting features have allow-list of attributes)
+
+Read the full AUP at [Trust center](/resources/trust-center). Enforcement is via our incident-response process; egregious violations result in account suspension.
+
+## Custom compliance assessments
+
+Enterprise customers can request:
+
+- **Pre-filled vendor questionnaires** (SIG, CAIQ, custom)
+- **Pen-test reports** (we run quarterly third-party pen-tests)
+- **Right-to-audit clauses** (yearly customer-led audit, scheduled in advance)
+- **Custom contractual clauses** (governing law, indemnification, etc.)
+
+All available through your CSM.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/resources/trust-center" eyebrow="Documents" title="Trust center">
+    DPA template, sub-processor list, AUP.
+  </Card>
+  <Card href="/resources/security" eyebrow="Practices" title="Security model">
+    The technical + organizational measures.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Region" title="Data residency">
+    Region pinning for compliance-bound projects.
+  </Card>
+</CardGrid>

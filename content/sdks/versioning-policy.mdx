@@ -42,7 +42,7 @@ When we're uncertain, we default to "breaking" and ship a major.
 
 ## The wire is permanent
 
-The HTTP API the SDK calls — `/api/v1/track`, `/api/v1/decisions`, etc. — is **versioned independently of the SDK**. The `v1` in the URL is part of the contract. We have not broken `v1` since launch and we don't intend to. When we eventually need an incompatible change to the wire, we'll ship `v2` alongside `v1` and run both in parallel for at least 18 months.
+The HTTP API the SDK calls — `/api/v1/track`, `/api/v1/handshake`, etc. — is **versioned independently of the SDK**. The `v1` in the URL is part of the contract. We have not broken `v1` since launch and we don't intend to. When we eventually need an incompatible change to the wire, we'll ship `v2` alongside `v1` and run both in parallel for at least 18 months.
 
 This means an old SDK on a current engine will keep working; a current SDK on an older engine release will keep working. You can pin SDKs and engine releases independently.
 

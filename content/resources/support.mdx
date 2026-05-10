@@ -1,0 +1,109 @@
+---
+title: Support
+description: Email-based support across all tiers, with shorter response times and dedicated CSMs at higher tiers. Self-serve through the docs first; email when stuck.
+toc: false
+---
+
+Sankofa's support model is straightforward: docs first, email when stuck. We don't gate documentation, the CLI, the dashboard, or the example apps behind the support channel — most issues resolve self-serve. When they don't, support is real humans on email, with shorter response times at higher tiers.
+
+## Channels
+
+| Channel | Available | Response target |
+|---|---|---|
+| Documentation | All tiers | n/a — self-serve |
+| GitHub issues (per SDK repo) | All tiers (SDKs are open-source) | best-effort |
+| Email — `support@sankofa.dev` | Pro and above | per tier (below) |
+| Email — `enterprise-support@sankofa.dev` | Enterprise | per tier |
+| Dedicated CSM | Enterprise | onboarded as part of contract |
+| Slack Connect channel | Growth and Enterprise | shared workspace, async |
+
+Hobby tier doesn't include email support today. The recommended path on Hobby is the GitHub issue tracker for the relevant SDK or the public docs.
+
+## Response times by tier
+
+| Severity | Pro | Growth | Enterprise |
+|---|---|---|---|
+| **P1** — production down or data loss | 8 business hours | 4 hours, 24×7 | 1 hour, 24×7 |
+| **P2** — production degraded, workaround exists | 1 business day | 8 hours, 24×7 | 4 hours, 24×7 |
+| **P3** — non-production issue | 2 business days | 1 business day | 8 business hours |
+| **P4** — feature request, question | 5 business days | 3 business days | 2 business days |
+
+"Business hours" means 9am–6pm UTC, Monday–Friday. Enterprise has 24×7 coverage with on-call escalation through the dedicated CSM.
+
+## What to include in a support email
+
+For fastest resolution:
+
+<Steps>
+  <Step title="Severity">
+    Mention what tier of impact you're seeing — "production checkout flow is failing" vs "I'd like to ask about XYZ feature" pace very differently.
+  </Step>
+  <Step title="Request ID + timestamp">
+    Every API response carries `X-Request-Id`. Include the IDs for failing requests + a UTC timestamp. We can trace through the engine logs from there.
+  </Step>
+  <Step title="Project ID + region">
+    `proj_*` is on `/dashboard/<project>/settings`. Region is on the same page (or surfaces in `X-Sankofa-Region` API response header).
+  </Step>
+  <Step title="Reproduction steps">
+    Even rough steps help. If you can include a Catch issue link or a Pulse-survey ID, even better.
+  </Step>
+</Steps>
+
+## SDK + open-source issues
+
+The SDKs are open-source on GitHub. For SDK-specific bugs (web `@sankofa/browser` issues, RN bridging quirks, Flutter widget gotchas), filing a GitHub issue on the relevant SDK repo is often the fastest path — the SDK maintainers track those directly.
+
+| SDK | Repository |
+|---|---|
+| Web (multi-package) | `github.com/sankofa-hq/sankofa-web` |
+| Flutter | `github.com/sankofa-hq/sankofa-flutter` |
+| React Native | `github.com/sankofa-hq/sankofa-react-native` |
+| iOS | `github.com/sankofa-hq/sankofa-ios` |
+| Android | `github.com/sankofa-hq/sankofa-android` |
+| Node | `github.com/sankofa-hq/sankofa-node` |
+| Go | `github.com/sankofa-hq/sankofa-go` |
+| Java | `github.com/sankofa-hq/sankofa-java` |
+| Python | `github.com/sankofa-hq/sankofa-python` |
+| CLI | `github.com/sankofa-hq/sankofa-cli` |
+
+## Sales + business questions
+
+For pricing, contracts, custom regions, BAA / DPA discussions, or invoice billing requests:
+
+- **Email** — `sales@sankofa.dev`
+- **Calendar** — `https://sankofa.dev/contact-sales` (Enterprise prospects)
+
+Sales response target: 1 business day across the board.
+
+## Status updates during incidents
+
+When something breaks platform-wide:
+
+1. The component flips to **Degraded** / **Major outage** on [status.sankofa.dev](/resources/status).
+2. The dashboard shows a banner pulled live from the status page.
+3. For incidents impacting Growth + Enterprise, your dedicated CSM (or the on-call rotation) reaches out with a status update within the SLA window.
+
+For incidents impacting only your project (not platform-wide), email is the right channel.
+
+## Self-serve diagnostics
+
+Before emailing, check:
+
+- **`sankofa doctor`** — local CLI diagnostic. Reports Node version, Xcode availability, Java/Gradle, and server reachability.
+- **`sankofa check`** — verifies your SDK integration. Per-product pass/fail with fix commands.
+- **Live events** — `/dashboard/<project>/live-events`. If your event isn't there, the engine never accepted it.
+- **Catch issues** — `/dashboard/<project>/catch/issues`. If your error tracking is broken, errors won't show up here either, but the dashboard's "no events received" banner will.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/resources/status" eyebrow="Real-time" title="Service status">
+    Per-component health, incident history, subscriptions.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Tools" title="CLI doctor + check">
+    Local diagnostics that resolve most setup issues.
+  </Card>
+  <Card href="/resources/security" eyebrow="Posture" title="Security disclosure">
+    For security issues, follow the responsible-disclosure path.
+  </Card>
+</CardGrid>

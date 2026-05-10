@@ -1,0 +1,123 @@
+---
+title: Integrations
+description: Connect Sankofa to the tools your team already uses. Today the integration surface is the outbound webhook framework — Slack, PagerDuty, GitHub, Jira and similar are reachable via webhook subscriptions.
+toc: false
+---
+
+Sankofa's integration story today is **webhook-first**. Instead of building one-off connectors per third-party tool, we ship a centralized outbound webhook framework that lets you wire Sankofa events into anything that accepts HTTP — Slack, PagerDuty, GitHub, Jira, Linear, Datadog, Splunk, your custom on-call tooling, your audit-log SIEM.
+
+For the technical reference of the webhook framework — auth, signing, retry, dead-letter — see [Webhooks](/api/webhooks).
+
+## What ships today
+
+<CardGrid cols={3}>
+  <Card href="/api/webhooks" eyebrow="Framework" title="Outbound webhooks">
+    HMAC-signed event delivery from any product. ~40 event types. Dead-letter queue with replay.
+  </Card>
+  <Card href="/api/switch/halt-webhook" eyebrow="Inbound" title="Switch halt webhook">
+    Inbound endpoint Catch alerts and external systems use to halt feature flags.
+  </Card>
+  <Card href="/account/sso" eyebrow="Identity" title="SSO + SCIM">
+    SAML 2.0 / OIDC sign-in + SCIM 2.0 user provisioning (Enterprise).
+  </Card>
+</CardGrid>
+
+## Common patterns
+
+### Slack — Catch alerts as channel messages
+
+Configure an outbound webhook subscription on `catch.alert.fired` pointing to Slack's incoming webhook URL. Slack accepts arbitrary JSON; format the event payload server-side via a small Cloudflare Worker / Vercel Function / your own gateway:
+
+<CodeBlock lang="ts" code={`// Example bridging endpoint
+export async function POST(req: Request) {
+  const event = await req.json();
+  if (event.event !== "catch.alert.fired") return new Response(null, { status: 200 });
+
+  await fetch(SLACK_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: \`🚨 Alert fired: \${event.data.alert_name}\`,
+      attachments: [{ title_link: event.data.evidence_url, ... }],
+    }),
+  });
+  return new Response(null, { status: 200 });
+}`} />
+
+For a more polished Slack experience, use a Slack-specific framework (Bolt, Slack Block Kit) — the JSON shape is well-documented on slack.dev.
+
+### PagerDuty — Catch alerts as incidents
+
+Subscribe `catch.alert.fired` to PagerDuty's Events API v2 endpoint:
+
+<CodeBlock lang="bash" code={`https://events.pagerduty.com/v2/enqueue`} />
+
+Pre-fill the routing key + dedup key in your subscription URL's query string, or wrap with a small bridging endpoint that maps Sankofa's payload to PagerDuty's event schema.
+
+### GitHub — Plan tickets ↔ GitHub Issues
+
+Subscribe `plan.ticket.created`, `plan.ticket.transitioned`, and `plan.ticket.commented`. Bridge to GitHub's API to mirror tickets to GitHub Issues. Two-way sync (changes in GitHub flowing back to Sankofa Plan) requires a GitHub App that listens to GitHub webhook events and posts to `/api/v1/plan/tickets/...` — reach out to support if you want an example.
+
+### Jira — for teams migrating
+
+Sankofa Plan ships a [one-shot Jira importer](/products/plan/overview#jira-migration). For ongoing Jira sync after the import, use webhook subscriptions on Plan events to mirror Plan changes back to Jira (mostly customers don't — they cut over to Plan and stop using Jira).
+
+### Linear
+
+Same pattern as GitHub Issues — webhook subscription on Plan events, bridging endpoint translating to Linear's GraphQL API.
+
+### Audit log → SIEM
+
+Subscribe `audit.entry.created` and route to your SIEM's webhook receiver (Splunk HTTP Event Collector, Datadog logs intake, Sumo Logic HTTP source, etc.). For high-volume orgs, the [scheduled CSV export](/account/audit-log#csv-export) is more efficient.
+
+### Stripe / billing systems
+
+Customer-account state changes (member added, plan changed) emit events the webhook framework can deliver. Bridge to your billing system to keep customer-success tools in sync.
+
+### Datadog
+
+Two paths:
+
+1. **Audit + alert events** — subscribe to relevant events, post to Datadog's event intake. Useful for correlation with infrastructure metrics.
+2. **Catch transactions / vitals** — exposed via the Catch product's REST API (`GET /api/v1/catch/transactions`) for ETL pipelines that pull into Datadog APM.
+
+## Why no pre-built connectors
+
+We chose a webhook-first model because:
+
+- **Most teams already have integration platforms** (Zapier, Make, n8n, Workato) that consume webhooks. A pre-built Sankofa-Slack connector would compete with what they already use.
+- **Per-tool connectors lag the wire** — adding a new Sankofa product means waiting for connector updates. With webhooks, a new event type is immediately consumable.
+- **Customers customize message templates** — Slack notifications, PagerDuty severity levels, GitHub issue templates all vary by team. A webhook + 30 lines of glue lets you customize without forking a connector.
+
+We may ship pre-built connectors for the most-requested destinations in the future. For now, the webhook framework + a small bridging endpoint covers every integration we've seen.
+
+## Use the webhook framework
+
+<Steps>
+  <Step title="Identify the events you care about">
+    See [Webhooks → Event catalog](/api/webhooks#event-catalog) for the full list. Most integrations need 1–3 event patterns.
+  </Step>
+  <Step title="Stand up a bridging endpoint">
+    Cloudflare Worker, Vercel Function, AWS Lambda, your own server — anywhere that can verify the HMAC signature and POST to the destination. ~30 lines of code.
+  </Step>
+  <Step title="Subscribe in the dashboard">
+    `/dashboard/account/webhooks → New subscription`. Set the URL, the event patterns, the secret. The first delivery is the test event — verify your endpoint receives + processes it.
+  </Step>
+  <Step title="Monitor health">
+    `/dashboard/account/webhooks/<id>/health` shows the 24-hour delivery success rate. Failed deliveries land in the dead-letter queue with manual replay available.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/webhooks" eyebrow="Reference" title="Webhook framework">
+    Auth, signing, retries, event catalog.
+  </Card>
+  <Card href="/api/switch/halt-webhook" eyebrow="Inbound" title="Halt webhook">
+    The reverse direction — external systems halting Sankofa flags.
+  </Card>
+  <Card href="/account/sso" eyebrow="Identity" title="SSO & SCIM">
+    The other shipped integration surface today.
+  </Card>
+</CardGrid>

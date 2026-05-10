@@ -1,0 +1,84 @@
+---
+title: Account & billing
+description: Manage your organization, projects, members, teams, billing, RBAC, audit log, SSO, and data residency from one shared admin surface.
+toc: true
+---
+
+The Account section is the org-wide admin surface — billing, members + teams, RBAC, audit log, SSO/SCIM (Enterprise), and per-project data-residency settings. These are the things that exist *across* projects rather than inside one.
+
+Most pages here are dashboard-driven. They expose a REST API for programmatic management (CI scripts, IdP webhooks, custom admin tools) but the day-to-day surface is the dashboard.
+
+## What's here
+
+<CardGrid cols={3}>
+  <Card href="/account/plans-and-billing" eyebrow="Plans" title="Plans & billing">
+    Hobby, Pro, Growth, Enterprise. Per-organisation pricing. Per-product event quotas + retention windows.
+  </Card>
+  <Card href="/account/teams-and-members" eyebrow="People" title="Teams & members">
+    Invite people, group them into teams, assign teams to projects in one click.
+  </Card>
+  <Card href="/account/rbac" eyebrow="Permissions" title="RBAC">
+    Viewer / Editor / Admin per project; Owner at the organization level.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Every flag toggle, deploy promotion, member change, and key rotation. CSV export + webhook stream on Pro+.
+  </Card>
+  <Card href="/account/sso" eyebrow="Enterprise" title="SSO & SCIM">
+    SAML 2.0 + OIDC sign-in, SCIM 2.0 user provisioning. Enterprise tier.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Compliance" title="Data residency">
+    Pin a project to `eu-west-1`, `us-east-1`, `af-south-1`, or `ap-southeast-1`. Available on all tiers.
+  </Card>
+</CardGrid>
+
+## Org / project hierarchy at a glance
+
+Sankofa's tenancy model from the [Concepts → Organizations and projects](/concepts/organizations-and-projects) page:
+
+- **One organization** per company. Created at sign-up. Has billing, plan tier, SSO config, audit log, members, teams.
+- **One or more projects** per organization. A project is the boundary for events, flags, configs, deploys, surveys, RBAC, API keys.
+- **Two environments per project** — `live` and `test` — resolved by API key.
+
+| Concept | Where it lives | Who manages it |
+|---|---|---|
+| Plan & billing | Organization | Owner |
+| SSO / SCIM | Organization | Owner |
+| Audit log | Organization | Admin / Owner |
+| Members + teams | Organization | Admin / Owner |
+| Per-project members | Project | Project Admin |
+| Data-residency region | Per project | Owner (set at project creation) |
+| API keys | Per project + per environment | Project Admin |
+
+## Common admin tasks
+
+<Steps>
+  <Step title="Add a new team member">
+    `/dashboard/account/members → Invite`. Email + initial role. They get a sign-up link; once accepted, they show up in the members list and can be assigned to teams or specific projects. See [Teams & members](/account/teams-and-members).
+  </Step>
+  <Step title="Spin up a new project">
+    `/dashboard → New project`. Pick the data-residency region (default `eu-west-1`). The project gets a fresh `live` and `test` API key. Add members via teams or per-member overrides.
+  </Step>
+  <Step title="Upgrade your plan">
+    `/dashboard/account/billing → Upgrade`. Pay by card, ACH (Pro+), or invoice (Enterprise). The new tier's limits apply immediately; changes are pro-rated. See [Plans & billing](/account/plans-and-billing).
+  </Step>
+  <Step title="Enable SSO">
+    `/dashboard/account/sso → Configure SAML / OIDC`. Available on Enterprise. Your IdP's metadata XML or OIDC discovery URL is enough — Sankofa's SP entity ID + ACS URL are pre-configured. See [SSO & SCIM](/account/sso).
+  </Step>
+  <Step title="Export the audit log">
+    `/dashboard/account/audit-log → Export CSV` (Pro+) or configure a webhook subscription to stream events. See [Audit log](/account/audit-log).
+  </Step>
+</Steps>
+
+## Where to go next
+
+<CardGrid cols={3}>
+  <Card href="/account/plans-and-billing" eyebrow="Start here" title="Plans & billing">
+    The tier matrix and what each one includes.
+  </Card>
+  <Card href="/account/rbac" eyebrow="Setup" title="RBAC">
+    Decide who gets what role before inviting the team.
+  </Card>
+  <Card href="/concepts/organizations-and-projects" eyebrow="Concepts" title="Tenancy model">
+    The deeper concept — why org / project / env splits the way it does.
+  </Card>
+</CardGrid>

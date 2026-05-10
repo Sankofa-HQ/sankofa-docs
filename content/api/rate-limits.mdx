@@ -11,7 +11,7 @@ Sankofa rate-limits ingestion endpoints to keep the engine healthy when one clie
 | Endpoint group | Window | Limit | Scope |
 |---|---|---|---|
 | Ingestion (`/api/v1/{track,people,alias,batch}`) | 1 minute | 500 requests | Per `x-api-key` value (or per client IP if no key sent) |
-| Decision handshake (`/api/v1/decisions`) | 1 minute | 500 requests | Per `x-api-key` value |
+| Decision handshake (`/api/v1/handshake`) | 1 minute | 500 requests | Per `x-api-key` value |
 | Dashboard / management API | None | (no limiter applied; auth is the gate) | n/a |
 
 The limiter is a fixed-window counter. Keys reset at the start of the next minute window — there's no rolling window, no token bucket.

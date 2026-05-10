@@ -1,0 +1,292 @@
+---
+title: Catch — error events
+description: POST /api/catch/events — record an error or non-error event from any client/server SDK. Async write to ClickHouse. Symbolication and grouping happen in the background.
+toc: true
+---
+
+The Catch error-event ingest endpoint accepts unhandled exceptions, console errors, and non-error captures (`captureMessage`) from every official Sankofa SDK. The handler validates, scrubs PII, computes a fingerprint (or honors a client-supplied one), inserts to ClickHouse, and returns `200` immediately — symbolication and issue grouping run asynchronously in the background.
+
+For Catch product semantics (issues, alerts, auto-rollback), see [Catch product overview](/products/catch/overview).
+
+<EndpointBadge method="POST" path="/api/catch/events" />
+
+## Authentication
+
+Required header: `x-api-key: sk_live_…` or `x-api-key: sk_test_…`. See [Authentication](/api/authentication).
+
+CORS: permissive (`*` origins) — works from any web origin without configuration.
+
+## Request body — single event
+
+<CodeBlock lang="json" code={`{
+  "wire_version": 1,
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "ts_ms": 1715183942483,
+  "environment": "live",
+  "distinct_id": "user_123",
+  "anon_id": "anon_a3b9ff",
+  "session_id": "sess_xyz",
+  "level": "error",
+  "type": "unhandled_exception",
+  "platform": "javascript",
+  "sdk": {
+    "name": "sankofa.web",
+    "version": "1.0.0"
+  },
+  "exception": {
+    "type": "TypeError",
+    "value": "Cannot read property 'length' of undefined",
+    "stacktrace": {
+      "frames": [
+        {
+          "filename": "app.js",
+          "function": "processData",
+          "lineno": 42,
+          "colno": 15,
+          "in_app": true
+        }
+      ]
+    }
+  },
+  "tags": { "feature": "checkout" },
+  "extra": { "cart_total": 99.99 },
+  "user": {
+    "id": "user_123",
+    "email": "ada@example.com"
+  },
+  "device": {
+    "os": "iOS",
+    "os_version": "17.4",
+    "browser": "Safari",
+    "browser_version": "17",
+    "model": "iPhone 15"
+  },
+  "breadcrumbs": [
+    {
+      "ts_ms": 1715183932000,
+      "type": "navigation",
+      "category": "router",
+      "message": "navigated to /checkout",
+      "level": "info"
+    }
+  ],
+  "fingerprint": ["TypeError", "processData"],
+  "release": "1.2.0",
+  "trace_id": "80f198ee56343ba7123456789abcdef0",
+  "span_id": "05e3ac9a4f6e3b90"
+}`} />
+
+## Request body — batch
+
+<CodeBlock lang="json" code={`{
+  "wire_version": 1,
+  "events": [
+    { /* event 1 */ },
+    { /* event 2 */ }
+  ]
+}`} />
+
+Up to **1000 events per batch**. Per-event validation failures within a batch don't reject the whole batch — the response counts accepted vs rejected.
+
+## Top-level fields
+
+<ParameterTable
+  params={[
+    { name: "wire_version", type: "integer", required: true, description: "Always `1`. Wire-version bump signals an incompatible payload change; SDKs should refuse to send unfamiliar versions." },
+    { name: "event_id", type: "string (UUID v4)", required: true, description: "Client-generated UUID. The engine uses it for idempotent retries and as the public event identifier in dashboard URLs." },
+    { name: "ts_ms", type: "integer (epoch ms)", required: true, description: "Client timestamp. Must be within ±7 days past, +10 minutes future of server clock — events outside this window are rejected." },
+    { name: "environment", type: "string", required: true, description: "`live` or `test`. Must match the resolved environment from the API key." },
+    { name: "level", type: "string", required: true, description: "`fatal`, `error`, `warning`, `info`, or `debug`. Determines whether alerts fire." },
+    { name: "type", type: "string", required: true, description: "Event type — `unhandled_exception`, `console_error`, `captured_exception`, `captured_message`, etc. Determines per-type processing." },
+    { name: "platform", type: "string", required: true, description: "`javascript`, `react-native`, `ios`, `android`, `flutter`, `node`, `go`, `python`, `java`. Routes to per-platform symbolication + breadcrumb interpretation." },
+    { name: "sdk.name", type: "string", required: true, description: "SDK identifier (e.g. `sankofa.web`)." },
+    { name: "sdk.version", type: "string", required: true, description: "SDK version string." },
+    { name: "exception", type: "object", description: "Exception body. Required if `message` not provided. See exception schema below." },
+    { name: "message", type: "string", description: "Plain-text message. Used for `captured_message` events. Required if `exception` not provided." },
+    { name: "distinct_id", type: "string", description: "User identifier. Surfaces as the affected user." },
+    { name: "anon_id", type: "string", description: "Pre-identify anonymous ID, if applicable." },
+    { name: "session_id", type: "string", description: "Session identifier — links the event to the same session's events + replay." },
+    { name: "tags", type: "object", description: "Indexed key/value pairs. Up to 32 keys; max 200 chars each. Searchable in the dashboard." },
+    { name: "extra", type: "object", description: "Free-form un-indexed context. Up to 1MB total. Visible in the event detail view." },
+    { name: "user", type: "object", description: "User metadata: `id`, `email`, `username`, `ip_address`, `segment`." },
+    { name: "device", type: "object", description: "Device metadata: `os`, `os_version`, `browser`, `browser_version`, `model`." },
+    { name: "breadcrumbs", type: "array", description: "Up to 100 events leading up to this one. Each entry: `ts_ms`, `type`, `category`, `message`, `level`, optional `data` object." },
+    { name: "fingerprint", type: "array<string>", description: "Override the auto-fingerprint. Each element is a token; use `{{ type }}`, `{{ message }}`, `{{ stack-top }}` for templated tokens." },
+    { name: "release", type: "string", description: "Build identifier (commit SHA, version tag). Used to look up source maps + dSYMs for symbolication." },
+    { name: "server_name", type: "string", description: "Hostname / pod identifier (server SDKs)." },
+    { name: "request", type: "object", description: "HTTP request context: `method`, `url`, `headers`, `query_string`. Auto-populated by the framework integrations (Express, Fastify, Servlet, etc.)." },
+    { name: "debug_meta.images", type: "array", description: "Native debug metadata for symbolication. Required for Apple `dsym` and Android NDK lookup. See debug_meta schema below." },
+    { name: "flag_snapshot", type: "object", description: "Snapshot of the user's flag values at event time. Captured by the SDK from its decision-handshake cache. Used to reconstruct the experience the user was in." },
+    { name: "config_snapshot", type: "object", description: "Same as `flag_snapshot` for Remote Config values." },
+    { name: "trace_id", type: "string (32-char hex)", description: "Distributed-tracing trace ID." },
+    { name: "span_id", type: "string (16-char hex)", description: "Span ID within the trace." },
+    { name: "replay_chunk_index", type: "integer", description: "Replay chunk index correlating this event with the session replay timeline. Set by the SDK if Replay is active." },
+  ]}
+/>
+
+## Exception schema
+
+<CodeBlock lang="json" code={`{
+  "type": "TypeError",
+  "value": "Cannot read property 'length' of undefined",
+  "module": "node:internal/process/main_thread_only.js",
+  "thread_id": "main",
+  "stacktrace": {
+    "frames": [
+      {
+        "filename": "app.js",
+        "function": "processData",
+        "lineno": 42,
+        "colno": 15,
+        "abs_path": "/app/build/app.js",
+        "context_line": "  return data.length;",
+        "pre_context": ["function processData(data) {"],
+        "post_context": ["}"],
+        "in_app": true,
+        "module": "checkout",
+        "platform": "javascript"
+      }
+    ]
+  }
+}`} />
+
+`in_app` is the key field for fingerprinting — the engine prefers in-app frames when computing the auto-fingerprint and breaks ties using stack depth.
+
+## Debug-meta schema (Apple / NDK)
+
+<CodeBlock lang="json" code={`{
+  "images": [
+    {
+      "type": "macho",
+      "debug_id": "550e8400-e29b-41d4-a716-446655440000",
+      "code_file": "/var/containers/app",
+      "image_addr": "0x100000000",
+      "image_size": 10485760,
+      "image_vmaddr": "0x100000000",
+      "arch": "arm64"
+    }
+  ]
+}`} />
+
+The engine's symbolication worker uses `debug_id` to look up dSYM bundles uploaded via [Catch symbolication](/api/catch/symbolication).
+
+## Response
+
+`200 OK` on accepted batch:
+
+<CodeBlock lang="json" code={`{
+  "accepted": 5,
+  "rejected": 0,
+  "reject_reasons": []
+}`} />
+
+When some events fail per-event validation:
+
+<CodeBlock lang="json" code={`{
+  "accepted": 4,
+  "rejected": 1,
+  "reject_reasons": [
+    {
+      "event_id": "abc-123",
+      "reason": "ts_ms_out_of_window"
+    }
+  ]
+}`} />
+
+When the project's monthly Catch quota is hit:
+
+<CodeBlock lang="json" code={`{
+  "accepted": 5,
+  "rejected": 45,
+  "reject_reasons": [],
+  "quota_dropped": 45,
+  "quota_current": 10000,
+  "quota_limit": 10000
+}`} />
+
+The response also includes the header `x-sankofa-cap-hit: catch_events` so quota-aware clients can back off without reading the body.
+
+## Validation
+
+Per-event validation runs before fingerprinting:
+
+| Reason | When |
+|---|---|
+| `wire_version_mismatch` | `wire_version` not `1` |
+| `missing_event_id` | `event_id` missing |
+| `invalid_event_id` | `event_id` not a valid UUID |
+| `ts_ms_out_of_window` | `ts_ms` more than 7 days past or 10 minutes future |
+| `invalid_environment` | `environment` not `live` / `test` |
+| `invalid_level` | `level` not in allowed list |
+| `missing_type` | `type` missing |
+| `missing_platform` | `platform` missing |
+| `missing_sdk` | `sdk.name` or `sdk.version` missing |
+| `missing_body` | Both `exception` and `message` missing |
+
+Failed events don't break the batch — the response counts them under `rejected` with their reason.
+
+## Server-side enrichment
+
+The engine adds:
+
+| Field | Source |
+|---|---|
+| `received_at` | Server timestamp on accept |
+| `project_id`, `organization_id` | Resolved from API key |
+| `environment` (cross-check) | If body's `environment` mismatches the resolved one, returns `400` |
+| GeoIP fields | Country / region / city from request IP |
+| User-Agent fields | Parsed when `device` not supplied |
+| `client_ip` | Resolved client IP, normalized for private addresses |
+
+## PII scrubbing
+
+PII scrubbing runs **before** validation:
+
+- `user.email` is hashed when the project's PII config has `hash_emails: true`
+- `user.ip_address` is set to `null` when `redact_ip: true`
+- `request.headers` has `authorization`, `cookie`, `x-api-key` redacted
+
+Scrubbed values still count toward the validation's "non-empty" checks.
+
+## Fingerprinting
+
+If `fingerprint` is provided in the request, the engine uses it. Tokens like `{{ type }}` / `{{ message }}` / `{{ stack-top }}` are templated against the event's actual values.
+
+If absent, the engine computes:
+
+```
+fingerprint = SHA-1(exception.type + exception.value + first_in_app_frame.filename + first_in_app_frame.function)
+```
+
+Same fingerprint = same issue. The dashboard groups events by issue and shows aggregated counts + first-seen / last-seen.
+
+## Async post-processing
+
+After the response returns, the engine runs (async, fire-and-forget):
+
+1. **Issue creation / update** — finds or creates the matching `catch_issues` row, updates `last_seen_at` and counter.
+2. **Symbolication** — looks up source maps / dSYM / R8 / NDK / Flutter symbols matching `release` + `debug_id`, patches `stack_frames_json` in-place.
+3. **Alert evaluation** — checks all alerts configured for the project, fires webhooks if a threshold is crossed.
+4. **Outbound webhook** — `catch.event.captured` event for subscribers; `catch.issue.created` if it's a brand-new fingerprint.
+
+If any of these fail, the event still appears in the dashboard — they just lack the symbolicated stacks or downstream webhook delivery until the worker retries.
+
+## Idempotency
+
+Catch ingest **is idempotent** per `event_id`. Posting the same event ID twice produces only one row in `catch_events` (the second is a no-op). This is different from analytics ingest, which generates a new ID server-side every time.
+
+This means SDK retries are safe — the SDK can fire-and-forget on send failures without worrying about duplicate events.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/catch/symbolication" eyebrow="Adjacent" title="Symbol upload">
+    Upload source maps + dSYM + R8 mapping for symbolicated stacks.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Product" title="Catch product">
+    Issues, alerts, auto-rollback, transactions, vitals, profiles.
+  </Card>
+  <Card href="/sdks/web/packages/catch" eyebrow="SDK" title="@sankofa/catch (web)">
+    The web client that consumes this endpoint.
+  </Card>
+</CardGrid>

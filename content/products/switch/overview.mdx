@@ -145,7 +145,7 @@ It reports:
 | `PUT /api/v1/switch/flags/:id/schedule` | Set a scheduled rollout. |
 | `GET /api/v1/switch/flags/:id/reach-preview` | Pre-flight reach estimate. |
 | `POST /api/switch/halt-webhook` | Halt a flag (idempotent; can be hit by external systems with `x-api-key`). |
-| `POST /api/v1/decisions` | The decision-handshake endpoint (called by the SDK). |
+| `GET /api/v1/handshake` | The unified decision-handshake endpoint (called by the SDK). |
 | `POST /api/switch/exposures` | Per-call exposure upload (web SDK). |
 
 ## Switch limits by tier

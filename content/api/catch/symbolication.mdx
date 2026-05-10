@@ -1,0 +1,223 @@
+---
+title: Catch — symbol upload
+description: POST /api/v1/catch/symbols — upload source maps, dSYM bundles, R8 / ProGuard mappings, NDK symbols, or Flutter symbols. Multipart form upload. Synchronous to S3.
+toc: true
+---
+
+To get readable stack traces in the dashboard, you upload your build's symbols at deploy time. Catch ingest stores raw stack frames; the symbolication worker patches them with source-mapped function names + line numbers as soon as a matching artifact lands.
+
+The CLI (`sankofa catch symbols upload`) wraps this endpoint. For CI integrations or custom pipelines, call it directly.
+
+## Upload symbol artifact
+
+<EndpointBadge method="POST" path="/api/v1/catch/symbols" />
+
+### Authentication
+
+`Authorization: Bearer <jwt>` — Editor role minimum. Using a Deploy token (`sk_deploy_*`) or project API key (`sk_live_*`) does **not** work — symbol upload is a dashboard / management action.
+
+For CI integrations, mint a long-lived JWT from `/dashboard/<project>/settings/api-tokens` with the Editor role.
+
+### Content-Type
+
+`multipart/form-data` (file upload).
+
+### Form fields
+
+<ParameterTable
+  params={[
+    { name: "file", type: "file", required: true, description: "The symbol artifact. May be `.map` / `.zip` / `.txt` / `.bin` depending on `kind`. Max 512 MB per upload (chunk larger artifacts)." },
+    { name: "kind", type: "string", required: true, description: "Artifact type. One of: `js_sourcemap`, `ios_dsym`, `android_mapping`, `android_ndk`, `flutter_symbols`." },
+    { name: "environment", type: "string", description: "`live` or `test`. Default `live`." },
+    { name: "release", type: "string", description: "Release identifier — should match `release` field on captured events for the symbolication worker to find a match. Highly recommended." },
+    { name: "match_key", type: "string", description: "Filename / UUID to key on. If absent, the server derives one from `kind` + filename. For dSYM uploads, the engine reads the bundle's debug_id automatically." },
+    { name: "commit_sha", type: "string", description: "Git SHA for attribution + future re-uploads." },
+  ]}
+/>
+
+### Example request
+
+<CodeBlock lang="bash" code={`# Upload JavaScript source maps from a Vite build
+curl -X POST https://api.sankofa.dev/api/v1/catch/symbols \\
+  -H "Authorization: Bearer eyJhbGciOiJI..." \\
+  -F "file=@./dist/app.js.map" \\
+  -F "kind=js_sourcemap" \\
+  -F "environment=live" \\
+  -F "release=v1.2.0" \\
+  -F "match_key=app.js" \\
+  -F "commit_sha=a3b9ff1234567890..."`} />
+
+### Response (201 Created)
+
+<CodeBlock lang="json" code={`{
+  "artifact": {
+    "id": "sym_abc123",
+    "project_id": "proj_xyz",
+    "environment": "live",
+    "kind": "js_sourcemap",
+    "release": "v1.2.0",
+    "match_key": "app.js",
+    "size_bytes": 51200,
+    "sha256": "8c2f7a9b...",
+    "status": "ready",
+    "uploaded_at": "2026-05-09T14:32:01.482Z",
+    "storage_path": "s3://catch-symbols/proj_xyz/sym_abc123.map",
+    "original_name": "app.js.map"
+  }
+}`} />
+
+`status: "ready"` means the upload completed and the artifact is available for the symbolication worker. The handler doesn't return until the S3 write is durable, so a `201` guarantees usability.
+
+### Errors
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `{"error": "missing_file"}` | No `file` form field |
+| `400` | `{"error": "invalid_kind"}` | `kind` not in the allowed enum |
+| `400` | `{"error": "file_too_large"}` | File > 512 MB |
+| `401` | `{"error": "missing_authorization"}` | No JWT |
+| `403` | `{"error": "permission_denied"}` | JWT role isn't Editor or higher |
+| `413` | `{"error": "payload_too_large"}` | Total request exceeds the 500 MB body cap |
+
+## List symbol artifacts
+
+<EndpointBadge method="GET" path="/api/v1/catch/symbols" />
+
+### Authentication
+
+`Authorization: Bearer <jwt>` — Viewer role minimum.
+
+### Query parameters
+
+<ParameterTable
+  params={[
+    { name: "environment", type: "string", description: "`live` / `test`. Default `live`." },
+    { name: "kind", type: "string", description: "Filter by `kind`. Useful for cleaning up stale artifacts of a specific type." },
+    { name: "release", type: "string", description: "Filter by release identifier." },
+    { name: "limit", type: "integer", description: "Max results. Default 50, max 200." },
+  ]}
+/>
+
+### Response
+
+<CodeBlock lang="json" code={`{
+  "artifacts": [
+    {
+      "id": "sym_abc123",
+      "kind": "js_sourcemap",
+      "release": "v1.2.0",
+      "match_key": "app.js",
+      "size_bytes": 51200,
+      "status": "ready",
+      "uploaded_at": "2026-05-09T14:32:01.482Z"
+    },
+    {
+      "id": "sym_def456",
+      "kind": "ios_dsym",
+      "release": "v1.2.0",
+      "match_key": "550e8400-e29b-41d4-a716-446655440000",
+      "size_bytes": 2048576,
+      "status": "ready",
+      "uploaded_at": "2026-05-09T14:31:42.100Z"
+    }
+  ]
+}`} />
+
+## Delete symbol artifact
+
+<EndpointBadge method="DELETE" path="/api/v1/catch/symbols/:id" />
+
+### Authentication
+
+`Authorization: Bearer <jwt>` — Editor role minimum.
+
+### Response
+
+<CodeBlock lang="json" code={`{
+  "deleted": true
+}`} />
+
+Idempotent — re-deleting an already-deleted artifact returns `200 {"deleted": true}` without error.
+
+Note: deleting an artifact does **not** retroactively unsymbolicate events that were already symbolicated against it. The symbolicated stacks are persisted on the event row.
+
+## Per-platform upload patterns
+
+### Web (JavaScript source maps)
+
+<CodeBlock lang="bash" code={`# Vite (sourcemap: true in vite.config.ts)
+sankofa catch symbols upload \\
+  --kind js_sourcemap --release "$GIT_SHA" --dir ./dist
+
+# Next.js (productionBrowserSourceMaps: true)
+sankofa catch symbols upload \\
+  --kind js_sourcemap --release "$GIT_SHA" --dir ./.next/static/chunks
+
+# Webpack / esbuild — same --dir pattern`} />
+
+The CLI walks the directory, uploads every `.map` file with `match_key` set to the matching `.js` filename. The matching pair is what the symbolication worker looks up.
+
+### iOS (dSYM)
+
+<CodeBlock lang="bash" code={`# Xcode build → ./build/dSYMs/MyApp.app.dSYM
+sankofa catch symbols upload \\
+  --kind ios_dsym --release "$GIT_SHA" --dir ./build/dSYMs`} />
+
+The CLI zips each `.dSYM` bundle (Apple's nested directory format) and uploads it. The engine reads the bundle's `Contents/Resources/DWARF/MyApp` Mach-O file's `LC_UUID` load command to extract the `debug_id` automatically — you don't need to pass `match_key`.
+
+### Android (R8 / ProGuard mapping)
+
+<CodeBlock lang="bash" code={`# After ./gradlew assembleRelease
+sankofa catch symbols upload \\
+  --kind android_mapping --release "$GIT_SHA" \\
+  --file ./app/build/outputs/mapping/release/mapping.txt`} />
+
+The mapping file is the R8 / ProGuard output that maps obfuscated names back to original ones. Single file per build.
+
+### Android NDK
+
+<CodeBlock lang="bash" code={`# Native libraries built via NDK
+sankofa catch symbols upload \\
+  --kind android_ndk --release "$GIT_SHA" --dir ./obj`} />
+
+Walks the `obj/` directory, picks up every `.so` file with debug info.
+
+### Flutter
+
+<CodeBlock lang="bash" code={`# Flutter symbols artifact
+sankofa catch symbols upload \\
+  --kind flutter_symbols --release "$GIT_SHA" --dir ./build/symbols`} />
+
+## Symbolication worker behavior
+
+After upload, the worker:
+
+1. Verifies the artifact's `sha256` against the stored row.
+2. Indexes the artifact's `match_key` (and `debug_id` for dSYM) for lookup.
+3. Re-processes events in the last 24 hours that match `release` + `match_key` and have no symbolicated frames yet.
+
+For events older than 24 hours, the engine doesn't auto-reprocess — submit a Catch support ticket if you need historical re-symbolication.
+
+## Storage
+
+Symbols are stored in S3 (or compatible object storage) at `catch/symbols/{project_id}/{symbol_id}.[bin|zip|json|txt]`. There's no public access — the dashboard generates signed URLs with short TTLs to render preview / download links.
+
+Symbols persist for the **lifetime of the release** (per your retention plan). Deleted releases purge their symbols on a scheduled cleanup job.
+
+## Storage and quota
+
+Symbols don't count toward your monthly events quota — they're a separate flat-rate capacity per project tier. Free tier limits to ~5 GB of symbols; Pro and above are effectively uncapped (we'll reach out before we cap a customer).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/catch/events" eyebrow="Adjacent" title="Error events">
+    The events the symbolication patches.
+  </Card>
+  <Card href="/products/catch/overview" eyebrow="Product" title="Catch product">
+    Issues, alerts, auto-rollback.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="CLI" title="`sankofa catch symbols upload`">
+    Per-platform upload commands.
+  </Card>
+</CardGrid>

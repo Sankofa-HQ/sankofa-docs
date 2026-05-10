@@ -1,0 +1,129 @@
+---
+title: Security
+description: How Sankofa secures customer data — encryption at rest and in transit, key management, secret handling, audit logging, GDPR-ready deletion, region pinning. Plus the responsible-disclosure path.
+toc: true
+---
+
+Sankofa's security posture spans the engine, the SDKs, the dashboard, and the operational practices around them. This page describes what's true today — encryption, key management, audit, deletion, region pinning, and secret handling — plus how to report a vulnerability responsibly.
+
+## Encryption
+
+| Where | What | How |
+|---|---|---|
+| In transit (any client → engine) | TLS 1.2+ everywhere | Cloudflare-fronted ingress; all `*.sankofa.dev` endpoints redirect HTTP → HTTPS |
+| At rest (Postgres) | AES-256 | Transparent disk encryption on the managed Postgres provider |
+| At rest (ClickHouse) | AES-256 | Per-disk encryption keys, rotated yearly |
+| At rest (object storage — replays, symbols, deploy bundles) | AES-256 | S3 server-side encryption with KMS-managed keys |
+| Backups | AES-256 | Same KMS keys; offsite replication encrypted in transit |
+| Webhook secrets | Signed-only (HMAC-SHA256) | Secrets shown once at creation; stored hashed |
+
+We do not roll our own crypto — every encryption primitive uses the standard library or NaCl-based implementations.
+
+## Authentication + authorization
+
+- **User passwords** — bcrypt-hashed at rest. Cost factor 12 (verified at `internal/api/auth.go:320, 850`).
+- **JWT signing** — HMAC-SHA256 with a secret rotated quarterly. JWTs carry org membership + per-project roles.
+- **API keys** — `sk_live_*`, `sk_test_*`, `sk_deploy_*`. Stored hashed (Deploy tokens) or directly indexed (project keys with constant-time comparison).
+- **Email verification + password reset** — single-use tokens with 1-hour expiry.
+- **MFA** — Time-based OTP (RFC 6238). Available on all tiers; required for Owner / Admin roles on Enterprise.
+- **SSO** — SAML 2.0 + OIDC. SCIM 2.0 for user lifecycle. Enterprise tier. See [SSO & SCIM](/account/sso).
+
+## Audit logging
+
+Every mutation that changes user-visible behavior is logged with actor, timestamp, before/after snapshot, and metadata. Visible on every tier; CSV export and webhook stream on Pro+. See [Audit log](/account/audit-log).
+
+## Data residency
+
+Pin a project to one of four regions — `eu-west-1`, `us-east-1`, `af-south-1`, `ap-southeast-1`. Data never crosses region boundaries. Available on every tier. See [Data residency](/account/data-residency).
+
+## GDPR-ready operations
+
+Sankofa supports the operations a GDPR data controller needs:
+
+| Operation | How |
+|---|---|
+| Right to access | `GET /api/v1/account/export` — full data export per user, JSON or CSV. Pro+ tier. |
+| Right to deletion | `DELETE /api/v1/account/delete` — deletes the user's profile + every event with their `distinct_id` + their authored content. All tiers. |
+| Right to rectification | Standard UPDATE on People profile (`POST /api/v1/people` from a server with the user's authority). |
+| Right to restriction | `POST /api/v1/account/freeze` — freezes the user's data; events still arrive but aren't surfaced in queries. Enterprise. |
+| Right to portability | Same export endpoint. JSON output can be re-imported into other Sankofa projects. |
+| Right to object | Out-of-band (email contact). Sankofa team manually reviews + applies. |
+
+The deletion path is **non-recoverable**: events, replays, profile, audit log entries authored by the user, and any Pulse responses. ClickHouse deletes propagate within 24 hours.
+
+## Secret handling
+
+- **Customer secrets** — API keys, webhook signing secrets, IdP credentials (SAML cert, OIDC client secret, SCIM bearer tokens). Stored encrypted at rest with KMS.
+- **Sankofa-internal secrets** — engine-side database credentials, JWT signing keys, AWS / GCP service account keys. Stored in Vault, rotated quarterly.
+- **Display rules** — secrets are shown in the dashboard exactly once at creation. The full value is never available again — only the prefix and last-4. Rotation forces a new value.
+
+If a customer secret leaks (accidentally committed, screenshotted in a forum, etc.), the rotation procedure is single-click in the dashboard. We recommend rotating quarterly even without incidents.
+
+## SDLC + supply chain
+
+| Practice | What we do |
+|---|---|
+| Code review | Every commit on `main` requires PR + 1 reviewer for engine, 2 for SDKs |
+| Static analysis | `golangci-lint`, `eslint`, `tsc --strict`, `dart analyze`, `swiftlint`, `ktlint`, `pylint` per language |
+| Dependency scanning | Snyk + Dependabot, weekly digests, P0 vulns block deploy |
+| Container image scanning | Trivy on every Docker build |
+| Signed releases | All SDK releases signed (npm provenance, Maven Central GPG, sigstore for Go modules) |
+| Reproducible builds | Engine builds are byte-identical given the same inputs |
+
+## Vulnerability disclosure
+
+We run a coordinated disclosure program. To report a vulnerability:
+
+<Steps>
+  <Step title="Email security@sankofa.dev">
+    Encrypted with our PGP key (downloadable from the same address — request first, we'll reply with the key).
+  </Step>
+  <Step title="What to include">
+    Steps to reproduce, expected vs actual behavior, affected version / environment, and your contact details.
+  </Step>
+  <Step title="Don't disclose publicly until we've patched">
+    We commit to acknowledging within 1 business day, providing a fix timeline within 5 business days, and patching critical issues within 30 days.
+  </Step>
+  <Step title="Bounty program">
+    For critical / high severity issues affecting customer data confidentiality, integrity, or availability, we pay bug bounties on a per-issue basis. Schedule available on request.
+  </Step>
+</Steps>
+
+We do **not** consider these issues vulnerabilities (we may still ship fixes, just not on a security-disclosure timeline):
+
+- Missing security headers without a demonstrable exploit
+- Self-XSS or social-engineering scenarios
+- Issues requiring physical access to a privileged user's device
+- Brute-force or denial-of-service against rate-limited endpoints
+- Any vulnerability already publicly known in an unpatched dependency we've documented as a roadmap fix
+
+## Incident response
+
+In the event of a security incident affecting customer data:
+
+1. Mitigation is the first priority — block the attack vector, rotate compromised secrets.
+2. Affected customers are notified via email within 72 hours (sooner where feasible).
+3. A public postmortem is published within 14 days at `/resources/changelog` and `/resources/trust-center`.
+4. Service credits per tier SLA apply.
+
+For Enterprise customers, the incident-response plan is part of the Master Subscription Agreement.
+
+## Operational security
+
+- **Production access** — engineers use individual SSH certificates with 24h validity, MFA-enforced. No shared accounts.
+- **Audit of internal access** — every database query against production data is logged with actor + timestamp.
+- **Backup integrity testing** — quarterly restore drills against staging from the latest production backup.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Every action that changes user-visible behavior is logged.
+  </Card>
+  <Card href="/resources/compliance" eyebrow="Posture" title="Compliance">
+    What we're attesting to today and what's roadmapped.
+  </Card>
+  <Card href="/resources/trust-center" eyebrow="Documents" title="Trust center">
+    DPA, sub-processors, SOC 2 readiness program.
+  </Card>
+</CardGrid>

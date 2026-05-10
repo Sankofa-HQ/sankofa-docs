@@ -1,0 +1,160 @@
+---
+title: Audit log
+description: Every action that changes user-visible behavior is logged. Available to Admins on all tiers; CSV export and webhook streaming on Pro+. Two-store model — Postgres authoritative, ClickHouse for retention queries.
+toc: true
+---
+
+The audit log records every mutation across Sankofa: flag toggles, config publishes, deploy promotions, member changes, key rotations, project deletions, integration configuration changes, and Vision / Plan / Pulse content edits. It's the primary surface for "who changed what, when" — used for compliance, incident review, and on-call runbooks.
+
+The implementation is at `/server/engine/ee/audit/`.
+
+## What's logged
+
+Every product writes audit rows on every mutation. The schema is consistent across producers:
+
+| Field | Description |
+|---|---|
+| `actor_id` | User UUID. For automation, pseudo-actors like `system:halt-webhook` or `scim:sync` are used. |
+| `actor_email` | Resolved email for the actor (when actor_id is a real user). |
+| `action` | Domain.action verb — `switch.flag.halted`, `plan.ticket.transitioned`, `deploy.release.promoted_to_100`, etc. |
+| `resource_type` | The entity type (`flag`, `config_item`, `release`, `member`, `api_key`, `project`, `webhook`). |
+| `resource_id` | UUID of the affected resource. |
+| `before` | JSON snapshot of the entity before the mutation. May be `null` for creates. |
+| `after` | JSON snapshot after the mutation. May be `null` for deletes. |
+| `metadata` | Free-form JSON — request ID, IP, user-agent, evidence URL on alert-driven actions. |
+| `created_at` | UTC timestamp. |
+
+## Two-store model
+
+| Store | Role | Retention |
+|---|---|---|
+| Postgres `audit_log_entries` | Authoritative store. Strict ordering, transactional consistency with the producer's mutation. | All tiers — entries persist for the org's tier retention window. |
+| ClickHouse `audit_events` | Query-optimized mirror for analytics + long-range queries. Async dual-write; failures logged but non-fatal. | TTL 2 years, regardless of tier (overage is fine — ClickHouse is the cheap mirror). |
+
+The dashboard reads from Postgres for the latest 30 days, then falls back to ClickHouse for older queries.
+
+## Retention by tier
+
+| Tier | Audit retention |
+|---|---|
+| Hobby | 90 days |
+| Pro | 1 year |
+| Growth | 2 years |
+| Enterprise | 7 years (SOX-compliant) |
+
+These windows apply to the Postgres store. The ClickHouse mirror keeps 2 years across all tiers, but only Enterprise tier surfaces the longer history in the dashboard.
+
+## Who can read it
+
+- **Viewer / Editor**: read-only access to the audit log for their project's mutations. The cross-project aggregate view is hidden.
+- **Project Admin**: read + filter for the project, plus CSV export (Pro+).
+- **Organization Admin / Owner**: read + filter across every project, plus CSV export and webhook stream configuration.
+
+The dashboard surface is `/dashboard/account/audit-log` (org-wide) and per-project at `/dashboard/<project>/audit`.
+
+## CSV export
+
+Available on Pro tier and above. Two flavors:
+
+<Steps>
+  <Step title="On-demand">
+    Apply filters (date range, actor, action, resource), click Export CSV. The download streams from Postgres for the last 30 days, ClickHouse for older. File size cap: 100 MB per export — narrow filters or split by month.
+  </Step>
+  <Step title="Scheduled">
+    Pro+: configure a scheduled export at `/dashboard/account/audit-log → Scheduled exports → New`. Daily, weekly, or monthly. Delivery via email link or pre-signed S3 / GCS URL (Growth+).
+  </Step>
+</Steps>
+
+## Webhook stream
+
+Available on Pro+. Configure at `/dashboard/account/audit-log → Webhook stream`. Every audit row is delivered as an outbound webhook event — same delivery semantics as the [outbound webhook framework](/api/webhooks):
+
+- HMAC-SHA256 signing
+- 10-second per-attempt timeout
+- Exponential-backoff retries up to 24 hours
+- Dead-letter queue with manual replay
+
+The stream payload looks like:
+
+<CodeBlock lang="json" code={`{
+  "event": "audit.entry.created",
+  "organization_id": "org_xyz",
+  "emitted_at": "2026-05-09T14:32:01.482Z",
+  "data": {
+    "id": "ale_abc123",
+    "actor_id": "user_456",
+    "actor_email": "alice@example.com",
+    "action": "switch.flag.halted",
+    "resource_type": "flag",
+    "resource_id": "fl_xyz",
+    "before": { "halted_at": null, "current_version": 7 },
+    "after": { "halted_at": "2026-05-09T14:32:01.482Z", "current_version": 8 },
+    "metadata": {
+      "request_id": "req_abc",
+      "ip": "203.0.113.42",
+      "evidence_url": "https://app.sankofa.dev/dashboard/catch/issues/iss_abc"
+    },
+    "created_at": "2026-05-09T14:32:01.482Z"
+  }
+}`} />
+
+## SIEM integration
+
+For organizations that route security telemetry into a SIEM (Splunk, Datadog Cloud SIEM, Sumo Logic, Elastic Security, etc.):
+
+- **Webhook stream** → your SIEM's HTTP receiver. Most SIEMs accept arbitrary JSON over HMAC-signed webhooks.
+- **Scheduled CSV export** → S3 + your SIEM's S3 ingest path.
+- **API polling** → `GET /api/v1/audit?since=<timestamp>` polled hourly. Pull-based, useful for SIEMs without webhook receivers.
+
+The webhook stream is the lowest-latency path; CSV export is the cheapest at high volume.
+
+## API surface
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/audit` | JWT (Admin+) | List audit entries with filters: `project_id`, `actor_id`, `action`, `resource_type`, `since`, `until`, `limit`. |
+| `GET /api/v1/audit/:id` | JWT (Admin+) | Detail view of one audit entry. |
+| `POST /api/v1/audit/exports` | JWT (Admin+) | Create an on-demand CSV export. Returns a job ID; poll `GET /api/v1/audit/exports/:id` for status. |
+| `GET /api/v1/audit/exports/:id` | JWT (Admin+) | Export job status + signed download URL once ready. |
+
+## Common queries
+
+| Question | Filter |
+|---|---|
+| "Who halted `new_checkout` flag?" | `action = switch.flag.halted` AND `resource_id = fl_xyz` |
+| "What changed during last week's incident?" | `since = 2026-05-04T00:00:00Z` AND `until = 2026-05-08T23:59:59Z` |
+| "Did Alice access this project's audit log?" | `actor_email = alice@example.com` AND `action = audit.export.requested` |
+| "All deploys promoted to 100% in May" | `action = deploy.release.promoted_to_100` AND `since = 2026-05-01T00:00:00Z` |
+| "All key rotations" | `action = api_key.rotated` |
+
+## Action catalog (selected)
+
+The audit log uses the same action namespace as the [outbound webhooks](/api/webhooks). Common actions:
+
+- `auth.signin`, `auth.signout`, `auth.password.changed`
+- `member.invited`, `member.role.updated`, `member.removed`
+- `team.created`, `team.member.added`, `team.project.assigned`
+- `project.created`, `project.deleted`, `project.region.changed`
+- `api_key.created`, `api_key.rotated`, `api_key.revoked`
+- `switch.flag.created`, `switch.flag.toggled`, `switch.flag.halted`, `switch.flag.unhalted`
+- `config.item.created`, `config.item.published`, `config.item.rolled_back`
+- `deploy.release.uploaded`, `deploy.release.promoted`, `deploy.release.disabled`
+- `pulse.survey.created`, `pulse.survey.published`, `pulse.response.submitted` (configurable — opt-in)
+- `plan.ticket.created`, `plan.ticket.transitioned`
+- `vision.board.created`, `vision.initiative.linked`
+- `webhook.subscription.created`, `webhook.delivery.failed`
+- `audit.export.requested`, `audit.export.delivered`
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/api/webhooks" eyebrow="Stream" title="Webhook delivery">
+    Same signing + retry semantics as outbound product events.
+  </Card>
+  <Card href="/account/sso" eyebrow="Compliance" title="SSO + SCIM">
+    Pair SSO with SCIM for fully-IdP-driven access management.
+  </Card>
+  <Card href="/resources/security" eyebrow="Resources" title="Security posture">
+    Where the audit log fits in Sankofa's overall security model.
+  </Card>
+</CardGrid>

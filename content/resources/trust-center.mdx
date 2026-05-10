@@ -1,0 +1,144 @@
+---
+title: Trust center
+description: DPAs, sub-processor list, Acceptable Use Policy, security whitepaper, and compliance documents in one place. Self-serve for Pro and above; CSM-mediated for Enterprise.
+toc: false
+---
+
+The Trust Center is the consolidated home for the legal and operational documents customers need to evaluate Sankofa. Everything links from here.
+
+For the underlying compliance posture (what we attest to today vs in progress), see [Compliance](/resources/compliance). For the technical security model, see [Security](/resources/security).
+
+## Documents
+
+### Data Processing Agreement (DPA)
+
+A signed DPA is the contract that governs Sankofa's processing of customer data under GDPR + similar frameworks.
+
+| Tier | How to get one |
+|---|---|
+| Hobby | DPA template available; counter-signature requires upgrade to Pro+ |
+| Pro / Growth | Self-serve at `/dashboard/account/billing → Compliance → Generate DPA`. Pre-filled with your org details. |
+| Enterprise | Provided at contract signing by your CSM. Custom amendments supported. |
+
+Standard DPA terms cover sub-processor disclosure, notice requirements, breach notification, audit rights (annual, with reasonable notice), and the limited liability framework standard for SaaS DPAs.
+
+### Sub-processor list
+
+We use the following sub-processors. Material changes are notified per DPA terms (typically 30 days advance notice).
+
+| Sub-processor | Role | Data scope | Region |
+|---|---|---|---|
+| **Amazon Web Services (AWS)** | Cloud infrastructure (EC2, S3, RDS) | All customer data + backups | Customer's pinned region |
+| **Cloudflare** | CDN + DDoS protection + Workers | Public assets, dashboard static, deploy bundles | Global |
+| **ClickHouse Cloud** | Analytics database hosting | Events, replays, audit log, exposures | Customer's pinned region |
+| **Managed Postgres provider** | Authoritative database hosting | Application metadata, members, projects, configs | Customer's pinned region |
+| **Backblaze B2** | Object storage for replays + symbols + deploy bundles | Replay chunks, dSYM bundles, OTA bundles | Customer's pinned region |
+| **Stripe** | Payment processing | Billing-only data (tokenized cards, invoices); never customer event data | Stripe's regions |
+| **Resend** | Transactional email (sign-up, invitations, alerts) | Email addresses, message contents | Resend's regions |
+| **MailerSend** | Transactional email backup | Email addresses, message contents | MailerSend's regions |
+| **Sentry** (irony) | Internal error monitoring on our own infra | Engine-side errors, no customer event data | Sankofa's home region |
+| **Datadog** | Internal infrastructure monitoring | Engine-side metrics + logs, no customer event data | Datadog's regions |
+
+For each sub-processor, the data scope is bounded — customer event data lives only in the regions you pin to + their corresponding sub-processors (AWS, ClickHouse Cloud, Backblaze B2, managed Postgres). Sub-processors handling email, payments, and operational telemetry don't see your end users' event data.
+
+### Acceptable Use Policy (AUP)
+
+Sankofa's AUP prohibits using the platform for:
+
+- Illegal activity, including unauthorized data collection, harassment, or distribution of unlawful content.
+- Tracking individuals without lawful basis under the customer's applicable jurisdiction.
+- Profiling or targeting based on protected characteristics (race, religion, sexual orientation, etc.) in a way that produces discriminatory effects.
+- Unauthorized scraping or automated access to other customers' data via shared infrastructure.
+- Distributing malware, phishing, or fraud-enabling content.
+
+Enforcement is via our incident-response process. Verified violations result in account suspension; egregious violations result in immediate termination.
+
+The full AUP is provided as part of the Master Subscription Agreement.
+
+### Security whitepaper
+
+A consolidated PDF covering:
+
+- Architecture (engine, regions, data flow)
+- Encryption + key management
+- Access control + audit
+- SDLC + supply-chain security
+- Incident response
+- Compliance posture + roadmap
+
+Available on request — `enterprise-support@sankofa.dev` for Enterprise prospects, `support@sankofa.dev` for Pro+. Updated quarterly.
+
+### Penetration test reports
+
+We run quarterly third-party penetration tests. Reports (redacted to protect attack vectors) available to Enterprise customers under NDA.
+
+| Test | Frequency | Last run |
+|---|---|---|
+| Web application + dashboard | Quarterly | 2026-Q1 |
+| Engine API + ingestion | Quarterly | 2026-Q1 |
+| SDK supply chain | Annually | 2026-Q1 |
+| Mobile SDK runtime | Annually | 2026-Q1 |
+
+### Vendor questionnaires
+
+Pre-filled responses to:
+
+- **SIG (Standardized Information Gathering)** — Lite + Core
+- **CAIQ (Consensus Assessments Initiative Questionnaire)** — current version
+- **Industry-specific questionnaires** — finserv, healthcare, education
+
+Available on request to Enterprise prospects.
+
+## Service Level Agreement (SLA)
+
+The SLA is part of the Master Subscription Agreement (MSA) and links to the [status page](/resources/status):
+
+| Tier | Uptime target | Service credits |
+|---|---|---|
+| Hobby | best-effort | — |
+| Pro | best-effort | — |
+| Growth | 99.9% | per MSA schedule |
+| Enterprise | 99.95% | per MSA schedule + dedicated CSM during incidents |
+
+## Master Subscription Agreement (MSA)
+
+The MSA is the primary commercial contract:
+
+| Tier | How |
+|---|---|
+| Hobby | Click-through Terms of Service at sign-up |
+| Pro / Growth | Click-through MSA at upgrade |
+| Enterprise | Negotiated MSA with CSM. Standard MSA template available on request. |
+
+## Customer compliance contacts
+
+If you need to designate a Sankofa-internal contact for ongoing compliance discussions (annual security review, breach notifications, audit coordination):
+
+- **Pro + Growth** — your account email is the default. Update at `/dashboard/account/compliance-contacts`.
+- **Enterprise** — your CSM is the primary contact. Add additional named contacts for DPO, security, audit.
+
+## Audit rights
+
+Per the DPA, customers have the right to audit Sankofa's compliance with their commitments.
+
+| Tier | Audit modality |
+|---|---|
+| Hobby / Pro | Self-serve documentation review (this Trust Center + Security page) |
+| Growth | Documentation + annual security questionnaire response |
+| Enterprise | Documentation + annual customer-led audit (remote, scheduled in advance) + on-request third-party audit reports |
+
+For all tiers, our quarterly third-party pen-test reports + SOC 2 readiness reports (when finalized) are available under NDA.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/resources/compliance" eyebrow="Posture" title="Compliance roadmap">
+    Detailed status of SOC 2, ISO 27001, HIPAA, and beyond.
+  </Card>
+  <Card href="/resources/security" eyebrow="Practices" title="Security model">
+    Encryption, key management, SDLC, vulnerability disclosure.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Region" title="Data residency">
+    Region pinning details for compliance-bound projects.
+  </Card>
+</CardGrid>

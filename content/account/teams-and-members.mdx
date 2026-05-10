@@ -1,0 +1,134 @@
+---
+title: Teams & members
+description: Invite people, group them into teams, assign teams to projects in one click. No per-seat charges on Pro and above.
+toc: true
+---
+
+Sankofa's people surface is two-tiered: **members** belong to the organization, and **teams** are named groups of members that can be assigned project access in bulk. The split mirrors how real teams work — you have one HR-style org membership, and you slot people into one or more squads that own a project surface.
+
+## Members
+
+A member is an authenticated user with at least one role somewhere in the organization. Members are managed at `/dashboard/account/members`.
+
+### Invite a member
+
+<Steps>
+  <Step title="Click Invite member">
+    Email + initial organization role (Owner / Admin / Member). The "Member" org role is the most common — it grants no project access by default; you grant per-project roles separately.
+  </Step>
+  <Step title="They accept the invite">
+    The invitee receives an email with a sign-up link. After accepting, they appear in the members list with their assigned role.
+  </Step>
+  <Step title="Assign project access">
+    Click their name → Project access → assign a role per project (Viewer / Editor / Admin), or assign them to a team that already has project access. See [RBAC](/account/rbac) for the role matrix.
+  </Step>
+</Steps>
+
+### Member roles at the organization level
+
+| Role | What they can do |
+|---|---|
+| Owner | Everything — billing, plan, SSO, members, projects, audit. Multiple Owners allowed. |
+| Admin | Manage members + teams + projects. Cannot change billing, plan, or SSO. |
+| Member | Default. No org-level admin rights; gets project access only via direct grant or team membership. |
+
+Organization Owners and Admins **automatically have project Admin** rights on every project — there's no need to assign them per-project.
+
+### Removing a member
+
+Removing a member from the organization revokes their access everywhere. Their authored content (tickets, flags, configs, comments) is preserved but attributed to a "Deleted user" placeholder. To remove someone:
+
+`/dashboard/account/members → click their name → Remove from organization`.
+
+For SSO + SCIM-managed orgs, deactivate the user in your IdP — the SCIM job propagates the change to Sankofa within minutes.
+
+## Teams
+
+A team is a named group of members that share project access. Teams exist for two reasons:
+
+1. **Bulk project assignment.** Add five engineers to the `iOS` team once; granting the team Editor on a new mobile project means all five inherit Editor without per-member invites.
+2. **Default role per team.** A team has a default role (e.g. `iOS team → Editor on Mobile project`). Individual member overrides on specific projects still work — the team default is just the starting point.
+
+### Manage teams
+
+`/dashboard/account/teams` shows every team in the organization. Each team has:
+
+- **Name + description** — how it's labeled in the dashboard.
+- **Members** — explicit list. Members can be in multiple teams.
+- **Project assignments** — each entry is `(project, role)`. The role applies to every team member on that project.
+- **Default role for new projects** — used when you bulk-assign the team to a new project.
+
+### Create a team
+
+<Steps>
+  <Step title="Click New team">
+    Name + description. Pick the team's default project role (Viewer / Editor / Admin).
+  </Step>
+  <Step title="Add members">
+    Pick from the organization's member list.
+  </Step>
+  <Step title="Assign projects">
+    Click "Add project access" → pick a project + role. The team's role on that project applies to every team member.
+  </Step>
+</Steps>
+
+### Override a team member's role
+
+If you have a team that's mostly Editors but one member needs Admin on a specific project:
+
+<Steps>
+  <Step title="Open the project">
+    `/dashboard/<project>/settings/access`.
+  </Step>
+  <Step title="Find the member">
+    The team grants them Editor by default; you'll see "via <team name>".
+  </Step>
+  <Step title="Override per-member">
+    Click the role dropdown → pick Admin. The override beats the team default.
+  </Step>
+</Steps>
+
+To remove the override and revert to the team default, delete the member-level entry.
+
+## SSO-managed organizations
+
+When SSO is enabled (Enterprise), members provision automatically:
+
+- **JIT (Just-in-Time)** — first sign-in creates the member with the default org role (configurable in the SSO settings).
+- **SCIM 2.0 (optional)** — members + teams sync from your IdP. Adding a user to your IdP's `iOS` group adds them to the corresponding Sankofa `iOS` team. The members page becomes read-only.
+
+For the full setup, see [SSO & SCIM](/account/sso).
+
+## API surface
+
+The dashboard members + teams pages back onto these endpoints. Use them for CI scripts, custom admin tooling, or webhook-driven member sync.
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/members` | JWT | List org members. |
+| `POST /api/v1/members/invite` | JWT (Admin) | Invite a member by email. |
+| `PATCH /api/v1/members/:id` | JWT (Admin) | Update org role. |
+| `DELETE /api/v1/members/:id` | JWT (Admin) | Remove from org. |
+| `GET /api/v1/teams` | JWT | List teams. |
+| `POST /api/v1/teams` | JWT (Admin) | Create a team. |
+| `PATCH /api/v1/teams/:id` | JWT (Admin) | Update team metadata + default role. |
+| `POST /api/v1/teams/:id/members` | JWT (Admin) | Add a member to a team. |
+| `DELETE /api/v1/teams/:id/members/:user_id` | JWT (Admin) | Remove a member from a team. |
+| `POST /api/v1/teams/:id/projects` | JWT (Admin) | Assign a team to a project with a role. |
+| `DELETE /api/v1/teams/:id/projects/:project_id` | JWT (Admin) | Revoke team's project access. |
+
+For SCIM-managed orgs, mutations via these endpoints are blocked (the IdP is the source of truth). See [SSO & SCIM](/account/sso).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/rbac" eyebrow="Permissions" title="RBAC matrix">
+    What each role can actually do.
+  </Card>
+  <Card href="/account/sso" eyebrow="Enterprise" title="SSO & SCIM">
+    Auto-provision members from your IdP.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Every member-management action is logged.
+  </Card>
+</CardGrid>

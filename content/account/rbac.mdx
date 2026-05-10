@@ -1,0 +1,96 @@
+---
+title: RBAC
+description: Three project-scoped roles (Viewer, Editor, Admin) plus an organization-level Owner. Org Owners and Admins automatically have project Admin rights.
+toc: true
+---
+
+Role-based access control on Sankofa is intentionally simple: three roles per project, plus the **Owner** role at the organization level. The split keeps day-to-day project administration delegated while billing, plan, and SSO stay anchored at the org level.
+
+## Project roles
+
+A member's project role determines what they can do *inside* a single project. A member can be Viewer on one project and Admin on another — roles are project-scoped.
+
+<ParameterTable
+  params={[
+    { name: "Viewer", type: "project role", description: "Read-only. Can browse events, dashboards, flags, configs, replays, surveys, deploy releases, and the audit log. Cannot edit anything, cannot create flags, cannot rotate keys." },
+    { name: "Editor", type: "project role", description: "Viewer plus everything that affects user-visible behavior — create / edit / archive flags, configs, surveys, deploys, cohorts, dashboards, Vision boards, Plan tickets. Cannot manage members, billing, or API keys." },
+    { name: "Admin", type: "project role", description: "Editor plus member management for the project, API key rotation, integration configuration, and audit-log export." },
+  ]}
+/>
+
+## Organization roles
+
+The organization-level role applies across every project in the org.
+
+<ParameterTable
+  params={[
+    { name: "Owner", type: "organization role", description: "Full org control — billing, plan tier, SSO, SCIM, data-residency region, member management, can delete projects. Multiple Owners allowed. Auto-gets project Admin on every project." },
+    { name: "Admin", type: "organization role", description: "Manages members + teams + projects org-wide. Cannot change billing, plan, or SSO. Auto-gets project Admin on every project." },
+    { name: "Member", type: "organization role", description: "Default. No org-level admin rights. Project access is granted explicitly per project (or via team membership)." },
+  ]}
+/>
+
+Organization Owners and Admins **automatically have project Admin** rights on every project — they don't need to be invited per-project. This is enforced at the auth-middleware layer.
+
+## Permission matrix
+
+| Action | Viewer | Editor | Admin | Org Owner |
+|---|:---:|:---:|:---:|:---:|
+| View events / dashboards | ✓ | ✓ | ✓ | ✓ |
+| Run queries / build cohorts | ✓ | ✓ | ✓ | ✓ |
+| Watch session replays | ✓ | ✓ | ✓ | ✓ |
+| Read flags / configs / surveys | ✓ | ✓ | ✓ | ✓ |
+| Read Vision boards / Plan tickets | ✓ | ✓ | ✓ | ✓ |
+| Read audit log | ✓ | ✓ | ✓ | ✓ |
+| Create / edit flags + configs | | ✓ | ✓ | ✓ |
+| Halt a flag (incl. via webhook) | | ✓ | ✓ | ✓ |
+| Create / publish deploys | | ✓ | ✓ | ✓ |
+| Manage cohorts and dashboards | | ✓ | ✓ | ✓ |
+| Manage Vision / Plan content | | ✓ | ✓ | ✓ |
+| Manage project members | | | ✓ | ✓ |
+| Rotate API keys | | | ✓ | ✓ |
+| Configure integrations + webhooks | | | ✓ | ✓ |
+| Export audit log | | | ✓ (Pro+) | ✓ (Pro+) |
+| Manage billing + plan | | | | ✓ |
+| Manage SSO / SCIM | | | | ✓ (Enterprise) |
+| Set data-residency region | | | | ✓ |
+| Delete project | | | | ✓ |
+
+## Where roles are stored
+
+Project roles live on the `project_members` table; org roles on `organization_members`. The two are joined at auth time — every JWT carries both org membership and per-project role.
+
+For the engine internals + the auth middleware that enforces role gates, see `internal/database/models.go:121-170` and `internal/api/auth.go:550-556`.
+
+## SSO and SCIM
+
+For organizations on the Enterprise plan:
+
+- **SSO (SAML 2.0 + OIDC)** — every login goes through your IdP. Just-in-time provisioning is supported when paired with SCIM. New users land with the org's configured default role (typically `Member`).
+- **SCIM 2.0** — SCIM-managed organizations push membership and team assignments from the IdP. Adding a user to the `iOS` group in your IdP automatically adds them to the `iOS` team in Sankofa with the team's default role.
+
+When SCIM is on, the dashboard's `Account → Members` page becomes read-only — the IdP is the source of truth. To remove a member, deactivate them in the IdP. See [SSO & SCIM](/account/sso).
+
+## Audit log
+
+Every action that changes user-visible behavior is logged: flag toggles, config publishes, deploy promotions, key rotations, member adds / removes, access-grant changes. The audit log is visible to Admins and Owners and can be exported to CSV or streamed to a SIEM via webhook (Pro tier and above). See [Audit log](/account/audit-log).
+
+## What Sankofa does NOT do
+
+- **Granular per-flag access.** A project Editor can edit any flag in the project. If you need finer separation, split into multiple projects.
+- **Time-boxed access.** Roles are persistent — there's no built-in "grant access for 24 hours then auto-revoke." Build that on top of the [Members API](/account/teams-and-members#api-surface) if you need it.
+- **Field-level redaction in the dashboard.** A Viewer sees the same event payload as an Editor. If you need to hide PII from some viewers, redact at ingest with allow / deny lists. See [Events](/concepts/events).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/teams-and-members" eyebrow="Hands-on" title="Manage teams">
+    Invite, remove, and assign members in bulk.
+  </Card>
+  <Card href="/account/sso" eyebrow="Account" title="SSO setup">
+    SAML, OIDC, and SCIM provisioning recipes.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Account" title="Audit log">
+    What's logged, retention, and export targets.
+  </Card>
+</CardGrid>

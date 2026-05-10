@@ -1,0 +1,138 @@
+---
+title: Data residency
+description: Pin a project to one of four regions — eu-west-1, us-east-1, af-south-1, ap-southeast-1. Available on every tier. Region is set at project creation and surfaces in every API response.
+toc: true
+---
+
+Data residency lets you pin a project's data — events, replays, surveys, audit log, everything — to a specific geographic region. It's available on every tier, set at project creation, and enforced at the ingress layer (regional routing) plus the engine's database (region-aware queries).
+
+The implementation is at `/server/engine/ee/regions/`.
+
+## Supported regions
+
+| Region | Display name | Status |
+|---|---|---|
+| `eu-west-1` | Europe / Ireland | Available — default for new projects |
+| `us-east-1` | US East / N. Virginia | Available |
+| `af-south-1` | Africa / Cape Town | Available |
+| `ap-southeast-1` | Asia Pacific / Singapore | Available |
+
+More regions are on the roadmap (US West, EU Central, Mumbai, Sydney). For Enterprise customers with specific compliance needs, contact sales — we can prioritize a region for a contract.
+
+## How region pinning works
+
+<Steps>
+  <Step title="At project creation">
+    The dashboard's "New project" flow asks for the region. Default is `eu-west-1`. Once set, it cannot be changed in-place.
+  </Step>
+  <Step title="API key minted in-region">
+    The project's `live` and `test` API keys are tagged with the project's region. The keys themselves don't carry a region prefix — routing happens at the ingress layer based on the project tag.
+  </Step>
+  <Step title="Ingestion lands in-region">
+    Every event posted to `/api/v1/track` is routed to the project's region's ClickHouse cluster. The engine never serializes events outside the project's region.
+  </Step>
+  <Step title="Queries stay in-region">
+    Dashboard queries from any client (in any geography) hit the project's region. There's no cross-region query joining — each project's data stays within its assigned region.
+  </Step>
+</Steps>
+
+## What's pinned to the region
+
+Everything project-scoped:
+
+- Events (Analytics)
+- People profiles
+- Cohorts
+- Session replays + heatmaps
+- Catch issues + events + transactions + vitals + profiles + symbols
+- Switch flag decision logs + exposures
+- Config item versions
+- Pulse responses
+- Deploy bundles + telemetry
+- Plan tickets + sprints + releases + pages
+- Vision boards + their 5-surface contents
+- Per-project audit log entries
+
+Org-level data (members, teams, billing, SSO config, org-level audit log) is stored in your **primary** region. For organizations operating in multiple regions, the primary is set at sign-up.
+
+## Migrating between regions
+
+In-place region change is **not supported** — region is immutable per project. To move data between regions:
+
+<Steps>
+  <Step title="Create a new project in the target region">
+    `/dashboard → New project → region: us-east-1`.
+  </Step>
+  <Step title="Use the migration tool">
+    `/dashboard/account/migrations → New migration` (Enterprise tier only). Selects source + target projects, picks which surfaces to migrate (events, replays, configs, etc.), runs as a background job. Typically 24–72 hours for production-scale projects.
+  </Step>
+  <Step title="Cut over your apps">
+    Update your apps' API keys to the new project's keys. The migration handles dual-write during cutover so no events are lost.
+  </Step>
+  <Step title="Decommission the source">
+    Once the new project is healthy, archive the source. Data deletes per the source project's tier retention.
+  </Step>
+</Steps>
+
+For ad-hoc per-customer migrations, contact your CSM — for orgs with regulatory commitments, we can plan a coordinated migration window.
+
+## Compliance + data sovereignty
+
+Region pinning is the primary tool for meeting:
+
+- **EU GDPR data-residency requirements** — pin EU customers to `eu-west-1`. Data never leaves the EU.
+- **US healthcare / financial-services data-residency** — pin US customers to `us-east-1`. We'll provide a Business Associate Agreement (BAA) on request for HIPAA-relevant workloads (Enterprise tier).
+- **South African POPIA + government workloads** — `af-south-1` is the only African region we operate in.
+- **APAC compliance frameworks** — `ap-southeast-1` covers Singapore + much of Asia-Pacific.
+
+For specific compliance frameworks (FedRAMP, IRAP, ISO 27001 with regional scope), contact sales.
+
+## Multi-region organizations
+
+Most organizations operate in one region. For multi-region setups (e.g. an EU subsidiary and a US subsidiary both using Sankofa):
+
+- **Same org, multiple regional projects** — one organization, one billing account, but separate projects pinned to different regions. The org-level surfaces (members, teams, SSO, audit log) are stored in your primary region but accessible from any region's dashboard.
+- **Separate orgs per region** — for stricter data isolation. Each org bills separately.
+
+Pick the model that matches your legal posture. Most customers run a single org with regional projects.
+
+## API behavior across regions
+
+Every API response includes a `Region` header:
+
+<CodeBlock lang="http" code={`HTTP/1.1 200 OK
+Content-Type: application/json
+X-Sankofa-Region: eu-west-1
+Content-Length: 42
+
+{"ok":true,"commands":[]}`} />
+
+If your API client receives a different region than expected, the project's region was changed (only possible at project creation time, but worth re-checking). API keys minted in one region don't authenticate in another — the engine returns `403 Invalid API Key` if you point the wrong region's URL at a different region's key.
+
+## Latency considerations
+
+Each region's ingest endpoint is geographically anycast — request latency is typically &lt; 30 ms from within the region, 100–200 ms cross-region. The ingest path is async and queue-buffered, so cross-region latency doesn't block the SDK's user-facing flows.
+
+For dashboard-side query latency, queries always hit the project's region, regardless of where the dashboard is loaded from. EU users querying US-pinned projects will see 100–200 ms additional dashboard latency.
+
+## API surface (admin)
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/admin/regions` | JWT (Owner) | List supported regions. |
+| `GET /api/v1/admin/regions/orgs/:org_id` | JWT (Owner) | Show the primary region + per-project regions for an org. |
+| `POST /api/v1/admin/regions/orgs/:org_id/assign` | JWT (Owner) | Change an org's primary region. Requires no in-flight migrations. |
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/concepts/data-retention" eyebrow="Concepts" title="Data retention">
+    How long data lives in each region.
+  </Card>
+  <Card href="/resources/compliance" eyebrow="Resources" title="Compliance posture">
+    What we attest to today; what's roadmapped.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Every region-change action is logged.
+  </Card>
+</CardGrid>

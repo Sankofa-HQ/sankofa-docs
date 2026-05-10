@@ -127,7 +127,7 @@ function FeedbackButton() {
 The provider is a client component — it must be rendered inside a `"use client"` boundary. For SSR pages that want flag values rendered on the server, fetch decisions from the engine via REST and pass them down to a hydration-safe wrapper:
 
 <CodeBlock lang="tsx" filename="app/checkout/page.tsx" code={`async function getInitialDecisions(userId: string) {
-  const res = await fetch("https://api.sankofa.dev/api/v1/decisions", {
+  const res = await fetch("https://api.sankofa.dev/api/v1/handshake", {
     method: "POST",
     headers: { "x-api-key": process.env.SANKOFA_KEY!, "content-type": "application/json" },
     body: JSON.stringify({ distinct_id: userId, modules: ["switch", "config"] }),

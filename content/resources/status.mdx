@@ -1,0 +1,92 @@
+---
+title: Status
+description: Real-time service health for the Sankofa platform — engine, regional ingest endpoints, dashboard, webhook delivery. Subscribe to incidents via email or webhook.
+toc: false
+---
+
+Sankofa publishes service health at **status.sankofa.dev**. The status page reports per-component health (engine, regional ingest endpoints, dashboard, webhooks), open incidents, scheduled maintenance, and historical uptime.
+
+## Visit the status page
+
+[**status.sankofa.dev →**](https://status.sankofa.dev)
+
+The status page itself is hosted independently of the platform — if Sankofa's infrastructure is degraded, the status page stays up so you have a source of truth.
+
+## Components tracked
+
+| Component | What it covers |
+|---|---|
+| **Ingestion — eu-west-1** | `/api/v1/track`, `/people`, `/alias`, `/batch` for EU-pinned projects. |
+| **Ingestion — us-east-1** | Same endpoints for US-pinned projects. |
+| **Ingestion — af-south-1** | Same for Africa-pinned. |
+| **Ingestion — ap-southeast-1** | Same for APAC-pinned. |
+| **Decision handshake** | `GET /api/v1/handshake` per region. |
+| **Catch ingestion** | `/api/catch/{events,transactions,vitals,profiles}` per region. |
+| **Deploy / OTA** | `/api/deploy/check`, `/api/deploy/report`, bundle CDN per region. |
+| **Dashboard** | `https://app.sankofa.dev`. |
+| **Webhook delivery** | Outbound webhooks (Catch alerts, audit-log stream, product events). |
+| **SCIM endpoint** | `/scim/v2/*` for Enterprise customers. |
+
+Each component has independent health — a degraded webhook delivery does not impair ingestion.
+
+## What you'll see
+
+| Status color | Meaning |
+|---|---|
+| **Operational** (green) | Component is healthy. p99 latency within target. |
+| **Degraded performance** (yellow) | Elevated latency or partial failures. Service usable but slower / less reliable. |
+| **Partial outage** (orange) | Some users / regions affected. |
+| **Major outage** (red) | Component is down. |
+
+## Subscribe to incident notifications
+
+Three channels, all configurable on the status page itself:
+
+- **Email** — Subscribe to component-specific or all-component incidents. One email per incident open + close, plus updates during.
+- **SMS** — For on-call setups (Pro+).
+- **Webhook** — Status page POSTs an incident webhook to your URL. Same signing semantics as Sankofa's outbound webhooks.
+
+## SLA + uptime targets
+
+| Tier | Uptime target | Credits |
+|---|---|---|
+| Hobby | best-effort | — |
+| Pro | best-effort | — |
+| Growth | 99.9% | service credits per the [Master Subscription Agreement](/resources/trust-center) |
+| Enterprise | 99.95% | service credits + dedicated CSM during incidents |
+
+Uptime is measured per component. Outages on `eu-west-1` ingestion don't trigger SLA credits for `us-east-1`-pinned projects.
+
+## Past incidents
+
+Historical incidents (90 days back, all tiers) are surfaced on the status page itself. For longer history, contact support — we maintain incident postmortems for at least 2 years.
+
+## On-call escalation
+
+If you're seeing a problem that's not yet reflected on the status page:
+
+<Steps>
+  <Step title="Check the dashboard's status banner">
+    `/dashboard` includes a banner pulled live from the status page. If something's wrong, it's the fastest signal.
+  </Step>
+  <Step title="Email support@sankofa.dev">
+    For Pro and above. Include the request ID (returned in the `X-Request-Id` header on every API response) and approximate UTC timestamp.
+  </Step>
+  <Step title="Page Sankofa on-call (Enterprise)">
+    For Enterprise customers, the dedicated CSM has a paging procedure for in-flight incidents. Document this with your CSM at onboarding.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/resources/support" eyebrow="Help" title="Support">
+    Channels, SLAs, and escalation paths.
+  </Card>
+  <Card href="/resources/security" eyebrow="Posture" title="Security model">
+    How we operate the platform.
+  </Card>
+  <Card href="/api/webhooks" eyebrow="Stream" title="Webhooks">
+    Subscribe to product events from your own automation.
+  </Card>
+</CardGrid>

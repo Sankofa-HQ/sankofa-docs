@@ -110,12 +110,12 @@ Full details: [Rate limits](/api/rate-limits).
 
 These endpoints exist and are partially documented in the SDK pages but don't yet have their own dedicated reference pages — they'll get full coverage in a follow-up phase:
 
-- **Decision handshake** — `POST /api/v1/decisions` (called by every client SDK on session start)
+- **Decision handshake** — `GET /api/v1/handshake` (called by every client SDK on session start; carries Switch + Config + Deploy + Catch + Analytics)
 - **Switch** — `GET/POST/PUT/DELETE /api/v1/switch/flags/...`, `POST /api/switch/halt-webhook`, `POST /api/switch/exposures`
 - **Config** — `GET/POST/PUT/DELETE /api/v1/config/items/...`
 - **Pulse** — `GET/POST /api/v1/pulse/surveys/...`
 - **Deploy** — `POST /api/deploy/check`, `/api/deploy/report`, `/api/v1/deploy/releases/...`
-- **Catch** — `POST /api/ee/catch/ingest/{events,transactions,vitals,profiles}`, `GET /api/v1/catch/issues`
+- **Catch** — `POST /api/catch/{events,transactions,vitals,profiles}`, `GET /api/v1/catch/issues`, `POST /api/v1/catch/symbols` (upload)
 - **Vision** — `GET/POST /api/v1/vision/{boards,pages,roadmap,okr,initiatives,docs,...}` (full surface listed in [Vision overview](/products/vision/overview))
 - **Plan** — `GET/POST /api/v1/plan/{boards,tickets,sprints,releases,workflows,pages,...}` (full surface listed in [Plan overview](/products/plan/overview))
 

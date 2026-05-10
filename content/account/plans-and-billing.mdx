@@ -1,0 +1,174 @@
+---
+title: Plans & billing
+description: Per-organisation pricing — no per-seat surprises. Four tiers (Hobby, Pro, Growth, Enterprise), each with per-product event quotas, retention windows, and feature gates.
+toc: true
+---
+
+Sankofa charges **per organization**, not per seat. Add as many members as you need on Pro and above without thinking about cost — the only metered dimensions are monthly events, replays, deploy patches, and per-product feature gates.
+
+This page is the canonical tier matrix. Every quota and feature gate documented here is enforced server-side (`/server/engine/ee/billing/plans.go`); changes here track the engine's source of truth.
+
+## The four tiers
+
+| Tier | Price | Best for |
+|---|---|---|
+| Hobby | $0 / month | Solo devs, side projects, evaluating Sankofa |
+| Pro | $29 / month | Small teams shipping production apps |
+| Growth | $99 / month | Mid-sized teams + higher traffic |
+| Enterprise | Custom | Compliance-bound + multi-region orgs |
+
+Pricing is per organization. There's no per-seat charge on Pro and above.
+
+## Headline limits
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---:|---:|---:|---:|
+| Events / month | 100K | 1M | 10M | Unlimited |
+| Session replays / month | 1K | 5K | 20K | Unlimited |
+| Deploy patches / month | 5K | 50K | 1M | Unlimited |
+| Event retention | 30 days | 90 days | 365 days | Custom (up to indefinite) |
+| Replay retention | 7 days | 30 days | 90 days | Custom |
+| Max members | 3 | Unlimited | Unlimited | Unlimited |
+
+Hobby is genuinely free — no card required at sign-up. Pro is a card-only checkout; Growth + Enterprise unlock invoicing and dedicated support.
+
+## Per-product feature gates
+
+Each product has its own internal tier ladder. The headlines above are the org-wide tier; per-product tier is computed from your org tier (with custom Enterprise overrides).
+
+### Catch (errors + transactions + vitals + profiles)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Error events / month | 100K | 5M | 25M | Custom |
+| Vitals capture | ✓ | ✓ | ✓ | ✓ |
+| Transactions + spans | — | ✓ | ✓ | ✓ |
+| Profiles | — | ✓ | ✓ | ✓ |
+| Symbol uploads | 5 GB | unlimited | unlimited | unlimited |
+| Slack + webhook alerts | — | ✓ | ✓ | ✓ |
+| Auto-rollback (halt webhook) | — | ✓ | ✓ | ✓ |
+
+### Switch (flags + variants)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Flags | ≤ 10 | unlimited | unlimited | unlimited |
+| Variants per flag | 1 (boolean only) | up to 10 | up to 25 | unlimited |
+| Schedule rollouts | — | ✓ | ✓ | ✓ |
+| Halt webhook | — | ✓ | ✓ | ✓ |
+| Per-call exposure tracking (web) | ✓ | ✓ | ✓ | ✓ |
+| SSO + audit export | — | — | — | ✓ |
+
+### Remote Config
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Items | ≤ 25 | unlimited | unlimited | unlimited |
+| Fetches / month | 100K | 10M | unlimited | unlimited |
+| Cohort overrides | basic | ✓ | ✓ | ✓ |
+| A/B item experiments | — | up to 5 active | up to 25 active | unlimited |
+| Version history | — | 30 days | 90 days | custom |
+
+### Pulse (surveys)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Surveys | ≤ 3 | unlimited | unlimited | unlimited |
+| Responses / month | 1K | 50K | 500K | unlimited |
+| Branching logic | linear only | ✓ | ✓ | ✓ |
+| Custom renderer | — | ✓ | ✓ | ✓ |
+| Cohort entry / exit triggers | basic | ✓ | ✓ | ✓ |
+
+### Deploy (OTA)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Releases / month | 5 | unlimited | unlimited | unlimited |
+| Bundle size | 50 MB | 200 MB | 500 MB | unlimited |
+| Geo CDN | shared | dedicated | dedicated + multi-region | dedicated + region pinning |
+| Auto-rollback | basic | ✓ + Catch-driven | ✓ + custom rules | ✓ + per-device gating |
+
+### Plan (tickets, sprints, releases, pages)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Boards | 1 | unlimited | unlimited | unlimited |
+| Tickets / sprint | 50 | unlimited | unlimited | unlimited |
+| Pages | 5 | unlimited | unlimited | unlimited |
+| Jira import | — | once | unlimited re-imports | unlimited + custom workflows |
+
+### Vision (5-surface strategy)
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Boards | 1 | unlimited | unlimited | unlimited |
+| Editors / board | 3 | unlimited | unlimited | unlimited |
+| OKR cycles | 1 active | unlimited | unlimited | unlimited |
+| Initiatives | 5 active | unlimited | unlimited | unlimited |
+| Public read-only sharing | — | link | + password | + custom domain |
+| Multiplayer (Yjs) | — | ✓ | ✓ | ✓ |
+
+### Analytics (events + replay + heatmaps)
+
+The headline event quota above (100K → 1M → 10M → unlimited) is the Analytics quota. Replay + heatmaps share the replay-quota row above.
+
+## Org-level features
+
+| | Hobby | Pro | Growth | Enterprise |
+|---|---|---|---|---|
+| Audit log retention | 90 days | 1 year | 2 years | 7 years (SOX-compliant) |
+| Audit log CSV export | — | ✓ | ✓ | ✓ |
+| Audit log webhook stream | — | ✓ | ✓ | ✓ + per-rule audit |
+| Outbound webhooks | basic | ✓ | ✓ | ✓ + dead-letter replay |
+| SSO (SAML 2.0 / OIDC) | — | — | — | ✓ |
+| SCIM 2.0 user provisioning | — | — | — | ✓ |
+| Data residency pinning | ✓ | ✓ | ✓ | ✓ + custom region rollout |
+| Service-level agreement | — | — | 99.9% | 99.95% + dedicated CSM |
+
+## How metering works
+
+Each metered dimension counts independently:
+
+- **Events** — every `track`, `identify`, `setPerson`, `alias` (and the Catch ingest equivalents). Counted once per request, regardless of batch size.
+- **Replays** — every session that the SDK uploads a non-empty replay file for.
+- **Deploy patches** — every JS-only patch shipped via `sankofa patch` (base releases don't count).
+- **Catch events** — separate quota from analytics events. `catch.captureException` and `captureMessage` count here.
+
+Quotas reset on the 1st of every calendar month UTC. The dashboard's usage card warns at 80% and 95%. Past 100%:
+
+- **Free / Hobby** — events past the cap are rejected at ingest with `429 quota_exceeded`. Decisions still resolve to defaults.
+- **Pro / Growth** — overage billing kicks in (per-event rate documented at checkout). Service is uninterrupted.
+- **Enterprise** — custom contract terms; typically no overage, just an annual true-up.
+
+## Billing surface
+
+| Action | Where |
+|---|---|
+| Upgrade / downgrade | `/dashboard/account/billing → Plan` |
+| Add a payment method | `/dashboard/account/billing → Payment methods` |
+| View invoices | `/dashboard/account/billing → Invoices` |
+| Switch to ACH (Pro+) | `/dashboard/account/billing → Payment methods → Add ACH` |
+| Request invoice billing (Growth+) | Contact `sales@sankofa.dev` |
+
+Card payments are processed via Stripe. ACH and invoice paths use direct ACH / wire transfer. Tax handling: VAT (EU), GST (UK / Australia), and US sales tax are computed at checkout.
+
+## Cancellations + downgrades
+
+- **Cancel anytime** — no commitment, no early-termination fees.
+- **Downgrades** are pro-rated; the new tier's quotas apply immediately.
+- **Downgrade rejection** — you can't downgrade if your current usage exceeds the target tier's quota for the current month. Wait for the next reset or reduce usage first.
+- **Data preservation** — downgrading from Pro to Hobby preserves your data, but the longer-tier retention windows truncate (e.g. 90-day events → 30-day events trims older rows).
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/teams-and-members" eyebrow="Setup" title="Teams & members">
+    Invite without per-seat fees on Pro+.
+  </Card>
+  <Card href="/account/data-residency" eyebrow="Compliance" title="Data residency">
+    Pin a region — available on all tiers.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Export comes with Pro and above.
+  </Card>
+</CardGrid>

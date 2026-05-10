@@ -1,0 +1,201 @@
+---
+title: SSO & SCIM
+description: SAML 2.0 and OIDC sign-in plus SCIM 2.0 user provisioning. Enterprise tier. Just-in-time member creation, IdP-driven team sync, dashboard becomes read-only when SCIM is on.
+toc: true
+---
+
+SSO + SCIM lets you delegate Sankofa's authentication and user-management to your existing IdP. Every login goes through Okta / Azure AD / Google Workspace / your generic SAML or OIDC provider; user provisioning, deactivation, and team membership flow from your IdP into Sankofa automatically.
+
+**Both SSO and SCIM are Enterprise tier.** They're enabled at the organization level and apply across every project in the org.
+
+The implementation lives in `/server/engine/ee/saml/` (SAML + OIDC) and `/server/engine/ee/scim/` (SCIM 2.0).
+
+## What you get
+
+| Capability | Available |
+|---|---|
+| SAML 2.0 sign-in | ✓ |
+| OIDC sign-in | ✓ |
+| Just-in-time provisioning (sign-in creates the member) | ✓ |
+| SCIM 2.0 user create / update / deactivate | ✓ |
+| SCIM 2.0 group → team sync | ✓ |
+| Per-IdP-group default role assignment | ✓ |
+| Multi-IdP per org | — (one IdP per org today) |
+| Per-project SSO | — (org-level only) |
+
+## Set up SAML 2.0
+
+### Prerequisites
+
+- Sankofa organization on Enterprise tier.
+- An IdP that speaks SAML 2.0 (Okta, Azure AD / Entra ID, Google Workspace, Auth0, OneLogin, generic SAML).
+- An admin user in your IdP who can mint SAML applications.
+
+### Sankofa-side metadata
+
+Get these from `/dashboard/account/sso → Configure SAML`:
+
+<ParameterTable
+  params={[
+    { name: "SP Entity ID (Issuer)", type: "string", description: "Audience URI Sankofa uses to identify itself to your IdP. Looks like `https://api.sankofa.dev/api/v1/auth/saml/<org_id>`." },
+    { name: "ACS URL (Reply URL)", type: "string", description: "Where the IdP posts the SAML assertion. `https://api.sankofa.dev/api/v1/auth/saml/<org_id>/acs`." },
+    { name: "Signing certificate", type: "X.509 PEM", description: "Sankofa's public cert for signing requests + verifying responses. Download as PEM." },
+    { name: "NameID format", type: "string", description: "`urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress` — Sankofa expects email as NameID." },
+  ]}
+/>
+
+### IdP-side configuration
+
+In your IdP's SAML application:
+
+<Steps>
+  <Step title="Create a new SAML 2.0 application">
+    Pick "Custom SAML 2.0" or whatever your IdP labels it.
+  </Step>
+  <Step title="Set the Audience + ACS">
+    Use Sankofa's SP Entity ID as the Audience URI / Identifier. Use Sankofa's ACS URL as the Single sign-on URL / Reply URL.
+  </Step>
+  <Step title="Configure attribute mapping">
+    Sankofa expects: `email` (required, NameID), `firstName`, `lastName`. Optional: `groups` (for SCIM-style team assignment via SAML attributes — useful as a transition step before full SCIM).
+  </Step>
+  <Step title="Download the IdP metadata">
+    XML metadata file. Or copy the IdP issuer URL + signing certificate manually.
+  </Step>
+  <Step title="Upload to Sankofa">
+    `/dashboard/account/sso → Configure SAML → Upload metadata`. Either drag the XML or paste the URL.
+  </Step>
+  <Step title="Test sign-in">
+    Sign out of Sankofa. Visit `/login → Sign in with SSO`. The IdP should prompt for credentials, then redirect back. The first sign-in creates a JIT member with the configured default role.
+  </Step>
+</Steps>
+
+### Default role assignment
+
+When a new user signs in via SSO, they're created with the **org default role** (configured at `/dashboard/account/sso → Settings`). The default is typically `Member` — they get no project access until you (or SCIM) assign them.
+
+For per-IdP-group default roles, use SCIM (next section).
+
+## Set up OIDC
+
+OIDC is the simpler alternative for IdPs that prefer it (Auth0, generic OIDC providers).
+
+### Sankofa-side metadata
+
+Get from `/dashboard/account/sso → Configure OIDC`:
+
+<ParameterTable
+  params={[
+    { name: "Redirect URI (Callback)", type: "string", description: "`https://api.sankofa.dev/api/v1/auth/oidc/<org_id>/callback`. Add this to your IdP application's allow-list." },
+    { name: "Scopes", type: "string", description: "Sankofa requests `openid profile email`. Optionally `groups` if you want IdP groups → Sankofa teams (paired with SCIM)." },
+  ]}
+/>
+
+### IdP-side configuration
+
+<Steps>
+  <Step title="Create an OIDC application">
+    Web app. Set the Redirect URI to Sankofa's callback URL.
+  </Step>
+  <Step title="Capture credentials">
+    Note the IdP's Client ID, Client Secret, and Discovery URL (e.g. `https://your-idp.example.com/.well-known/openid-configuration`).
+  </Step>
+  <Step title="Upload to Sankofa">
+    `/dashboard/account/sso → Configure OIDC → Save`. Paste Client ID, Client Secret, Discovery URL.
+  </Step>
+  <Step title="Test sign-in">
+    Sign out. Visit `/login → Sign in with SSO`. The OIDC flow runs end-to-end.
+  </Step>
+</Steps>
+
+## SCIM 2.0 (user + group provisioning)
+
+SCIM lets your IdP push user + group changes into Sankofa. Adding a user to your IdP's `iOS` group adds them to the corresponding Sankofa team. Deactivating a user in your IdP deactivates them in Sankofa within minutes.
+
+### What SCIM manages
+
+| Operation | What happens |
+|---|---|
+| Create user | New member appears in Sankofa with the configured default org role. |
+| Update user | Email / name / IdP-groups update on the matching Sankofa member. |
+| Deactivate user | Member is set to `inactive` — they can't sign in, but their authored content (tickets, flags, comments) is preserved. |
+| Create group | Maps 1:1 to a Sankofa team. The mapping is configured per-IdP-group at setup. |
+| Add user to group | Adds the matching Sankofa member to the matching team — they inherit the team's default project role. |
+| Remove user from group | Removes them from the team. |
+
+### Sankofa-side endpoints
+
+SCIM is RFC 7643 + 7644 compliant (subset). Endpoints live at `/scim/v2/`:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/scim/v2/ServiceProviderConfig` | GET | Discovery — what Sankofa's SCIM supports. |
+| `/scim/v2/ResourceTypes` | GET | Resource types (User, Group). |
+| `/scim/v2/Schemas` | GET | Schema definitions per type. |
+| `/scim/v2/Users` | GET, POST | List + create users. |
+| `/scim/v2/Users/:id` | GET, PUT, PATCH, DELETE | CRUD on a specific user. |
+| `/scim/v2/Groups` | GET, POST | List + create groups. |
+| `/scim/v2/Groups/:id` | GET, PUT, PATCH, DELETE | CRUD on a specific group. |
+
+Authentication uses an SCIM Bearer token minted at `/dashboard/account/sso → SCIM token → Generate`. The token is shown once.
+
+### IdP-side configuration
+
+| IdP | SCIM endpoint URL | Auth |
+|---|---|---|
+| Okta | `https://api.sankofa.dev/scim/v2` | Bearer token (Sankofa-minted) |
+| Azure AD / Entra ID | `https://api.sankofa.dev/scim/v2` | Bearer token |
+| Google Workspace | (no native SCIM client; use a third-party connector) | n/a |
+| OneLogin | `https://api.sankofa.dev/scim/v2` | Bearer token |
+| Auth0 | (no native SCIM 2.0 push; use Auth0 Actions) | n/a |
+
+### Group → team mapping
+
+After SCIM is enabled, configure how IdP groups map to Sankofa teams:
+
+<Steps>
+  <Step title="Open SCIM settings">
+    `/dashboard/account/sso → SCIM → Group mappings`.
+  </Step>
+  <Step title="Map IdP group → team">
+    Pick an IdP group (`iOS`, `Backend`, `Growth`) → pick a Sankofa team. The team must already exist; create it first if needed.
+  </Step>
+  <Step title="Set the team's project access">
+    On the team's settings page, assign the team to projects with default roles. Members added via SCIM inherit these roles.
+  </Step>
+</Steps>
+
+### Members page becomes read-only
+
+Once SCIM is active, `/dashboard/account/members` shows a banner: *"Member management is delegated to your IdP via SCIM."* Manual member adds / removes from the dashboard are blocked. To add a member, add them to the matching IdP group; to remove, deactivate them in the IdP.
+
+This is enforced server-side — the API endpoints return `403 Forbidden — managed by SCIM` for any non-read operations.
+
+## Mixed-mode (SSO without SCIM)
+
+You can enable SSO without SCIM. The behavior:
+
+- **Sign-in** flows through your IdP.
+- **Member creation** is JIT — first sign-in creates the member.
+- **Member removal + group sync** are still manual (dashboard / API).
+
+This is a common transition mode while you evaluate SCIM separately.
+
+## Disabling SSO + SCIM
+
+Both are configurable from `/dashboard/account/sso`. Disabling SSO reverts to email + password. Disabling SCIM unfreezes the members page; existing members keep their access until you change it.
+
+For Enterprise customers under audit, all enable / disable actions are logged in the audit log with the actor + timestamp.
+
+## What's next
+
+<CardGrid cols={3}>
+  <Card href="/account/teams-and-members" eyebrow="Setup" title="Teams + projects">
+    Create the teams that SCIM groups map onto.
+  </Card>
+  <Card href="/account/audit-log" eyebrow="Visibility" title="Audit log">
+    Every SSO + SCIM action is logged.
+  </Card>
+  <Card href="/account/rbac" eyebrow="Permissions" title="RBAC matrix">
+    What the default role assigned at JIT can actually do.
+  </Card>
+</CardGrid>
