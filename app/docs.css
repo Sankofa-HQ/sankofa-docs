@@ -423,8 +423,13 @@
   margin: 0;
   padding: 16px 20px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   font: 400 13.5px/22px var(--font-mono);
   background: transparent;
+  /* Force long tokens to stay on one line; <pre> + overflow-x handles the scroll. */
+  white-space: pre;
+  /* Bottom-edge scrollbar room so it doesn't overlap the last line. */
+  scrollbar-gutter: stable;
 }
 .docs-code pre > code {
   display: grid;
@@ -432,28 +437,63 @@
   border: 0;
   padding: 0;
   font-family: inherit;
+  /* The grid container must size to its widest line so the parent <pre> overflows. */
+  width: max-content;
+  min-width: 100%;
 }
-.docs-code [data-line] {
+.docs-code .line {
+  display: block;
   padding: 0 16px;
   margin: 0 -20px;
   border-left: 2px solid transparent;
+  min-height: 22px;
+  /* Per-token spans set their own color via --shiki-light/--shiki-dark; this
+     gives a sane default for whitespace and untokenised text. */
+  color: var(--shiki-light, var(--page-fg));
 }
-.docs-code [data-highlighted-line] {
-  background: rgba(250,115,25,0.08);
+.docs-code .line[data-highlighted-line="true"] {
+  background: rgba(250, 115, 25, 0.08);
   border-left-color: var(--accent);
 }
 
-/* Shiki theme variables (rehype-pretty-code dual-theme) */
-[data-theme="light"] .docs-code [data-rehype-pretty-code-figure] code,
-:root:not([data-theme="dark"]) .docs-code [data-rehype-pretty-code-figure] code {
-  color: var(--shiki-light, var(--page-fg));
-  background: transparent;
+/* Per-token colors from Shiki (themes: github-light/github-dark, defaultColor: false). */
+.docs-code .line > span {
+  color: var(--shiki-light);
 }
-.docs-code code [data-line] span {
-  color: var(--shiki-light, currentColor);
+[data-theme="dark"] .docs-code .line,
+[data-theme="dark"] .docs-code .line > span {
+  color: var(--shiki-dark);
 }
-[data-theme="dark"] .docs-code code [data-line] span {
-  color: var(--shiki-dark, currentColor);
+
+/* Comment styling — make comments visually distinct from code (italic + muted)
+   so users can scan past them. github-light uses #6A737D, github-dark uses #6A737D.
+   The attribute selector keys off Shiki's inline --shiki-* custom property. */
+.docs-code .line > span[style*="--shiki-light:#6A737D"],
+.docs-code .line > span[style*="--shiki-light:#6a737d"],
+.docs-code .line > span[style*="--shiki-light:#6E7781"],
+.docs-code .line > span[style*="--shiki-light:#6e7781"] {
+  font-style: italic;
+  opacity: 0.78;
+}
+
+/* Scrollbar styling so the overflow is visible without feeling brutalist. */
+.docs-code pre::-webkit-scrollbar { height: 8px; }
+.docs-code pre::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+.docs-code pre::-webkit-scrollbar-track { background: transparent; }
+
+@media (max-width: 720px) {
+  .docs-code {
+    /* Bleed code blocks to the viewport edges so long lines have more room. */
+    margin-inline: -16px;
+    border-radius: 0;
+    border-inline: 0;
+  }
+  .docs-code pre { padding: 14px 16px; font-size: 12.5px; line-height: 20px; }
+  .docs-code .line { padding: 0 16px; margin: 0 -16px; min-height: 20px; }
+  .docs-code-header { padding: 8px 12px; }
 }
 
 /* Copy button */

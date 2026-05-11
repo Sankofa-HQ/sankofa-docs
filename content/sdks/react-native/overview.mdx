@@ -71,6 +71,34 @@ Sankofa.reset();
 // Force-flush
 Sankofa.flush();`} />
 
+### Auto-tag screens from React Navigation
+
+If your app uses `@react-navigation/native`, drop `useSankofaNavigationTracking(navRef)` in your app shell and every screen change tags into the heatmap pipeline automatically — no per-screen `useSankofaScreen` call needed.
+
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
+import { Sankofa, useSankofaNavigationTracking } from "sankofa-react-native";
+
+export default function App() {
+  const navRef = useNavigationContainerRef();
+  useSankofaNavigationTracking(navRef);
+
+  return (
+    <NavigationContainer ref={navRef}>
+      <RootStack />
+    </NavigationContainer>
+  );
+}`} />
+
+What the hook does:
+
+- Subscribes to React Navigation's `state` event and re-tags the active route via `Sankofa.screen(name)` on every change.
+- Tags the initial route synchronously on mount (so cold-start frames carry the right screen, not the framework host fallback).
+- Dedupes redundant retags — a state event for the same route is a no-op.
+- Tolerates `null`/`undefined` refs (e.g. while the container is still mounting).
+- Survives a `getCurrentRoute()` that throws (pre-mount race in the container).
+
+Use `useSankofaScreen(name)` directly only when you want per-component manual tagging instead of (or alongside) the navigation hook.
+
 <Callout tone="note" title="No useFlag / useVariant / useConfig hooks">
 The React Native SDK does **not** ship React hooks for flags or config. Instantiate `SankofaSwitch` and `SankofaConfig` directly and read their values imperatively, or wrap them in your own `useState` + `onChange` listeners.
 </Callout>
@@ -318,6 +346,7 @@ For per-component masking, mark sensitive components by setting their `testID` t
 | `Sankofa.reset()` | Rotate session + clear identity. |
 | `Sankofa.flush()` | Force-drain the queue. |
 | `useSankofaScreen(name)` | Hook — tags the current screen on mount. |
+| `useSankofaNavigationTracking(navRef)` | Hook — auto-tags every React Navigation screen change. Drop once in your app shell; no per-screen wiring needed. |
 | `Sankofa.captureException(err, [opts])` | Capture an error (auto-routes to Catch singleton). |
 | `Sankofa.captureMessage(msg, [opts])` | Capture a non-error event. |
 | `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. |

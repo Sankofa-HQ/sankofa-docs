@@ -29,7 +29,7 @@ struct YourApp: App {
     init() {
         // One-line init. enableCatch=true (default) auto-installs the
         // NSException + POSIX-signal handlers + main-queue stall detector.
-        // No separate `SankofaCatch.shared.start(...)` call needed.
+        // No separate SankofaCatch.shared.start(...) call needed.
         Sankofa.shared.initialize(
             apiKey: "sk_live_...",
             config: SankofaConfig(
@@ -312,6 +312,43 @@ Masking is automatic when `config.maskAllInputs` is `true` (the default) — eve
 
 For custom masking, tag a view by setting `view.tag` to a sentinel value the SDK looks for. The exact tag-name convention and any SwiftUI view-modifier helpers are documented in the SDK's `replay/SankofaMask.swift` source.
 
+### SwiftUI scroll-offset tagging
+
+UIKit `UIScrollView` (and subclasses: `UITableView`, `UICollectionView`) are walked from the key window's view tree by `SankofaTouchInterceptor` automatically — heatmaps and replay touch attribution see the right Y offset out of the box on iOS 16+ where SwiftUI's `ScrollView` bridges to a `UIScrollView`.
+
+For **custom scroll containers**, `LazyVGrid` inside opaque hosting views, or pre-iOS 16 SwiftUI hosts where the walk returns zero, register an explicit provider:
+
+<CodeBlock lang="swift" code={`struct ProductList: View {
+    @State private var scrollOffset: CGFloat = 0
+    @State private var sankofaHandle: SankofaScrollContainerHandle?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack { /* ... */ }
+                .background(GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ScrollOffsetKey.self,
+                        value: -geo.frame(in: .named("scroll")).minY
+                    )
+                })
+        }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetKey.self) { scrollOffset = $0 }
+        .onAppear {
+            sankofaHandle = Sankofa.shared.tagScrollContainer { scrollOffset }
+            Sankofa.shared.screen("ProductList")
+        }
+        .onDisappear {
+            sankofaHandle?.remove()
+            sankofaHandle = nil
+        }
+    }
+}`} />
+
+`Sankofa.shared.tagScrollContainer { ... }` returns a `SankofaScrollContainerHandle` — call `.remove()` when the scroll container leaves scope. Handles are idempotent: removing twice is a no-op. Multiple registrations are allowed (nested scrollables); providers iterate in registration order and the first non-zero result wins, matching the "first scrollable wins" semantics of the UIKit walker.
+
+A host callback that throws will surface clearly during development.
+
 ### Privacy Manifest
 
 The SDK bundles `PrivacyInfo.xcprivacy` declaring:
@@ -340,6 +377,7 @@ App Store Connect picks up these declarations alongside your own.
 | `Sankofa.setUser` / `setTag` / `setTags` / `setExtra` / `addBreadcrumb` | Ambient context. |
 | `Sankofa.withScope(_:)` | Temporary scope overlay. |
 | `Sankofa.flushCatch()` | Force-flush Catch events. |
+| `Sankofa.shared.tagScrollContainer { offset }` | Register a SwiftUI / custom scroll-offset provider. Returns a `SankofaScrollContainerHandle` whose `.remove()` unregisters (idempotent). |
 | `SankofaSwitch.shared.getFlag(_:default:)` | Boolean feature flag. |
 | `SankofaSwitch.shared.getVariant(_:default:)` | Variant feature flag. |
 | `SankofaSwitch.shared.getDecision(_:)` | Full decision envelope. |

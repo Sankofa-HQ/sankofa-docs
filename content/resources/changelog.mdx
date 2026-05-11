@@ -10,6 +10,48 @@ For programmatic access (RSS, ATOM, JSON feeds), see the **Subscribe** section a
 
 ## 2026
 
+### 2026-05-11 · Flutter native crash bridge (Phase C)
+
+**Flutter SDK** — `sankofa_flutter` converts from a pure-Dart package to a Flutter plugin with a **standalone** native crash reporter living inside `ios/Classes/` and `android/src/main/kotlin/`. No dependency on the public `SankofaIOS` Pod or `dev.sankofa:sankofa` Maven artifact — the Flutter package owns its own crash surface so Flutter hosts don't pull in the iOS/Android SDKs' analytics + replay code.
+
+What gets captured on top of `FlutterError.onError` / `PlatformDispatcher.onError` / isolate listeners:
+- **iOS**: `NSSetUncaughtExceptionHandler`, POSIX signals (SIGSEGV/SIGABRT/SIGBUS/SIGILL/SIGFPE/SIGTRAP/SIGSYS), main-queue stall detector.
+- **Android**: chained `Thread.setDefaultUncaughtExceptionHandler`, ANR watcher (main thread blocked > 5s).
+
+Both POST to the same `/api/catch/events` endpoint the Dart side uses. `Sankofa.setUser` / `setTag` / `setTags` / `flushCatch` mirror to the native side automatically. **No host wiring needed** — auto-bootstrapped from `Sankofa.instance.init`.
+
+### 2026-05-11 · Catch ergonomics — withScope + beforeSend (Phase B)
+
+**All client SDKs** (Web, Flutter, React Native, Android, iOS) ship matched APIs:
+
+- **`Sankofa.withScope(fn)`** — Sentry-style temporary scope overlay. Tags / extras / user / level / fingerprint set inside the closure layer onto captures inside the closure; the global scope is untouched. Stack-scoped; nested `withScope` calls compose; async captures deferred past the closure's return don't see the scope. Android scopes are **thread-local** — captures fired on a background worker don't pick up the UI thread's scope.
+- **`beforeSend: (event) => event | null`** — synchronous hook fired AFTER event composition but BEFORE the transport sends. Return `null` to drop entirely; return the (possibly mutated) event to ship. Throws are swallowed — a buggy hook can never break the capture pipeline. Pass at init time (`Sankofa.instance.init(beforeSend: ...)`, `catchPlugin({ beforeSend })`, etc.).
+
+**iOS extra** — main-queue stall detector. Background timer pings a sentinel block onto the main queue; if it doesn't fire within `catchStallThresholdSeconds` (2.0s default, matching Sentry), an `anr` event is emitted. Set to `0` to disable.
+
+### 2026-05-11 · Crashlytics + Sentry merged (Phase A)
+
+**All client SDKs** ship a unified Catch API. Crashlytics' one-line ergonomics plus Sentry's surface area:
+
+- **Auto-init** — `Sankofa.init(...)` (or `Sankofa.instance.init` / `Sankofa.shared.initialize`) auto-installs the Catch singleton and the platform-specific uncaught-exception handlers. No separate `SankofaCatch.init(...)` call needed.
+- **Static helpers** — `Sankofa.captureException(err)`, `Sankofa.captureMessage(msg)`, `Sankofa.log(msg, [category])`, `Sankofa.setUser`, `Sankofa.setTag(s)`, `Sankofa.setExtra`, `Sankofa.addBreadcrumb`, `Sankofa.flushCatch` — every helper works from anywhere with no instance to thread through.
+- **`Sankofa.log()`** — Crashlytics-style breadcrumb log. Pushes a free-text trail entry onto the ring buffer that rides on the next captured event. Doesn't bill.
+- **Auto-discovered flag + config snapshots** — when Switch + Config (or RemoteConfig on native) are linked, every captured event carries `flag_snapshot` + `config_snapshot` of the active decisions. The dashboard shows "which flags were ON when this error fired" with no host wiring.
+- **New init params** — `enableCatch` (default true), `catchEnvironment`, `release`, `appVersion`. Old explicit `SankofaCatch.init(...)` calls still work for legacy hosts.
+
+### 2026-05-10 · Heatmap accuracy (Web + Flutter + Android + iOS + RN)
+
+**Cross-SDK** — six heatmap + replay correctness fixes:
+
+- **Per-event screen attribution** — `screen` moved from `data.screen` to event-level on Android + iOS so the worker's high-precision attribution path activates. Carryover buckets spanning a screen change no longer mis-attribute.
+- **Cold-start screen guard** — replay upload skipped until the host tags a screen; cold-start frames no longer flood the dashboard's "Unknown" bucket. Framework-host activities (`MainActivity`, `ReactActivity`, `FlutterActivity`, `UIHostingController`, `RCTRootViewController`, `FlutterViewController`) excluded from auto-tagging — the host language is responsible for `Sankofa.screen(...)`.
+- **`Sankofa.tagScrollContainer { offset }`** — new explicit scroll-offset registration API on Android (Compose) + iOS (SwiftUI / custom hosts). Below-the-fold taps in `LazyColumn` / opaque hosting views now resolve to the correct Y offset. Returns an idempotent `ScrollContainerHandle` whose `.remove()` unregisters; multiple registrations allowed (first non-zero wins).
+- **Move + pinch capture (Android)** — touch dispatcher rewritten to handle DOWN, UP, MOVE (50ms throttle + 4px coalesce, matching iOS), pinch (two-pointer midpoint), and double-tap via `event.actionMasked`.
+- **NaN / Infinity coord filter (iOS)** — non-finite coords drop instead of plotting at `(0, 0)`.
+- **Chunk-index persistence (iOS)** — `syncChunkIndex(forSessionId:)` reads from UserDefaults on first upload, mirroring Android's SharedPreferences-backed counter. Replay chunks survive process death.
+
+**React Native** — `useSankofaNavigationTracking(navRef)` hook for `@react-navigation/native`. Drop once in your app shell and every screen change tags into the heatmap pipeline. Tags the initial route synchronously, dedupes redundant retags, tolerates `null` refs and pre-mount `getCurrentRoute()` throws. Plus a typed bridge surface (`SankofaBridge`) that caught two latent bugs hiding behind `any` (snake_case vs camelCase on `os_version` / `device_model`; missing `typeof === 'function'` guards on optional Deploy methods).
+
 ### 2026-05-09 · Vision GA
 
 **Engine** — `ee/vision/` shipped. Five surfaces (Canvas, Roadmap, OKRs, Initiatives, Strategy Docs) live behind one board container. Cross-product bonds via `InitiativeTicketLink` and `InitiativeObjectiveLink` — Plan ticket close auto-progresses linked OKR Key Results.

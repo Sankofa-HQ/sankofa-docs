@@ -298,6 +298,37 @@ For custom masking, set the view tag:
 
 Tagged views render as a neutral placeholder rectangle in replays.
 
+### Compose scroll-offset tagging
+
+Classic-View scroll positions (`ScrollView`, `RecyclerView`, `AbsListView`) are walked from the decor-view hierarchy automatically — heatmaps and replay touch attribution see the right Y offset out of the box.
+
+**Compose hosts** (`LazyColumn`, `Modifier.verticalScroll`, `Modifier.scrollable`) draw into a single `AndroidComposeView` with no per-scrollable child View, so the walker returns 0 and every below-the-fold tap collapses to the first viewport in the heatmap panorama.
+
+Register a provider so the touch dispatcher + replay recorder can ask Compose for the real offset:
+
+<CodeBlock lang="kotlin" code={`@Composable
+fun ProductList() {
+    val scrollState = rememberScrollState()
+    DisposableEffect(scrollState) {
+        val handle = Sankofa.tagScrollContainer { scrollState.value }
+        onDispose { handle.remove() }
+    }
+    Column(modifier = Modifier.verticalScroll(scrollState)) {
+        // ...
+    }
+}`} />
+
+For `LazyColumn` / `LazyRow`, derive the pixel offset from the list state:
+
+<CodeBlock lang="kotlin" code={`val handle = Sankofa.tagScrollContainer {
+    lazyListState.firstVisibleItemIndex * estimatedItemHeightPx +
+        lazyListState.firstVisibleItemScrollOffset
+}`} />
+
+`Sankofa.tagScrollContainer { ... }` returns a [`ScrollContainerHandle`](#api-summary) — call `.remove()` when the scrollable leaves composition. Handles are idempotent: removing twice is a no-op. Multiple registrations are allowed (nested scrollables); the first non-zero result wins, matching the "first scrollable wins" semantics of the classic-View walker.
+
+A host callback that throws never crashes the touch dispatcher — exceptions are swallowed and the next provider is tried.
+
 ## ProGuard / R8
 
 The SDK ships consumer ProGuard rules at `consumer-rules.pro` — minification works out of the box without additional `-keep` directives.
@@ -328,6 +359,7 @@ The SDK ships consumer ProGuard rules at `consumer-rules.pro` — minification w
 | `Sankofa.setUser` / `setTag(s)` / `setExtra` / `addBreadcrumb` | Ambient context. |
 | `Sankofa.withScope { scope -> ... }` | Temporary scope overlay. |
 | `Sankofa.flushCatch()` | Force-flush Catch events. |
+| `Sankofa.tagScrollContainer { offset }` | Register a Compose scroll-offset provider. Returns a `ScrollContainerHandle` whose `.remove()` unregisters (idempotent). |
 | `SankofaSwitch.init(context, defaults)` | Initialize Switch. |
 | `SankofaSwitch.getFlag(key, default?)` | Boolean feature flag. |
 | `SankofaSwitch.getVariant(key, default)` | Variant feature flag. |
