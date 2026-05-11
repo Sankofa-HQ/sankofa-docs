@@ -1,0 +1,6 @@
+Contact: mailto:security@sankofa.dev
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://docs.sankofa.dev/.well-known/security.txt
+Policy: https://docs.sankofa.dev/resources/security
+Hiring: https://sankofa.dev/careers

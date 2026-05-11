@@ -1,0 +1,14 @@
+/* TEAM */
+Engineering: Sankofa Systems
+Site: https://sankofa.dev
+Contact: support@sankofa.dev
+
+/* THANKS */
+The Next.js + MDX ecosystem.
+Shiki (syntax highlighting), Pagefind (search), Satori (OG images),
+remark / rehype contributors.
+
+/* SITE */
+Standards: HTML5, CSS Modules, JSON-LD, RSS (Atom 1.0)
+Components: Next.js 16 app router, server components, MDX
+Software: Static export, Cloudflare Pages compatible
