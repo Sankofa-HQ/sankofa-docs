@@ -16,7 +16,7 @@ const PRODUCTS = [
 export default function LandingPage() {
   const topSections = getTopNavSections();
   return (
-    <main id="main-content" className="container-wide" style={{ padding: "72px 24px 96px" }}>
+    <main id="main-content" className="container-wide" style={{ padding: "72px 24px 96px" }} data-pagefind-body>
       <section style={{ maxWidth: 760, margin: "0 auto", textAlign: "center" }}>
         <p
           style={{

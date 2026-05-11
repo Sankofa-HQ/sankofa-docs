@@ -27,7 +27,7 @@ export function PageShell({
     <main id="main-content" className="docs-shell">
       {sidebar ? <Sidebar sidebar={sidebar} /> : <div />}
 
-      <article className="docs-main">
+      <article className="docs-main" data-pagefind-body>
         <Breadcrumbs items={crumbs.slice(0, -1)} />
 
         <header className="docs-page-header">

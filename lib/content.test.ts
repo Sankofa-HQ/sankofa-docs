@@ -41,20 +41,20 @@ test("sidebar surfaces full IA with shipping status", () => {
   const sidebar = getSidebar("get-started");
   assert.ok(sidebar);
   const allItems = sidebar!.groups.flatMap((g) => g.items);
-  // Shipped seed pages
   const overview = allItems.find((i) => i.href === "/get-started/overview");
   const quickstart = allItems.find((i) => i.href === "/get-started/quickstart");
   assert.ok(overview);
   assert.equal(overview!.status, "shipped");
   assert.ok(quickstart);
   assert.equal(quickstart!.status, "shipped");
-  // Planned items are still included so users see the structure
+  // Every section declared in nav.config.ts now resolves to shipped pages —
+  // the docs rebuild is complete, so no item in any sidebar should be `planned`.
   const account = getSidebar("account");
   assert.ok(account);
   const accountItems = account!.groups.flatMap((g) => g.items);
   const accountOverview = accountItems.find((i) => i.href === "/account/overview");
-  assert.ok(accountOverview, "account/overview should be in sidebar even though MDX is not shipped");
-  assert.equal(accountOverview!.status, "planned");
+  assert.ok(accountOverview);
+  assert.equal(accountOverview!.status, "shipped");
 });
 
 test("adjacency: overview -> quickstart", () => {
@@ -74,10 +74,11 @@ test("headingId is stable", () => {
   assert.equal(headingId("@sankofa/browser"), "sankofabrowser");
 });
 
-test("missing pages list reports planned-but-unshipped slugs", () => {
+test("missing pages list is empty — full IA shipped", () => {
   const missing = getMissingPages();
-  // Phase 1 only ships overview + quickstart; everything else in nav.config.ts is missing on purpose.
-  assert.ok(missing.length > 0, "expected planned-but-unshipped pages to be reported");
-  assert.ok(!missing.includes("get-started/overview"));
-  assert.ok(!missing.includes("get-started/quickstart"));
+  assert.equal(
+    missing.length,
+    0,
+    `expected zero planned-but-unshipped pages, got: ${missing.join(", ")}`
+  );
 });
