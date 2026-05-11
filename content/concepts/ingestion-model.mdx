@@ -81,7 +81,7 @@ Three common causes:
 
 1. **Wrong API key environment** — events landed in `test` instead of `live`. Filter the dashboard by environment.
 2. **Allow list dropped your properties** — check **Settings → Data → Properties**.
-3. **Quota exhausted on Free tier** — events past the monthly quota are 429'd at ingest. Check your usage card on the dashboard.
+3. **Quota exhausted on Hobby tier** — events past the monthly quota are 429'd at ingest. Check your usage card on the dashboard.
 </AccordionItem>
 <AccordionItem title="Events arrive but identity is wrong">
 You probably called `identify` after `track`. The right order is:

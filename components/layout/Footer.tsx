@@ -48,7 +48,7 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
   },
 ];
 
-const BADGES = ["ISO 27001", "GDPR", "SOC 2"];
+const BADGES = ["GDPR-READY"];
 
 export function Footer() {
   return (
