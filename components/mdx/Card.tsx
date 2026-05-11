@@ -39,7 +39,7 @@ export function Card({
           </span>
         ) : null}
       </p>
-      {children ? <p className="docs-card-body">{children}</p> : null}
+      {children ? <div className="docs-card-body">{children}</div> : null}
     </>
   );
   if (href && !planned) {

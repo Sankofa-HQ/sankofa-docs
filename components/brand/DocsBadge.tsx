@@ -1,10 +1,7 @@
-"use client";
-
-import { useTheme } from "@/components/layout/ThemeProvider";
-
 export function DocsBadge() {
-  const { theme } = useTheme();
-  const dark = theme === "dark";
+  // Theme-aware colors come from CSS vars defined per [data-theme] so this
+  // component is a pure server-renderable element with no client-only state —
+  // avoids hydration mismatches when dark mode is active on first paint.
   return (
     <span
       style={{
@@ -12,7 +9,7 @@ export function DocsBadge() {
         letterSpacing: "0.06em",
         padding: "2px 6px",
         borderRadius: 4,
-        background: dark ? "rgba(255,255,255,0.06)" : "rgba(23,23,23,0.06)",
+        background: "var(--nav-border)",
         color: "var(--page-fg-soft)",
         marginLeft: 4,
       }}

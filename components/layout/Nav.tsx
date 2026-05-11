@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useTheme } from "./ThemeProvider";
 import { ThemeToggle } from "./ThemeToggle";
 import { MobileMenu } from "./MobileMenu";
 import { SankofaMark } from "@/components/brand/SankofaMark";
@@ -18,21 +17,13 @@ const NAV_LINKS: { href: string; label: string }[] = [
 ];
 
 export function Nav() {
-  const { theme } = useTheme();
-  const dark = theme === "dark";
-
+  // Theme-dependent colors come from CSS vars (var(--nav-bg), var(--nav-border))
+  // so the server-rendered HTML matches the client first render regardless of
+  // theme — the FOUC-bootstrap script just flips the data-theme attribute and
+  // the cascade picks up the right values.
   return (
-    <nav
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        background: dark ? "rgba(14,16,20,0.7)" : "rgba(255,255,255,0.7)",
-        borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.06)" : "rgba(23,23,23,0.06)"}`,
-      }}
-    >
+    <nav className="site-nav">
+
       <div
         className="container-wide"
         style={{

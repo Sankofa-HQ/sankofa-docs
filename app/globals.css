@@ -35,6 +35,9 @@ html { scroll-behavior: smooth; }
   --accent-strong: var(--orange-600);
   --accent-soft: rgba(250,115,25,0.10);
   --accent-fg: #FFFFFF;
+
+  --nav-bg: rgba(255, 255, 255, 0.7);
+  --nav-border: rgba(23, 23, 23, 0.06);
 }
 
 [data-theme="dark"] {
@@ -61,6 +64,19 @@ html { scroll-behavior: smooth; }
 
   --stroke-soft-200: #2B303B;
   --stroke-sub-300:  #3A4050;
+
+  --nav-bg: rgba(14, 16, 20, 0.7);
+  --nav-border: rgba(255, 255, 255, 0.06);
+}
+
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: var(--nav-bg);
+  border-bottom: 1px solid var(--nav-border);
 }
 
 /* Containers */
