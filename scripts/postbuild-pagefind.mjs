@@ -44,5 +44,18 @@ child.on("exit", (code) => {
     cpSync(src, dst, { recursive: true });
     console.log(`[pagefind] mirrored index to public/pagefind/ for next dev`);
   }
+  // Guard: fail the build if the runtime + entry index are missing. This
+  // catches deploy configs (e.g. Cloudflare Pages defaulting to `next build`)
+  // that skip the postbuild step entirely, before broken search ships.
+  const required = [
+    path.join(target, "pagefind", "pagefind.js"),
+    path.join(target, "pagefind", "pagefind-entry.json"),
+  ];
+  const missing = required.filter((p) => !existsSync(p));
+  if (missing.length > 0) {
+    console.error("[pagefind] build artifacts missing — search will be broken:");
+    for (const p of missing) console.error(`  - ${path.relative(root, p)}`);
+    process.exit(1);
+  }
   console.log("[pagefind] index built");
 });

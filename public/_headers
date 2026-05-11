@@ -1,0 +1,36 @@
+# Cloudflare Pages / Netlify-style headers file. Lives at /_headers in the
+# deployed root; both hosts read it as part of their edge-routing layer.
+
+# Pagefind runtime + index — cache aggressively because Pagefind cache-busts
+# each release by hashing language indexes into the URL.
+/pagefind/*
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
+# OG images — also content-hashed by the route handler, safe to cache long.
+/og/*.png
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: image/png
+
+# Static Next.js assets (fingerprinted) — long cache.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Favicon + brand assets — moderate cache.
+/logo-icon.png
+  Cache-Control: public, max-age=604800
+/logo-full.png
+  Cache-Control: public, max-age=604800
+
+# RSS feed — refresh every 6 hours.
+/resources/changelog/feed.xml
+  Cache-Control: public, max-age=21600
+  Content-Type: application/atom+xml; charset=utf-8
+
+# Manifest + well-known — moderate cache.
+/manifest.webmanifest
+  Cache-Control: public, max-age=86400
+  Content-Type: application/manifest+json; charset=utf-8
+/.well-known/security.txt
+  Cache-Control: public, max-age=86400
+  Content-Type: text/plain; charset=utf-8
