@@ -644,19 +644,26 @@
 }
 .docs-callout[data-tone="success"] .docs-callout-icon { background: var(--state-success); }
 
-/* ===== Steps ===== */
-.docs-steps {
+/* ===== Steps =====
+   Selectors are intentionally double-classed (.prose .docs-steps) so they win
+   over `.prose ol { list-style: decimal }` from prose.css without !important. */
+.docs-steps,
+.prose .docs-steps {
   margin: 24px 0;
   counter-reset: step;
   border-left: 2px solid var(--border);
-  padding-left: 0;
+  padding: 0 0 0 16px;
   list-style: none;
 }
-.docs-step {
+.docs-step,
+.prose .docs-steps > .docs-step {
   position: relative;
   padding: 0 0 24px 32px;
+  margin: 0;
   counter-increment: step;
+  list-style: none;
 }
+.prose .docs-steps > .docs-step::marker { content: ""; }
 .docs-step:last-child { padding-bottom: 0; }
 .docs-step::before {
   content: counter(step);
