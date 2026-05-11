@@ -52,7 +52,13 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
   },
 ];
 
-const BADGES = ["GDPR-READY"];
+const BADGES: { label: string; title: string; href?: string }[] = [
+  { label: "GDPR-READY", title: "Operations meet GDPR data-processor controls today.", href: "/resources/compliance" },
+  { label: "SOC 2 · IN AUDIT", title: "Type II audit period underway; attestation expected 2026-Q3.", href: "/resources/compliance" },
+  { label: "ISO 27001 · IN BUILD", title: "ISMS in build; certification expected 2026-Q4.", href: "/resources/compliance" },
+  { label: "AES-256 · TLS 1.2+", title: "Encrypted at rest and in transit.", href: "/resources/security" },
+  { label: "4-REGION RESIDENCY", title: "Pin data to eu-west-1, us-east-1, af-south-1, or ap-southeast-1.", href: "/account/data-residency" },
+];
 
 export function Footer() {
   return (
@@ -103,23 +109,29 @@ export function Footer() {
               Built for the next generation of software pioneers.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {BADGES.map((b) => (
-                <span
-                  key={b}
-                  style={{
-                    font: "500 10px/14px var(--font-mono)",
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    background: "var(--surface-2)",
-                    border: "1px solid var(--border)",
-                    color: "var(--page-fg-soft)",
-                  }}
-                >
-                  {b}
-                </span>
-              ))}
+              {BADGES.map((b) => {
+                const pillStyle: React.CSSProperties = {
+                  font: "500 10px/14px var(--font-mono)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--page-fg-soft)",
+                  textDecoration: "none",
+                  display: "inline-block",
+                };
+                return b.href ? (
+                  <Link key={b.label} href={b.href} title={b.title} style={pillStyle}>
+                    {b.label}
+                  </Link>
+                ) : (
+                  <span key={b.label} title={b.title} style={pillStyle}>
+                    {b.label}
+                  </span>
+                );
+              })}
             </div>
           </div>
           {COLUMNS.map((c) => (

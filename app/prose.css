@@ -125,6 +125,19 @@
   border: 0;
 }
 
+.prose .prose-table-wrap {
+  margin: 24px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface);
+}
+.prose .prose-table-wrap table {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
 .prose table {
   width: 100%;
   border-collapse: separate;
@@ -135,6 +148,28 @@
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface);
+}
+.prose th,
+.prose td {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.prose .prose-table-wrap th,
+.prose .prose-table-wrap td {
+  white-space: nowrap;
+}
+.prose .prose-table-wrap th:last-child,
+.prose .prose-table-wrap td:last-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .prose .prose-table-wrap {
+    margin-inline: -16px;
+    border-radius: 0;
+    border-inline: 0;
+  }
 }
 .prose thead {
   background: var(--surface-2);

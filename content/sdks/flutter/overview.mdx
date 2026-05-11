@@ -41,6 +41,11 @@ void main() async {
     { name: "enableSessionReplay", type: "bool", default: "false", description: "Wrap your app in <SankofaReplayBoundary> to actually capture replays." },
     { name: "replayMode", type: "ReplayMode", default: "ReplayMode.wireframe", description: "Either wireframe (lightweight JSON) or screenshot (pixel-perfect, ~10x bandwidth)." },
     { name: "replayFps", type: "int", default: "1", description: "Frame capture rate for replay." },
+    { name: "enableCatch", type: "bool", default: "true", description: "Auto-install the Catch singleton + chained FlutterError.onError / PlatformDispatcher.onError handlers. Set false only to defer Catch boot for integration tests." },
+    { name: "catchEnvironment", type: "String", default: "live", description: "Environment tag stamped on every captured event (live, staging, dev, custom)." },
+    { name: "release", type: "String?", description: "Release identifier (e.g. 'myapp@1.4.0+42') sent on every Catch event for grouping." },
+    { name: "appVersion", type: "String?", description: "App version override sent in the Catch device context." },
+    { name: "beforeSend", type: "BeforeSendFn?", description: "Synchronous hook fired AFTER event composition but BEFORE enqueue. Return the (possibly modified) event to ship it, or null to drop. Throws are swallowed." },
   ]}
 />
 
@@ -87,33 +92,96 @@ For automatic screen tracking with go_router or any Navigator-based router, regi
 
 ## Catch — error capture
 
-`SankofaCatch` is a separate API from the core Sankofa instance. Initialize it after `Sankofa.instance.init`:
+Catch auto-boots inside `Sankofa.instance.init`. Once init resolves, every `Sankofa.captureException` / `Sankofa.log` call routes to the singleton — no separate `SankofaCatch` setup needed and no instance to thread through your widget tree.
 
-<CodeBlock lang="dart" code={`final catcher = SankofaCatch.instance;
-
-// Capture a caught exception
+<CodeBlock lang="dart" code={`// Capture a caught exception from anywhere — Sentry-style.
 try {
   await chargeCard(amount);
 } catch (err, stack) {
-  await catcher.captureException(err, stackTrace: stack);
+  Sankofa.captureException(err, stack);
 }
 
-// Capture a non-error event
-await catcher.captureMessage('Payment retry attempted');
+// Capture a non-error event (warning-level).
+Sankofa.captureMessage('Payment retry attempted');
 
-// Attach a user
-catcher.setUser(UserContext(id: 'user_123', email: 'ada@example.com'));
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log('checkout: applying coupon SUMMER25');
 
-// Add a breadcrumb (rides on the next captured event)
-catcher.addBreadcrumb(CatchBreadcrumb(
+// Attach ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser(CatchUserContext(id: 'user_123', email: 'ada@example.com'));
+Sankofa.setTag('flow', 'checkout');
+Sankofa.setExtra('cart_id', cart.id);
+
+// Push a structured breadcrumb (HTTP, navigation, console, etc.).
+Sankofa.addBreadcrumb(CatchBreadcrumb(
   category: 'user-action',
   message: 'Tapped checkout button',
-));
+));`} />
 
-// Free-form tags
-catcher.setTag('feature', 'billing');`} />
+### Automatic coverage
 
-The SDK auto-captures unhandled Dart errors via `FlutterError.onError` and `PlatformDispatcher.onError`. Native crashes (iOS NSException, Android JVM crashes) are captured by the underlying native SDKs and forwarded.
+Out of the box `Sankofa.instance.init` installs:
+
+- **`FlutterError.onError`** — every framework-level error (build/layout/paint).
+- **`PlatformDispatcher.onError`** — async + zone-uncaught Dart errors.
+- **Isolate error listener** — errors from background isolates.
+- **iOS `NSSetUncaughtExceptionHandler`** + **POSIX signal handlers** — NSException, SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGTRAP, SIGSYS. Wired by the Flutter plugin's iOS code with no Pod dependency on the standalone iOS SDK.
+- **Android chained `Thread.UncaughtExceptionHandler`** + **ANR watcher** — JVM-uncaught exceptions and main-thread hangs > 5s. Wired by the Flutter plugin's Android code with no Maven dependency on the standalone Android SDK.
+
+Both Dart-side and native-side captures POST to the same `/api/catch/events` endpoint. Sessions correlate by `distinct_id`.
+
+### withScope — Sentry-style temporary scope
+
+Use `Sankofa.withScope` when you want tags/extras attached to ONE capture without polluting the global scope:
+
+<CodeBlock lang="dart" code={`Sankofa.withScope((scope) {
+  scope.setTag('checkout_step', 'payment');
+  scope.setExtra('cart_id', cart.id);
+  scope.setLevel(CatchLevel.warning);
+  Sankofa.captureException(err);
+});
+// Outside the closure, those tags / extras are gone.`} />
+
+Scopes are stack-scoped to the closure — async captures deferred past the closure's return won't see the scope.
+
+### beforeSend — scrub PII / drop noise
+
+Pass `beforeSend` to `Sankofa.instance.init` for a synchronous hook that runs AFTER event composition but BEFORE enqueue. Return the (possibly modified) event to ship it, or `null` to drop entirely:
+
+<CodeBlock lang="dart" code={`await Sankofa.instance.init(
+  apiKey: '...',
+  endpoint: '...',
+  beforeSend: (event) {
+    // Drop ResizeObserver-loop-limit-style noise.
+    if (event.message?.contains('setState() called after dispose') ?? false) {
+      return null;
+    }
+    // PII scrubbing — strip email from the user context.
+    if (event.user?.email != null) {
+      return event.copyWith(user: event.user!.copyWith(email: null));
+    }
+    return event;
+  },
+);`} />
+
+Throws inside `beforeSend` are swallowed — the original event ships through unchanged. A buggy hook can never break the capture pipeline.
+
+### Auto-discovered flag + config snapshots
+
+If you've already constructed `SankofaSwitch` / `SankofaConfig`, every captured Catch event automatically carries a `flag_snapshot` and `config_snapshot` of the active decisions. The dashboard shows "which flags were ON when this error fired" without any host wiring.
+
+| Static helper | Description |
+|---|---|
+| `Sankofa.captureException(err, [stack], [opts])` | Capture a handled exception. Returns event ID or `''` if Catch isn't started. |
+| `Sankofa.captureMessage(msg, [opts])` | Non-error variant. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. Doesn't bill. |
+| `Sankofa.setUser(user)` / `Sankofa.setUser(null)` | Set / clear ambient user. |
+| `Sankofa.setTag(k, v)` / `setTags({...})` | Sticky tags. |
+| `Sankofa.setExtra(k, v)` | Sticky extra context. |
+| `Sankofa.addBreadcrumb(crumb)` | Push to ring buffer. |
+| `Sankofa.withScope(fn)` | Temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush both Dart + native queues. |
 
 ## Switch — feature flags
 
@@ -249,8 +317,12 @@ If you wrap a `Row(crossAxisAlignment: CrossAxisAlignment.stretch)` inside `List
 | `Sankofa.instance.reset()` | Rotate session + clear identity. |
 | `Sankofa.instance.flush()` | Force-drain the queue. |
 | `Sankofa.instance.dispose()` | Release SDK resources. |
-| `SankofaCatch.instance.captureException(err, stackTrace?)` | Manually capture an error. |
-| `SankofaCatch.instance.captureMessage(msg)` | Capture a non-error event. |
+| `Sankofa.captureException(err, [stack], [opts])` | Capture a handled exception (Sentry-style static). |
+| `Sankofa.captureMessage(msg, [opts])` | Capture a non-error event. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb log (no event emitted). |
+| `Sankofa.setUser(user)` / `setTag` / `setTags` / `setExtra` | Sticky ambient context. |
+| `Sankofa.withScope(fn)` | Sentry-style temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush Dart + native Catch queues. |
 | `SankofaSwitch(defaults).getFlag(key, defaultValue?)` | Boolean feature flag. |
 | `SankofaSwitch.getVariant(key, defaultValue?)` | Variant feature flag. |
 | `SankofaConfig(defaults).get<T>(key, defaultValue)` | Typed remote config. |

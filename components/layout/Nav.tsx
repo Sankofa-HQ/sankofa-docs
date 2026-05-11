@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTheme } from "./ThemeProvider";
 import { ThemeToggle } from "./ThemeToggle";
+import { MobileMenu } from "./MobileMenu";
 import { SankofaMark } from "@/components/brand/SankofaMark";
 import { DocsBadge } from "@/components/brand/DocsBadge";
 import { SearchTrigger } from "@/components/docs/SearchTrigger";
@@ -76,20 +77,27 @@ export function Nav() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <SearchTrigger />
-          <ThemeToggle />
-          <a
-            href={mainSiteUrl}
-            style={{
-              color: "var(--page-fg-muted)",
-              textDecoration: "none",
-              font: "500 13px/20px var(--font-sans)",
-            }}
+          <div
+            className="nav-right-desktop"
+            style={{ display: "flex", alignItems: "center", gap: 12 }}
           >
-            sankofa.dev
-          </a>
-          <a href={appUrl} className="btn btn-primary">
-            Open dashboard
-          </a>
+            <ThemeToggle />
+            <a
+              href={mainSiteUrl}
+              className="nav-marketing-link"
+              style={{
+                color: "var(--page-fg-muted)",
+                textDecoration: "none",
+                font: "500 13px/20px var(--font-sans)",
+              }}
+            >
+              sankofa.dev
+            </a>
+            <a href={appUrl} className="btn btn-primary nav-cta">
+              Open dashboard
+            </a>
+          </div>
+          <MobileMenu links={NAV_LINKS} />
         </div>
       </div>
     </nav>

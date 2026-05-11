@@ -36,6 +36,11 @@ Sankofa.initialize(process.env.EXPO_PUBLIC_SANKOFA_KEY!, {
     { name: "flushIntervalSeconds", type: "number", default: "30", description: "Foreground flush cadence." },
     { name: "batchSize", type: "number", default: "50", description: "Maximum events per upload batch." },
     { name: "debug", type: "boolean", default: "false", description: "Verbose console logging." },
+    { name: "enableCatch", type: "boolean", default: "true", description: "Auto-install JS-side SankofaCatch + native NSException/JVM-uncaught handlers. Set false to defer Catch boot." },
+    { name: "catchEnvironment", type: "string", default: "live", description: "Environment tag stamped on every captured Catch event." },
+    { name: "release", type: "string?", description: "Release identifier (e.g. 'myapp@2.4.1') forwarded to both JS Catch + native crash reporters so JS errors and native crashes share one release dimension." },
+    { name: "appVersion", type: "string?", description: "App version override sent in the Catch device context." },
+    { name: "beforeSend", type: "BeforeSendFn?", description: "Synchronous hook fired AFTER event composition but BEFORE the transport sends. Return the (possibly modified) event to ship it, or null to drop. Only applies to the JS-side capture path." },
   ]}
 />
 
@@ -72,54 +77,100 @@ The React Native SDK does **not** ship React hooks for flags or config. Instanti
 
 ## Catch — error capture
 
-`SankofaCatch` is a constructor pattern (not a static singleton like the native SDKs):
+Catch auto-boots inside `Sankofa.initialize` on both the JS side AND the underlying iOS/Android native side. Once init resolves, every `Sankofa.captureException` / `Sankofa.log` call routes to the singleton — no `new SankofaCatch(...)` boilerplate needed.
 
-<CodeBlock lang="tsx" code={`import { SankofaCatch } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa } from "@sankofa/react-native";
 
-const catcher = new SankofaCatch({
-  environment: __DEV__ ? "development" : "production",
-  release: "your-app@2.4.1",
-  appVersion: "2.4.1",
-  captureUnhandled: true,
-  captureRejections: true,
-  autocaptureConsole: true,
-});
-
-// Capture a caught exception
+// Capture a caught exception from anywhere — Sentry-style.
 try {
   await chargeCard(amount);
 } catch (err) {
-  catcher.captureException(err);
+  Sankofa.captureException(err);
 }
 
-// Non-error event
-catcher.captureMessage("Payment retry attempted");
+// Non-error event (warning-level).
+Sankofa.captureMessage("Payment retry attempted");
 
-// Attach a user
-catcher.setUser({ id: "user_123", email: "ada@example.com" });
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log("checkout: applying coupon SUMMER25");
 
-// Add a breadcrumb
-catcher.addBreadcrumb({ category: "user-action", message: "Tapped checkout" });
+// Attach ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser({ id: "user_123", email: "ada@example.com" });
+Sankofa.setTag("flow", "checkout");
+Sankofa.setExtra("cart_id", cart.id);
 
-// Tags + free-form context
-catcher.setTag("feature", "billing");
-catcher.setContext("order", { items: 3, currency: "USD" });`} />
+// Structured breadcrumb (HTTP, navigation, console, etc.).
+Sankofa.addBreadcrumb({ category: "user-action", message: "Tapped checkout" });`} />
 
-For React error boundaries, wire your own boundary and call `catcher.captureException` manually plus `deploy.reportError` if Deploy is wired:
+### Automatic coverage
+
+`Sankofa.initialize` installs:
+
+- **`ErrorUtils.setGlobalHandler`** (RN ErrorUtils) — JS-side uncaught exceptions.
+- **`unhandledrejection`** — unhandled promise rejections.
+- **iOS `NSSetUncaughtExceptionHandler`** + POSIX signal handlers — NSException and SIGSEGV/SIGABRT/SIGBUS/etc. via the bundled `SankofaIOS` Pod.
+- **Android chained `Thread.UncaughtExceptionHandler`** + ANR watcher — JVM-uncaught exceptions and main-thread hangs.
+
+All four sources POST to the same `/api/catch/events` endpoint. Sessions correlate by `distinct_id`.
+
+### withScope — Sentry-style temporary scope
+
+<CodeBlock lang="tsx" code={`Sankofa.withScope((scope) => {
+  scope.setTag("checkout_step", "payment");
+  scope.setExtra("cart_id", cart.id);
+  scope.setLevel("warning");
+  Sankofa.captureException(err);
+});
+// Outside the closure, those tags / extras are gone.`} />
+
+Scopes are stack-scoped to the closure — async captures deferred past the closure's return won't see the scope.
+
+### beforeSend — scrub PII / drop noise
+
+<CodeBlock lang="tsx" code={`Sankofa.initialize("sk_live_...", {
+  endpoint: "https://api.sankofa.dev",
+  beforeSend: (event) => {
+    // Drop ResizeObserver-loop-limit-style noise.
+    if (event.message?.includes("setState() called after unmount")) return null;
+    // PII scrubbing — strip email from the user context.
+    if (event.user?.email) {
+      return { ...event, user: { ...event.user, email: undefined } };
+    }
+    return event;
+  },
+});`} />
+
+Throws inside `beforeSend` are swallowed — the original event ships unchanged. A buggy hook can never break the capture pipeline. Only applies to the JS-side capture path; native NSException + JVM crashes are composed by the native SDKs.
+
+### React error boundaries
+
+For class-component boundaries, call the static helper from `componentDidCatch`:
 
 <CodeBlock lang="tsx" filename="app/_layout.tsx" code={`import React from "react";
-import { SankofaCatch, SankofaDeploy } from "@sankofa/react-native";
-
-const catcher = new SankofaCatch({/* ... */});
-const deploy = new SankofaDeploy({/* ... */});
+import { Sankofa } from "@sankofa/react-native";
 
 class RootBoundary extends React.Component<{ children: React.ReactNode }> {
-  componentDidCatch(error: Error) {
-    catcher.captureException(error);
-    deploy.reportError(error, { fatal: true });  // marks this OTA bundle unhealthy
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    Sankofa.withScope((scope) => {
+      scope.setExtra("componentStack", errorInfo.componentStack ?? "");
+      Sankofa.captureException(error);
+    });
   }
   // ... render fallback
 }`} />
+
+| Static helper | Description |
+|---|---|
+| `Sankofa.captureException(err, [opts])` | Capture a handled exception. Returns event ID or `''` if Catch isn't started. |
+| `Sankofa.captureMessage(msg, [opts])` | Non-error variant. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. Doesn't bill. |
+| `Sankofa.setUser(user)` / `setUser(null)` | Set / clear ambient user. |
+| `Sankofa.setTag(k, v)` / `setTags({...})` | Sticky tags. |
+| `Sankofa.setExtra(k, v)` | Sticky extra context. |
+| `Sankofa.addBreadcrumb(crumb)` | Push to ring buffer. |
+| `Sankofa.withScope(fn)` | Temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush queued Catch events. |
 
 ## Switch — feature flags
 
@@ -267,7 +318,12 @@ For per-component masking, mark sensitive components by setting their `testID` t
 | `Sankofa.reset()` | Rotate session + clear identity. |
 | `Sankofa.flush()` | Force-drain the queue. |
 | `useSankofaScreen(name)` | Hook — tags the current screen on mount. |
-| `new SankofaCatch({...})` | Construct a Catch client. |
+| `Sankofa.captureException(err, [opts])` | Capture an error (auto-routes to Catch singleton). |
+| `Sankofa.captureMessage(msg, [opts])` | Capture a non-error event. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. |
+| `Sankofa.setUser` / `setTag(s)` / `setExtra` / `addBreadcrumb` | Ambient context. |
+| `Sankofa.withScope(fn)` | Temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush Catch events. |
 | `new SankofaSwitch({defaults?})` | Construct a flag client. |
 | `new SankofaConfig({defaults?})` | Construct a config client. |
 | `new SankofaPulse({...})` | Construct a Pulse client. |

@@ -16,19 +16,34 @@ It's a plugin to `@sankofa/browser` — once registered, error capture happens a
 ## Register the plugin
 
 <CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
-import { catchPlugin, getCatch } from "@sankofa/catch";
+import { catchPlugin } from "@sankofa/catch";
+import { switchPlugin } from "@sankofa/switch";
+import { configPlugin } from "@sankofa/config";
 
 Sankofa.init({
   apiKey: "sk_live_...",
   endpoint: "https://api.sankofa.dev",
-  release: process.env.GIT_SHA,
-  plugins: [catchPlugin()],
-});
-
-// Once init resolves, the plugin client is available:
-const catcher = getCatch()!;`} />
+  plugins: [
+    // Switch + Config register themselves with the cross-module
+    // registry — catchPlugin auto-discovers them at capture time
+    // so every error carries the active flag + config state.
+    switchPlugin({ defaults: { /* ... */ } }),
+    configPlugin({ defaults: { /* ... */ } }),
+    catchPlugin({
+      release: process.env.GIT_SHA,
+      // Optional Sentry-style hook to scrub PII / drop noise.
+      // Return null to drop the event, or a modified event to ship it.
+      beforeSend: (event) => {
+        if (event.message?.includes("ResizeObserver loop limit")) return null;
+        return event;
+      },
+    }),
+  ],
+});`} />
 
 The `release` option is critical for source-map matching — it's the bundle identifier Catch uses to look up your source maps. Pass your commit SHA, build number, or version tag.
+
+`Sankofa.captureException`, `Sankofa.log`, etc. are static helpers on the `Sankofa` namespace itself — no `getCatch()` instance to thread through your call sites.
 
 ## What gets captured automatically
 
@@ -45,40 +60,71 @@ Once `catchPlugin()` is registered, all of these route to Catch with no further 
 
 ## Capture an error manually
 
-For caught exceptions you want to report:
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
 
-<CodeBlock lang="ts" code={`import { getCatch } from "@sankofa/catch";
-
-const catcher = getCatch()!;
-
+// Capture a handled exception from anywhere — Sentry-style.
 try {
   await chargeCard(amount);
 } catch (err) {
-  catcher.captureException(err);
-}`} />
+  Sankofa.captureException(err);
+}
 
-For non-error events worth reporting:
+// Non-error event (warning-level).
+Sankofa.captureMessage("Payment retry attempted");
 
-<CodeBlock lang="ts" code={`catcher.captureMessage("Payment retry attempted");`} />
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log("checkout: applying coupon SUMMER25");`} />
 
 ## Breadcrumbs, user, tags
 
-<CodeBlock lang="ts" code={`// Add a breadcrumb (rides on the next captured event)
-catcher.addBreadcrumb({
+<CodeBlock lang="ts" code={`import { Sankofa } from "@sankofa/browser";
+
+// Attach ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser({ id: "user_123", email: "ada@example.com" });
+Sankofa.setTag("flow", "checkout");
+Sankofa.setExtra("cart_id", cart.id);
+
+// Structured breadcrumb.
+Sankofa.addBreadcrumb({
   category: "user-action",
   message: "Clicked the submit button",
   level: "info",
   data: { form_id: "checkout-form" },
-});
+});`} />
 
-// Attach a user
-catcher.setUser({
-  id: "user_123",
-  email: "ada@example.com",
-});
+## withScope — Sentry-style temporary scope
 
-// Set tags (indexed in the dashboard)
-catcher.setTag("feature", "billing");`} />
+When you want tags/extras attached to ONE capture without polluting the global scope:
+
+<CodeBlock lang="ts" code={`Sankofa.withScope((scope) => {
+  scope.setTag("checkout_step", "payment");
+  scope.setExtra("cart_id", cart.id);
+  scope.setLevel("warning");
+  Sankofa.captureException(err);
+});
+// Outside the closure, those tags / extras are gone.`} />
+
+Scopes are stack-scoped to the closure — async captures deferred past the closure's return won't see the scope.
+
+## beforeSend — scrub PII / drop noise
+
+Pass `beforeSend` to `catchPlugin()`. The hook fires AFTER an event is composed but BEFORE the transport sends. Return the (possibly modified) event to ship it, or `null` to drop entirely.
+
+<CodeBlock lang="ts" code={`catchPlugin({
+  beforeSend: (event) => {
+    // Drop framework noise.
+    if (event.message?.includes("ResizeObserver loop limit exceeded")) return null;
+
+    // PII scrubbing — strip email.
+    if (event.user?.email) {
+      return { ...event, user: { ...event.user, email: undefined } };
+    }
+    return event;
+  },
+})`} />
+
+Throws inside `beforeSend` are swallowed — the original event ships unchanged. A buggy hook can never break the capture pipeline.
 
 ## Fingerprinting
 
@@ -115,13 +161,17 @@ Production bundles are minified. To get readable stack traces in the dashboard:
 
 | Symbol | Description |
 |---|---|
-| `catchPlugin(options?)` | Plugin to register at `Sankofa.init`. |
-| `getCatch()` | Returns the singleton catch client. |
-| `catcher.captureException(err)` | Manually capture an error. |
-| `catcher.captureMessage(msg, options?)` | Manually capture a non-error event. |
-| `catcher.addBreadcrumb(crumb)` | Add a breadcrumb that rides on the next event. |
-| `catcher.setUser(user)` | Set the active user for subsequent captures. |
-| `catcher.setTag(key, value)` | Set a free-form indexed tag. |
+| `catchPlugin(options?)` | Plugin to register at `Sankofa.init`. Options include `release`, `appVersion`, `environment`, `beforeSend`, `captureUnhandled`, `captureRejections`, `captureConsoleError`, `autocapture`, `capturePerformance`, `readFlagSnapshot`, `readConfigSnapshot`. |
+| `getCatch()` | Returns the singleton catch client (rarely needed — prefer the `Sankofa.*` statics below). |
+| `Sankofa.captureException(err, options?)` | Capture an error (Sentry-style static). Returns event ID. |
+| `Sankofa.captureMessage(msg, options?)` | Capture a non-error event. |
+| `Sankofa.log(msg, category?)` | Crashlytics-style breadcrumb. Doesn't bill on its own. |
+| `Sankofa.setUser(user)` | Set ambient user context. |
+| `Sankofa.setTag(k, v)` / `Sankofa.setTags({...})` | Set sticky tags. |
+| `Sankofa.setExtra(k, v)` | Set a sticky extra field. |
+| `Sankofa.addBreadcrumb(crumb)` | Push a breadcrumb onto the ring buffer. |
+| `Sankofa.withScope(fn)` | Sentry-style temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush queued Catch events. |
 
 ## What's next
 

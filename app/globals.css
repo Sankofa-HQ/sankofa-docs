@@ -196,6 +196,7 @@ html { scroll-behavior: smooth; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 3px solid var(--page-bg); }
 
 /* Responsive */
+.nav-mobile-toggle { display: none; }
 @media (max-width: 1180px) {
   .docs-shell { grid-template-columns: 240px minmax(0,1fr) !important; }
   .docs-shell .docs-toc { display: none !important; }
@@ -206,7 +207,19 @@ html { scroll-behavior: smooth; }
   .docs-shell { grid-template-columns: minmax(0,1fr) !important; }
   .docs-shell .docs-sidebar { display: none !important; }
   .docs-mobile-toggle { display: inline-flex !important; }
+  /* Hide the marketing wordmark link on tablet so the right cluster fits */
+  .nav-marketing-link { display: none !important; }
+  .nav-mobile-toggle { display: inline-flex !important; }
+}
+@media (max-width: 720px) {
+  /* Below tablet: theme/dashboard moves into the hamburger sheet */
+  .nav-right-desktop { display: none !important; }
 }
 @media (max-width: 640px) {
   .footer-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 480px) {
+  /* Phone: tighten container padding so prose isn't crammed against the edge */
+  .container,
+  .container-wide { padding-inline: 16px !important; }
 }

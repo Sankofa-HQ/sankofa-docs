@@ -64,8 +64,22 @@ const server = http.createServer(async (req, res) => {
   const filePath = await resolveFile(req.url ?? "/");
   if (filePath) {
     const ext = path.extname(filePath).toLowerCase();
+    let contentType = MIME[ext];
+    if (!contentType) {
+      // OG route handler emits PNGs without an extension. Sniff the magic bytes.
+      const head = Buffer.alloc(4);
+      const fh = await fs.open(filePath, "r");
+      try {
+        await fh.read(head, 0, 4, 0);
+      } finally {
+        await fh.close();
+      }
+      if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) {
+        contentType = "image/png";
+      }
+    }
     res.writeHead(200, {
-      "Content-Type": MIME[ext] ?? "application/octet-stream",
+      "Content-Type": contentType ?? "application/octet-stream",
       "Cache-Control": "no-cache",
     });
     createReadStream(filePath).pipe(res);

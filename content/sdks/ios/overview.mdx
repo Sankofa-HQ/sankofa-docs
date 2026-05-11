@@ -27,12 +27,18 @@ import SankofaIOS
 @main
 struct YourApp: App {
     init() {
+        // One-line init. enableCatch=true (default) auto-installs the
+        // NSException + POSIX-signal handlers + main-queue stall detector.
+        // No separate `SankofaCatch.shared.start(...)` call needed.
         Sankofa.shared.initialize(
             apiKey: "sk_live_...",
             config: SankofaConfig(
                 endpoint: "https://api.sankofa.dev",
                 recordSessions: true,
-                maskAllInputs: true
+                maskAllInputs: true,
+                catchEnvironment: "production",
+                release: "your-app@2.4.1",
+                appVersion: "2.4.1"
             )
         )
     }
@@ -72,6 +78,12 @@ struct YourApp: App {
     { name: "recordSessions", type: "Bool", default: "true", description: "Enable Replay capture (screenshot mode)." },
     { name: "maskAllInputs", type: "Bool", default: "true", description: "Auto-mask all UITextField/UITextView views in replays." },
     { name: "captureScale", type: "CGFloat", default: "0.35", description: "Replay screenshot resolution. Lower = smaller files, less detail." },
+    { name: "enableCatch", type: "Bool", default: "true", description: "Auto-install Catch + NSException + POSIX signal handlers + main-queue stall detector. Set false to defer Catch boot." },
+    { name: "catchEnvironment", type: "String", default: "live", description: "Environment tag stamped on every captured event." },
+    { name: "release", type: "String?", description: "Release identifier (e.g. 'myapp@1.4.0') sent on every Catch event." },
+    { name: "appVersion", type: "String?", description: "App version override sent in the Catch device context." },
+    { name: "beforeSend", type: "BeforeSendFn?", description: "Synchronous hook fired AFTER event composition but BEFORE enqueue. Return modified event or nil to drop." },
+    { name: "catchStallThresholdSeconds", type: "Double", default: "2.0", description: "Main-queue stall threshold. When the main queue wedges longer than this, an 'anr' event is emitted. Set to 0 to disable." },
   ]}
 />
 
@@ -120,41 +132,78 @@ The SQLite-backed queue is thread-safe (GRDB takes care of write serialization).
 
 ## Catch — error capture
 
-`SankofaCatch.shared` is the entry point. Initialize it after `Sankofa.shared.initialize`:
+Catch auto-boots inside `Sankofa.shared.initialize`. Once init resolves, every `Sankofa.captureException` / `Sankofa.log` call routes to the singleton — no separate `SankofaCatch.shared.start(...)` call needed. Crashes serialize synchronously and upload on the next launch.
 
-<CodeBlock lang="swift" code={`SankofaCatch.shared.start(
-    environment: "production",
-    release: "your-app@2.4.1",
-    appVersion: "2.4.1"
-)`} />
-
-For caught errors:
-
-<CodeBlock lang="swift" code={`do {
+<CodeBlock lang="swift" code={`// Capture a handled error from anywhere — Sentry-style.
+do {
     try chargeCard(amount)
 } catch {
-    SankofaCatch.shared.captureException(error)
-}`} />
+    Sankofa.captureException(error)
+}
 
-The SDK installs `NSSetUncaughtExceptionHandler` and signal handlers (`SIGSEGV`, `SIGABRT`, `SIGBUS`, `SIGFPE`, `SIGILL`) on `start`. Crashes serialize to disk synchronously and upload on next launch.
+// Capture a non-error event (warning-level).
+Sankofa.captureMessage("Payment retry attempted")
 
-For non-error events:
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log("checkout: applying coupon SUMMER25")
 
-<CodeBlock lang="swift" code={`SankofaCatch.shared.captureMessage("Payment retry attempted")`} />
+// Attach ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser(CatchUserContext(id: "user_123", email: "ada@example.com"))
+Sankofa.setTag("flow", "checkout")
+Sankofa.setExtra("cart_id", AnyCodable(cart.id))
 
-Other helpers:
-
-<CodeBlock lang="swift" code={`// Attach a user
-SankofaCatch.shared.setUser(SankofaCatchUser(id: "user_123", email: "ada@example.com"))
-
-// Add a breadcrumb (rides on the next captured event)
-SankofaCatch.shared.addBreadcrumb(SankofaCatchBreadcrumb(
-    category: "user-action",
+// Structured breadcrumb.
+Sankofa.addBreadcrumb(CatchBreadcrumb(
+    type: "user-action",
+    category: "ui",
     message: "Tapped checkout button"
-))
+))`} />
 
-// Free-form tags
-SankofaCatch.shared.setTag(key: "feature", value: "billing")`} />
+### Automatic coverage
+
+`Sankofa.shared.initialize` installs:
+
+- **`NSSetUncaughtExceptionHandler`** — chained so the previous handler (Crashlytics, etc.) still fires after Sankofa records the event.
+- **POSIX signal handlers** — `SIGSEGV`, `SIGABRT`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGTRAP`, `SIGSYS`. Dumps written async-signal-safely and drained on the next launch.
+- **Main-queue stall detector** — background timer pings a sentinel block onto the main queue; if it doesn't fire within `catchStallThresholdSeconds` (2.0s by default, matching Sentry), an `anr` event is emitted. Set the threshold to `0` to disable.
+- **Auto-discovered flag/config snapshots** — every event carries the active `flag_snapshot` + `config_snapshot` if Switch/RemoteConfig are linked.
+
+### withScope — Sentry-style temporary scope
+
+<CodeBlock lang="swift" code={`Sankofa.withScope { scope in
+    scope.setTag("checkout_step", "payment")
+    scope.setExtra("cart_id", AnyCodable(cart.id))
+    scope.setLevel(.warning)
+    Sankofa.captureException(err)
+}
+// Outside the closure, those tags / extras are gone.`} />
+
+Scopes are stack-scoped to the closure — async captures deferred past the closure's return won't see the scope.
+
+### beforeSend — scrub PII / drop noise
+
+<CodeBlock lang="swift" code={`Sankofa.shared.initialize(
+    apiKey: "sk_live_...",
+    config: SankofaConfig(
+        endpoint: "https://api.sankofa.dev",
+        beforeSend: { event in
+            // Drop framework noise.
+            if event.message?.contains("setNeedsLayout from a non-main thread") == true {
+                return nil
+            }
+            // PII scrubbing — strip email.
+            if event.user?.email != nil {
+                var scrubbed = event
+                scrubbed.user?.email = nil
+                return scrubbed
+            }
+            return event
+        }
+    )
+)`} />
+
+Throws inside `beforeSend` are swallowed — the original event ships unchanged.
 
 ## Switch — feature flags
 
@@ -285,13 +334,16 @@ App Store Connect picks up these declarations alongside your own.
 | `Sankofa.shared.setPerson(name:email:avatar:properties:)` | Update profile traits. |
 | `Sankofa.shared.reset()` | Rotate session + clear identity. |
 | `Sankofa.shared.flush()` | Force-drain the queue. |
-| `SankofaCatch.shared.start(environment:release:appVersion:)` | Initialize Catch. |
-| `SankofaCatch.shared.captureException(_:)` | Manually capture an error. |
-| `SankofaCatch.shared.captureMessage(_:)` | Capture a non-error event. |
+| `Sankofa.captureException(_:)` | Capture an error (auto-routes to Catch singleton). |
+| `Sankofa.captureMessage(_:)` | Capture a non-error event. |
+| `Sankofa.log(_:[category:])` | Crashlytics-style breadcrumb. |
+| `Sankofa.setUser` / `setTag` / `setTags` / `setExtra` / `addBreadcrumb` | Ambient context. |
+| `Sankofa.withScope(_:)` | Temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush Catch events. |
 | `SankofaSwitch.shared.getFlag(_:default:)` | Boolean feature flag. |
 | `SankofaSwitch.shared.getVariant(_:default:)` | Variant feature flag. |
 | `SankofaSwitch.shared.getDecision(_:)` | Full decision envelope. |
-| `SankofaRemoteConfig.shared.get<T>(_:default:)` | Typed remote config. |
+| `SankofaRemoteConfig.shared.get(_:default:)` (generic over `T`) | Typed remote config. |
 | `SankofaPulse.shared.register()` | Initialize Pulse (async). |
 | `SankofaPulse.shared.show(surveyId:)` | Manually show a survey. |
 

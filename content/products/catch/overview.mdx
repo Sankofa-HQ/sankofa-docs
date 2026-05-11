@@ -46,6 +46,64 @@ Two events with the same fingerprint group into the same issue. You can override
 
 Custom fingerprints are useful for errors that the auto-grouper splits too aggressively (e.g. dynamically-named functions creating unique stacks).
 
+## SDK ergonomics
+
+The Sankofa SDKs ship a unified Catch API across **Web, Flutter, React Native, Android, iOS** — Crashlytics + Sentry merged. Once you've called the SDK's main init function, every helper below works from anywhere in your app with no instance to thread through:
+
+<CodeBlock lang="ts" code={`// Capture from anywhere — Sentry-style.
+Sankofa.captureException(err);
+Sankofa.captureMessage("Payment retry attempted");
+
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log("checkout: applying coupon SUMMER25");
+
+// Ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser({ id: "user_123", email: "ada@example.com" });
+Sankofa.setTag("flow", "checkout");
+Sankofa.setExtra("cart_id", cart.id);
+
+// Sentry-style temporary scope — tags/extras attached to ONE
+// capture without polluting the global scope.
+Sankofa.withScope((scope) => {
+  scope.setTag("checkout_step", "payment");
+  scope.setLevel("warning");
+  Sankofa.captureException(err);
+});`} />
+
+### Automatic coverage (zero wiring)
+
+The SDK installs platform-specific handlers when you call init:
+
+| Platform | Captured |
+|---|---|
+| **Web** | `window.onerror`, `unhandledrejection`, optional `console.error` capture, fetch/XHR breadcrumbs, Web Vitals. |
+| **Flutter** | Dart-side `FlutterError.onError`, `PlatformDispatcher.onError`, isolate error listeners. The bundled Flutter plugin adds iOS NSException + POSIX signals + main-queue stalls, plus Android JVM-uncaught + ANRs — **standalone, no Pod or Maven dependency on the native iOS/Android Sankofa SDKs**. |
+| **React Native** | JS-side `ErrorUtils` + `unhandledrejection`, plus native NSException / JVM-uncaught via the RN bridge wrapping `SankofaIOS` / `sankofa_sdk_android`. |
+| **Android (native)** | Chained `Thread.UncaughtExceptionHandler` + `CatchAnrWatcher`. |
+| **iOS (native)** | `NSSetUncaughtExceptionHandler` + POSIX signal handlers + **main-queue stall detector** (2s default threshold, configurable). |
+
+### beforeSend — scrub PII / drop noise
+
+Every SDK accepts a `beforeSend` hook at init time. It fires AFTER event composition but BEFORE the transport sends. Return the (possibly modified) event to ship, or `null` to drop entirely. Throws are swallowed — a buggy hook can never break the capture pipeline.
+
+<CodeBlock lang="ts" code={`Sankofa.init({
+  // ...
+  plugins: [catchPlugin({
+    beforeSend: (event) => {
+      if (event.message?.includes("ResizeObserver loop limit")) return null;
+      if (event.user?.email) {
+        return { ...event, user: { ...event.user, email: undefined } };
+      }
+      return event;
+    },
+  })],
+});`} />
+
+### Auto-discovered flag + config snapshots
+
+If you've registered `switchPlugin` / `configPlugin` (web), or constructed `SankofaSwitch` / `SankofaConfig` (Flutter/RN/native), every captured event automatically carries the active `flag_snapshot` + `config_snapshot`. The dashboard shows "which flags were ON when this error fired" without any host wiring.
+
 ## Auto-rollback (the &lt;60s loop)
 
 This is what makes Catch operationally different.

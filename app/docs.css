@@ -39,6 +39,12 @@
   max-width: 720px;
   margin: 0;
 }
+@media (max-width: 720px) {
+  .docs-main { padding: 20px 0 72px; }
+  .docs-page-header { margin-bottom: 24px; }
+  .docs-page-title { font-size: 28px; line-height: 34px; }
+  .docs-page-description { font-size: 16px; line-height: 24px; }
+}
 
 /* ===== Sidebar ===== */
 .docs-sidebar {
@@ -370,6 +376,15 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--page-fg-soft);
+}
+@media (max-width: 720px) {
+  .docs-search-trigger {
+    min-width: 0;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .docs-search-trigger > span:not([aria-hidden]) { display: none; }
+  .docs-search-kbd { display: none; }
 }
 
 /* ===== Code blocks (rehype-pretty-code) ===== */

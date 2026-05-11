@@ -65,6 +65,11 @@ export const mdxComponents = {
     </DocLink>
   ),
   pre: Pre,
+  table: (p: ComponentPropsWithoutRef<"table">) => (
+    <div className="prose-table-wrap">
+      <table {...p} />
+    </div>
+  ),
   // Custom MDX components surfaced to authors:
   Callout,
   CodeBlock,

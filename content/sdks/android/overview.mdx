@@ -32,6 +32,15 @@ import dev.sankofa.sdk.pulse.SankofaPulse
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Switch + Config first so the auto-discovered flag/config
+        // snapshots Catch attaches to its events on the very first
+        // crash already see something useful.
+        SankofaSwitch.init(this, defaults = mapOf("new_checkout" to false))
+        SankofaRemoteConfig.init(this, defaults = mapOf("max_upload_mb" to 25))
+
+        // One-line init. enableCatch=true (default) auto-installs the
+        // chained Thread.UncaughtExceptionHandler + ANR watcher — no
+        // separate \`SankofaCatch.init\` call needed.
         Sankofa.init(
             context = this,
             apiKey = BuildConfig.SANKOFA_KEY,
@@ -40,12 +49,12 @@ class MyApplication : Application() {
                 recordSessions = true,
                 maskAllInputs = true,
                 debug = BuildConfig.DEBUG,
+                catchEnvironment = "production",
+                release = "v1.0.0",
+                appVersion = BuildConfig.VERSION_NAME,
             ),
         )
 
-        SankofaCatch.init(this, environment = "production", release = "v1.0.0", appVersion = BuildConfig.VERSION_NAME)
-        SankofaSwitch.init(this, defaults = mapOf("new_checkout" to false))
-        SankofaRemoteConfig.init(this, defaults = mapOf("max_upload_mb" to 25))
         SankofaPulse.register(applicationContext)
     }
 }`} />
@@ -69,6 +78,11 @@ Register the application in your manifest:
     { name: "trackLifecycleEvents", type: "Boolean", default: "true", description: "Auto-track app open / foregrounded / backgrounded." },
     { name: "flushIntervalSeconds", type: "Int", default: "30", description: "Foreground flush cadence." },
     { name: "batchSize", type: "Int", default: "50", description: "Maximum events per batch upload." },
+    { name: "enableCatch", type: "Boolean", default: "true", description: "Auto-install Catch + chained UncaughtExceptionHandler + ANR watcher. Set false to defer Catch boot." },
+    { name: "catchEnvironment", type: "String", default: "live", description: "Environment tag stamped on every captured event." },
+    { name: "release", type: "String?", description: "Release identifier (e.g. 'myapp@1.4.0') sent on every Catch event." },
+    { name: "appVersion", type: "String?", description: "App version override sent in the Catch device context." },
+    { name: "beforeSend", type: "BeforeSendFn?", description: "Synchronous hook fired AFTER event composition but BEFORE enqueue. Return modified event or null to drop." },
   ]}
 />
 
@@ -105,25 +119,92 @@ The event queue is backed by Room, persists across app restarts, and uses WorkMa
 
 ## Catch — error capture
 
-The SDK installs `Thread.setDefaultUncaughtExceptionHandler` and an ANR watchdog (`CatchAnrWatcher`) on `SankofaCatch.init`. Crashes serialize to disk synchronously and upload on next launch.
+Catch auto-boots inside `Sankofa.init`. Once init resolves, every `Sankofa.captureException` / `Sankofa.log` call routes to the singleton — no separate `SankofaCatch.init` call needed. Crashes serialize to SharedPreferences synchronously and upload on the next launch.
 
-For caught exceptions:
-
-<CodeBlock lang="kotlin" code={`try {
+<CodeBlock lang="kotlin" code={`// Capture a handled exception from anywhere — Sentry-style.
+try {
     chargeCard(amount)
 } catch (e: Exception) {
-    SankofaCatch.captureException(e,
-        tags = mapOf("feature" to "billing"),
-        extras = mapOf("amount" to amount)
-    )
-}`} />
+    Sankofa.captureException(e)
+}
 
-ProGuard mapping upload via the CLI:
+// Capture a non-error event (warning-level).
+Sankofa.captureMessage("Payment retry attempted")
+
+// Crashlytics-style breadcrumb log — rides on the next captured
+// event. Doesn't bill on its own.
+Sankofa.log("checkout: applying coupon SUMMER25")
+
+// Attach ambient context. Sticky — every subsequent event carries it.
+Sankofa.setUser(CatchUserContext(id = "user_123", email = "ada@example.com"))
+Sankofa.setTag("flow", "checkout")
+Sankofa.setExtra("cart_id", cart.id)
+
+// Structured breadcrumb (HTTP, navigation, console, etc.).
+Sankofa.addBreadcrumb(CatchBreadcrumb(
+    type = "user-action",
+    category = "ui",
+    message = "Tapped checkout"
+))`} />
+
+### Automatic coverage
+
+`Sankofa.init` installs:
+
+- **Chained `Thread.setDefaultUncaughtExceptionHandler`** — every JVM-uncaught exception. The previous handler (Crashlytics, etc.) still fires after Sankofa records the event.
+- **`CatchAnrWatcher`** — main-thread hangs > 5s emit an `anr` event.
+- **Auto-discovered flag/config snapshots** — every event carries the active `flag_snapshot` + `config_snapshot` if Switch/Config are linked. No host wiring.
+
+### withScope — Sentry-style temporary scope
+
+<CodeBlock lang="kotlin" code={`Sankofa.withScope { scope ->
+    scope.setTag("checkout_step", "payment")
+    scope.setExtra("cart_id", cart.id)
+    scope.setLevel(CatchLevel.WARNING)
+    Sankofa.captureException(err)
+}
+// Outside the closure, those tags / extras are gone.`} />
+
+Scopes are **thread-local** — captures fired on a background worker won't pick up the UI thread's scope, and vice versa.
+
+### beforeSend — scrub PII / drop noise
+
+<CodeBlock lang="kotlin" code={`Sankofa.init(
+    context = this,
+    apiKey = BuildConfig.SANKOFA_KEY,
+    config = SankofaConfig(
+        endpoint = "https://api.sankofa.dev",
+        beforeSend = { event ->
+            // Drop framework noise.
+            if (event.message?.contains("setState called after destroy") == true) {
+                null
+            } else if (event.user?.email != null) {
+                // PII scrubbing — strip email.
+                event.copy(user = event.user.copy(email = null))
+            } else {
+                event
+            }
+        },
+    ),
+)`} />
+
+Throws inside `beforeSend` are swallowed — the original event ships unchanged.
+
+### ProGuard mapping upload
 
 <CodeBlock lang="bash" code={`npx sankofa-cli catch symbols upload \\
   --kind proguard_mapping \\
   --release "$RELEASE_SHA" \\
   --file ./build/outputs/mapping/release/mapping.txt`} />
+
+| Static helper | Description |
+|---|---|
+| `Sankofa.captureException(t, [opts])` | Capture a handled throwable. Returns event ID or `""`. |
+| `Sankofa.captureMessage(msg, [opts])` | Non-error variant. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. Doesn't bill. |
+| `Sankofa.setUser(user)` / `setTag(s)` / `setExtra` / `addBreadcrumb` | Ambient context. |
+| `Sankofa.withScope { scope -> ... }` | Thread-local temporary scope. |
+| `Sankofa.flushCatch()` | Force-flush queued Catch events. |
 
 ## Switch — feature flags
 
@@ -241,8 +322,12 @@ The SDK ships consumer ProGuard rules at `consumer-rules.pro` — minification w
 | `Sankofa.setPerson(name?, email?, properties?)` | Update profile traits. |
 | `Sankofa.reset()` | Rotate session + clear identity. |
 | `Sankofa.flush()` | Force-drain the queue. |
-| `SankofaCatch.init(context, environment, release, appVersion)` | Initialize Catch. |
-| `SankofaCatch.captureException(throwable, tags?, extras?)` | Capture an error. |
+| `Sankofa.captureException(throwable, [opts])` | Capture an error (auto-routes to Catch singleton). |
+| `Sankofa.captureMessage(msg, [opts])` | Capture a non-error event. |
+| `Sankofa.log(msg, [category])` | Crashlytics-style breadcrumb. |
+| `Sankofa.setUser` / `setTag(s)` / `setExtra` / `addBreadcrumb` | Ambient context. |
+| `Sankofa.withScope { scope -> ... }` | Temporary scope overlay. |
+| `Sankofa.flushCatch()` | Force-flush Catch events. |
 | `SankofaSwitch.init(context, defaults)` | Initialize Switch. |
 | `SankofaSwitch.getFlag(key, default?)` | Boolean feature flag. |
 | `SankofaSwitch.getVariant(key, default)` | Variant feature flag. |
