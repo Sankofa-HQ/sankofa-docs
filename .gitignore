@@ -2,8 +2,11 @@
 node_modules
 out
 dist
-out
 .DS_Store
 *.log
 .env*
 !.env.example
+# Pagefind generates the search index into out/pagefind, and the postbuild
+# step mirrors it to public/pagefind so `next dev` can serve it. Both are
+# build artifacts — never committed.
+public/pagefind
