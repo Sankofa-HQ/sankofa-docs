@@ -36,6 +36,16 @@ export function DocLink({
 
   // Internal links: check shipping status.
   if (href.startsWith("/")) {
+    // File-like internal assets (feed.xml, .png, .pdf, ...) bypass the page
+    // manifest — they are emitted by the build but not registered as docs pages.
+    const isAsset = /\.[a-z0-9]{2,5}(\?|#|$)/i.test(href);
+    if (isAsset) {
+      return (
+        <a href={href} {...rest}>
+          {children}
+        </a>
+      );
+    }
     if (isShippedHref(href)) {
       return (
         <Link href={href} {...rest}>

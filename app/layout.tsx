@@ -54,6 +54,12 @@ export default function RootLayout({
           // Set data-theme before first paint to avoid FOUC.
           dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
         />
+        <link
+          rel="alternate"
+          type="application/atom+xml"
+          title="Sankofa changelog"
+          href="/resources/changelog/feed.xml"
+        />
       </head>
       <body>
         <a className="skip-link" href="#main-content">

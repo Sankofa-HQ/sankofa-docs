@@ -6,8 +6,10 @@
   "scripts": {
     "d": "next dev -p 3002",
     "dev": "next dev -p 3002",
-    "build": "next build && node scripts/postbuild-pagefind.mjs",
-    "start": "python3 -m http.server 3002 -d out",
+    "build": "next build && node scripts/postbuild-rss.mjs && node scripts/postbuild-pagefind.mjs",
+    "a11y": "node scripts/check-a11y.mjs",
+    "lighthouse": "node scripts/check-lighthouse.mjs",
+    "start": "node scripts/serve.mjs",
     "lint": "eslint",
     "test": "node --test --experimental-strip-types lib/content.test.ts",
     "check-snippets": "node scripts/check-snippets.mjs"
