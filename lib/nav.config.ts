@@ -100,6 +100,7 @@ export const SECTIONS: NavSection[] = [
           { slug: "events" },
           { slug: "identity-and-aliases" },
           { slug: "sessions" },
+          { slug: "screens" },
           { slug: "default-properties" },
           { slug: "cohorts" },
         ],

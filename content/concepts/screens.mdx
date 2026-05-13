@@ -1,0 +1,242 @@
+---
+title: Screens
+description: How Sankofa uses the active screen / route as a cross-product correlation key — shared by Heatmap, Catch, Replay, Pulse, and Plan — and what your SDK needs to do for it to work.
+toc: true
+sdks: [web, react-native, ios, android, flutter, node, go, java, python]
+---
+
+A **screen** in Sankofa is the active route, view, or page the user is on at the moment an event happens. It's the single most useful cross-product correlation key the platform has — when every product agrees on what "Identify" means, the dashboard can answer questions like:
+
+- *Which screens have the most crashes this week?*
+- *Show me session replays of users who saw an error on Checkout.*
+- *Filter the NPS responses to only respondents who submitted from the onboarding flow.*
+- *When a Plan ticket is auto-created from a crash, what screen was the user on?*
+
+Without screen tagging, every product is an island — you can see crashes, replays, surveys, and tickets in isolation, but you can't pivot between them around a shared "the user was here" axis.
+
+## Why this matters more than it sounds
+
+Screen-tagging is also the **prerequisite for Heatmap to work at all**. A heatmap is, by definition, the aggregation of clicks/scrolls/rage-taps for a specific screen — if the SDK doesn't tag the screen, the heatmap has no key to bucket the events under and the screen list stays empty. The same value powers:
+
+| Product            | What screen-tagging enables                                           |
+| ------------------ | --------------------------------------------------------------------- |
+| **Heatmap**        | Per-screen aggregation. Without a tag, no heatmap can render.         |
+| **Catch (errors)** | Filter issues by screen. Top-screens widget on issue detail.          |
+| **Replay**         | Filter sessions by screen. "Show me replays where this happened."     |
+| **Pulse (surveys)**| Target surveys by screen. Filter responses by screen.                 |
+| **Plan (tickets)** | Tickets auto-created from Catch / Pulse inherit the source screen.    |
+| **Analytics**      | Every event auto-stamped with `$screen_name` for slice-and-dice.      |
+
+A renamed screen — *"Identify"* → *"Identity Verification"* — is renamed once in the Lexicon and propagates to every surface that reads through it. No per-product config drift.
+
+## Setting the active screen
+
+How the SDK learns the active screen depends on the platform. The resolution order is the same everywhere: **explicit > auto-detected > unknown**.
+
+<Tabs>
+<Tab title="Web (JS)">
+
+The web SDK ships with no auto-detect — your app calls `screen()` whenever the route changes:
+
+```ts
+import { Sankofa } from '@sankofa/browser';
+
+// In your router's onChange / useEffect:
+Sankofa.screen('Identify');
+```
+
+That value is included on every Catch error, every Pulse response, and every analytics event (as `$screen_name`) until the next `screen()` call.
+
+For Catch specifically, when you haven't called `screen()` yet, the SDK falls back to `window.location.pathname` so deep links and crashes during boot still carry useful correlation.
+
+</Tab>
+
+<Tab title="React Native">
+
+Two options — pick one:
+
+```tsx
+import { useSankofaScreen, useSankofaNavigationTracking } from 'sankofa-react-native';
+
+// Option 1 — drop into every screen component:
+function CheckoutScreen() {
+  useSankofaScreen('Checkout');
+  return <View>…</View>;
+}
+
+// Option 2 — auto-track every React Navigation screen with one hook
+// at the app root:
+const navRef = useRef<NavigationContainerRef<ParamList> | null>(null);
+useSankofaNavigationTracking(navRef.current);
+```
+
+Both feed the same JS-side tracker that Catch and Pulse read on event capture and submit.
+
+</Tab>
+
+<Tab title="iOS">
+
+The iOS SDK auto-detects the top view controller's name. UIKit hosts get correct screen tags out of the box. SwiftUI / cross-platform hosts (Flutter, RN) should call `screen()` explicitly because the auto-detect can't disambiguate framework hosts:
+
+```swift
+Sankofa.shared.screen("Identify")
+```
+
+</Tab>
+
+<Tab title="Android">
+
+The Android SDK reads the screen from `Sankofa.screen()` or the `@SankofaScreen` annotation:
+
+```kotlin
+@SankofaScreen("Identify")
+class IdentifyActivity : AppCompatActivity() { … }
+
+// Or imperatively:
+Sankofa.screen("Identify")
+```
+
+Activity-name fallback applies if neither is set — same idea as iOS.
+
+</Tab>
+
+<Tab title="Flutter">
+
+Add the navigator observer at the app root and you get auto-tracking of every route change:
+
+```dart
+MaterialApp(
+  navigatorObservers: [SankofaNavigatorObserver()],
+  …
+)
+```
+
+Or imperatively from any widget:
+
+```dart
+Sankofa.instance.screen('Identify');
+```
+
+</Tab>
+
+<Tab title="Server SDKs (Node, Go, Java, Python)">
+
+Server SDKs don't auto-detect — there's no UI surface, but a server handling `/checkout` knows the route. Pass it on `CaptureOptions`:
+
+```ts
+// Node
+sankofa.captureException(err, { screen: req.path });
+```
+
+```go
+// Go
+client.CaptureException(err, &sankofa.CaptureOptions{Screen: r.URL.Path})
+```
+
+```java
+// Java
+SankofaCatch.CaptureOptions opts = new SankofaCatch.CaptureOptions();
+opts.screen = req.getRequestURI();
+SankofaCatch.captureException(t, opts);
+```
+
+```python
+# Python
+client.capture_exception(err, CaptureOptions(screen=request.path))
+```
+
+A small middleware that stamps the request route onto every capture inside the request scope is the recommended pattern.
+
+</Tab>
+</Tabs>
+
+## How the value flows
+
+Once the SDK knows the screen, it ships on every cross-product surface:
+
+<Steps>
+  <Step title="Catch error events">
+    Top-level `screen` field on `CatchEventV1`. ClickHouse-indexed so the issues list can filter and the per-issue Top Screens widget can aggregate without scanning breadcrumbs.
+  </Step>
+  <Step title="Pulse response submissions">
+    Top-level `screen` field on the submit payload. Postgres + ClickHouse mirror both store it as a first-class column.
+  </Step>
+  <Step title="Analytics events (web + RN auto)">
+    Auto-attached as `$screen_name` on every `track()` call, so every analytics query can pivot on screen.
+  </Step>
+  <Step title="Heatmap">
+    Reads `screen_name` directly — the entire heatmap is keyed on it.
+  </Step>
+  <Step title="Replay">
+    Tagged on each session segment, so the replay list supports `?screen=` filtering and cross-product back-links from Catch / Heatmap land here pre-filtered.
+  </Step>
+  <Step title="Plan tickets (auto-created from Catch / Pulse)">
+    Inherits `screen` from the source issue / response so triage knows where the user was without leaving the ticket.
+  </Step>
+</Steps>
+
+## The Lexicon
+
+Every screen the SDK reports is auto-discovered into the **Lexicon** at `Settings → Lexicon → Screens`. From there you can:
+
+- **Rename** internal screen names to human-friendly labels (`signup_step_2` → `Sign Up — Verify Email`). The rename flows through every product without per-surface config.
+- **Hide** internal / debug screens you don't want polluting dashboards.
+- **Annotate** with descriptions so anyone landing on the heatmap or issue list knows what the screen is.
+
+The Lexicon is project-scoped and environment-aware, so test-mode discovery doesn't leak into live dashboards.
+
+## Time on screen
+
+The dashboard automatically computes **dwell time** — how long users actually spend on each screen — from the `$screen_view` events the SDK already sends. No SDK changes, no extra config; it's a derived metric off the analytics stream.
+
+What you get:
+
+- **Avg / p50 / p95 dwell** per screen (last 30d), shown inline on the Lexicon Screens tab and on the Catch issue detail's Top Screens widget.
+- **Total dwell** across all users — the "where is your audience's time going" view.
+- **Top exit screens** — for each screen, where users go next (or drop off).
+- **Daily trend** — does avg dwell on Checkout drop after a release? The trend chart on the screen detail surfaces it.
+
+How dwell is computed:
+
+```
+dwell(screen_view_i) = ts(next_screen_view_in_same_session) - ts(i)
+```
+
+The last screen of a session has no successor, so we cap it at **30 minutes** — matching the SDK's default session-timeout — to keep idle backgrounded sessions from inflating the average. Sessions naturally truncate most tails; the cap is a defensive ceiling.
+
+<Callout type="info">
+**Dwell only works when `screen()` is called.** Without screen tagging, every `$screen_view` event lands under an empty screen name and the rollup has nothing to bucket. Wiring screen tagging (above) is the prerequisite — once it's in, dwell is automatic.
+</Callout>
+
+The `/api/v1/screens/dwell` endpoint exposes the rollup directly if you want to feed dwell stats into your own dashboards, weekly digest, or alerting.
+
+## Live presence ("X live now")
+
+Beyond dwell, the SDK pings a lightweight `/api/v1/screens/heartbeat` endpoint every ~15 seconds while a screen is foregrounded. The dashboard subscribes to a Server-Sent Events stream and renders a live count next to every screen on the Heatmap viewer and the Lexicon Screens tab.
+
+Properties of the live signal:
+
+- **30-second TTL.** A user not seen for 30s is considered gone — handles tab-close, app-backgrounded, and abrupt network drops uniformly.
+- **Visibility-gated.** Browser tabs use the visibility API; native apps use `AppState` / `ProcessLifecycleOwner` / `WidgetsBindingObserver`. Backgrounded apps stop pinging immediately so we don't paint stale "still live" badges.
+- **Best-effort.** Failed heartbeats are silent; presence is decoration, not correctness. The TTL handles whatever the network can't.
+- **Single in-process map by default.** No Redis required for single-pod deployments. Multi-pod setups can swap in a Redis backplane via the same pattern Vision Realtime uses.
+
+The heartbeat is on by default in every SDK — no opt-in. If you need to disable it (a strict CSP, a regulated environment, a billing-tier downgrade), the SDK exposes a config flag per platform.
+
+<Callout type="warning">
+**Live presence is decorative — don't gate billing or rate-limiting on it.** The TTL means counts lag reality by up to 30 seconds, and a brief network hiccup will under-count. Use `/api/v1/screens/dwell` (sourced from the durable analytics events table) for any read that needs to be authoritative.
+</Callout>
+
+## Common pitfalls
+
+<Callout type="warning">
+**Don't rely on auto-detection for SwiftUI / Flutter / RN apps.** The iOS auto-detect walks the UIKit view hierarchy; framework hosts present a single `UIHostingController` for every screen, so auto-detect returns the same name for everything. Explicit `screen()` calls are required.
+</Callout>
+
+<Callout type="warning">
+**Web SDK callers — wire `screen()` to your router.** `window.location.pathname` is a fallback, not the recommendation. SPA routes that don't update `pathname` (or that use hash routing) will all collapse into a single screen. Call `Sankofa.screen()` from your router's onChange.
+</Callout>
+
+<Callout type="info">
+**Server SDKs are opt-in.** Without `CaptureOptions.screen`, server-side errors won't carry a screen — they'll be filed under "Unknown" in the issues list. A 6-line HTTP middleware solves this for every framework: pull the route, stash it on the request, pass it to every capture inside that request.
+</Callout>
