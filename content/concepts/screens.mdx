@@ -152,28 +152,42 @@ A small middleware that stamps the request route onto every capture inside the r
 
 ## How the value flows
 
-Once the SDK knows the screen, it ships on every cross-product surface:
+`Sankofa.screen('Identify')` does **one** thing — call the canonical, product-independent ingest path. Every product reads from there.
 
-<Steps>
-  <Step title="Catch error events">
-    Top-level `screen` field on `CatchEventV1`. ClickHouse-indexed so the issues list can filter and the per-issue Top Screens widget can aggregate without scanning breadcrumbs.
-  </Step>
-  <Step title="Pulse response submissions">
-    Top-level `screen` field on the submit payload. Postgres + ClickHouse mirror both store it as a first-class column.
-  </Step>
-  <Step title="Analytics events (web + RN auto)">
-    Auto-attached as `$screen_name` on every `track()` call, so every analytics query can pivot on screen.
-  </Step>
-  <Step title="Heatmap">
-    Reads `screen_name` directly — the entire heatmap is keyed on it.
-  </Step>
-  <Step title="Replay">
-    Tagged on each session segment, so the replay list supports `?screen=` filtering and cross-product back-links from Catch / Heatmap land here pre-filtered.
-  </Step>
-  <Step title="Plan tickets (auto-created from Catch / Pulse)">
-    Inherits `screen` from the source issue / response so triage knows where the user was without leaving the ticket.
-  </Step>
-</Steps>
+```
+Sankofa.screen('Identify')
+  │
+  ├─→ updates the SDK's currentScreen tracker  (used by Catch / Pulse on their own ingest)
+  │
+  ├─→ POST /api/v1/screens/seen  ← canonical primitive (always fires)
+  │     ├─→ lexicon upsert        → Lexicon Screens tab
+  │     ├─→ presence touch         → "X live now" badges
+  │     └─→ insert screen_views    → dwell rollup source
+  │
+  └─→ if Sankofa Analytics enabled: also fire $screen_view event (legacy + funnels / retention)
+```
+
+### Why a separate canonical endpoint
+
+Because each product can be used independently. A Catch-only customer, a Pulse-only customer, a Vision-only customer — all populate the lexicon, dwell, and presence identically through `/screens/seen`. No product is the prerequisite for another.
+
+| Surface | Source | Independent of analytics? |
+|---|---|---|
+| **Lexicon Screens tab** | `/screens/seen` (+ on-read sync from screen_views ∪ events) | ✅ |
+| **Dwell rollup** (`/screens/dwell`) | `screen_views` table, falls back to events table | ✅ (rollup) — falls back when no canonical data exists yet |
+| **Live presence** (SSE) | In-memory cache touched by `/screens/seen` + heartbeat | ✅ |
+| **Catch error event `screen` field** | SDK reads currentScreen on capture | ✅ |
+| **Pulse response `screen` field** | SDK reads currentScreen on submit | ✅ |
+| **Heatmap** | Reads `screen_name` from analytics events | depends on analytics |
+| **Replay** | Tagged on each session segment | depends on Vision |
+| **Plan tickets** (auto-created) | Inherited from Catch issue / Pulse response | depends on Plan |
+
+### What you see in the dashboard
+
+- **`/dashboard/screens`** — the project-wide list with views, users, avg/p95 dwell, total time, and a live-now badge per row. Sortable; lexicon-aware naming. Each row drills into:
+- **`/dashboard/screens/[screen]`** — per-screen detail with daily trend, top exit screens, and one-click cross-product links to Heatmap / Replays / Catch / Pulse for the same screen (each gated on its module).
+- **`/dashboard/users/detail?id=…`** — "Time on screens" panel showing where this specific user spent their time.
+- **`/dashboard/lexicon` → Screens tab** — operator surface for renaming, hiding, annotating screens. Renames propagate everywhere via the lexicon resolver.
 
 ## The Lexicon
 
