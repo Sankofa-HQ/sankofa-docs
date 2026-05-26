@@ -4,9 +4,15 @@ description: Per-organisation pricing — no per-seat surprises. Four tiers (Hob
 toc: true
 ---
 
-Sankofa charges **per organization**, not per seat. Add as many members as you need on Pro and above without thinking about cost — the only metered dimensions are monthly events, replays, deploy patches, and per-product feature gates.
+Sankofa charges **per organization**, not per seat, on every paid tier except Plan and Vision (both per-seat). The only metered dimensions on paid tiers are monthly events, replays, deploy patches, and per-product feature gates.
 
 This page is the canonical tier matrix. Every quota and feature gate documented here is enforced server-side (`/server/engine/ee/billing/plans.go`); changes here track the engine's source of truth.
+
+:::note Free tier has a per-module seat cap
+Each product's Free tier caps the number of humans who can use that module: Catch / Pulse / Switch / Config / Deploy / Analytics Free = **3 seats**; Plan Free = **10 seats**. Every paid tier (Starter / Pro / Growth / Enterprise) is unlimited seats per module.
+
+The seat counter includes **the Owner + every org Admin + every granted Member**, deduped. Promoting Members to "Admin" role does NOT bypass the cap. Matches Linear / Jira / Asana convention. See `ee/billing/seats.go`.
+:::
 
 ## The four tiers
 
