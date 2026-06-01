@@ -1,0 +1,118 @@
+---
+title: Flutter — Releasing to the App Store
+description: How to ship a Sankofa CodePush–enabled Flutter app to the Apple App Store. Covers the release archive flow, the one Xcode checkbox that breaks patches, App Store privacy compliance, and encryption export.
+toc: true
+sdks: [flutter]
+---
+
+This guide walks through releasing a Flutter app that uses **Sankofa CodePush** to the Apple App Store. The most important step — easy to miss, hard to recover from — is the Xcode checkbox in §3.
+
+<Callout tone="note" title="What this covers">
+Releasing a base binary through App Store Review. After this guide, you can ship Dart-level patches to that release with `sankofa patch ios` without going through review again — that's the whole point of CodePush.
+</Callout>
+
+## 1. Build the release
+
+Bump your `pubspec.yaml` version (e.g. `version: 1.0.4+1`), then run:
+
+<CodeBlock lang="bash" code={`sankofa release ios`} />
+
+This produces a signed `.xcarchive` at `build/ios/archive/Runner.xcarchive` and registers the release with Sankofa under the version + build number from your `pubspec.yaml`. **The version + build number ARE the patch addressing key**, so any later patch must target the same `1.0.4+1` you set here.
+
+For uncodesigned builds (CI farms that sign elsewhere), pass `--no-codesign`.
+
+## 2. Upload to App Store Connect
+
+Three equivalent options — pick whichever your workflow already uses.
+
+<Tabs>
+  <Tab label="Xcode Organizer (recommended)">
+    Open the archive in Xcode and click **Distribute App**:
+    ```bash
+    open build/ios/archive/Runner.xcarchive
+    ```
+  </Tab>
+  <Tab label="Transporter">
+    Drag and drop the `build/ios/ipa/*.ipa` file into [Apple Transporter](https://apps.apple.com/us/app/transporter/id1450874784).
+  </Tab>
+  <Tab label="altool">
+    ```bash
+    xcrun altool --upload-app --type ios \
+      -f build/ios/ipa/*.ipa \
+      --apiKey YOUR_API_KEY \
+      --apiIssuer YOUR_ISSUER_ID
+    ```
+  </Tab>
+</Tabs>
+
+## 3. The Xcode checkbox that breaks patches
+
+<Callout tone="critical" title="UNCHECK ‘Manage Version and Build Number’">
+In the Xcode **Distribute App → App Store Connect** dialog, you will see a checkbox labelled **“Manage Version and Build Number”**. **UNCHECK IT.**
+
+If left checked, Xcode rewrites the build number in the uploaded binary. The version that ships to the App Store no longer matches the one Sankofa recorded for this release, and **every patch you publish will silently fail to apply** on installed devices. There is no error, no warning — patches just don't land.
+
+This is the single most common foot-gun for new Sankofa CodePush users. If you ever see a patch that uploaded successfully but didn't reach devices, this is almost always why.
+</Callout>
+
+The Sankofa CLI prints this same warning at the end of every `sankofa release ios` run; it is duplicated here because the upload step is where customers actually hit the dialog.
+
+## 4. App Store Connect — privacy and encryption answers
+
+App Store Connect will ask you two questions during the listing. Both have the same answers for every Sankofa CodePush–enabled Flutter app:
+
+### 4.1 Encryption export compliance
+
+Add this to your `ios/Runner/Info.plist`:
+
+<CodeBlock lang="xml" code={`<key>ITSAppUsesNonExemptEncryption</key>
+<false/>`} />
+
+Sankofa uses only TLS (built into iOS) and Ed25519 signature verification (authentication, not encryption — categorically exempt under US export rules). Setting this key to `false` bypasses the annual self-classification questionnaire on every upload.
+
+If your app uses additional encryption beyond what Sankofa adds, set this to `true` and complete the classification flow per Apple's instructions.
+
+### 4.2 Privacy Manifest
+
+The `sankofa_flutter` package ships a Privacy Manifest (`PrivacyInfo.xcprivacy`) declaring exactly two Required-Reason API categories:
+
+| Category | Why we use it | Reason code |
+|---|---|---|
+| `NSPrivacyAccessedAPICategoryUserDefaults` | Native crash bridge persists captured crashes across hard process termination | `CA92.1` |
+| `NSPrivacyAccessedAPICategoryFileTimestamp` | Patch updater verifies downloaded file sizes via `stat()` | `C617.1` |
+
+The vendored `SankofaUpdaterFFI.xcframework` also ships a slice-level manifest covering only `FileTimestamp`. Apple's App Store Connect validator (ITMS-91061 / ITMS-90683) will pass on a clean Sankofa-only app.
+
+If you add other SDKs that use Required-Reason APIs (analytics, advertising, etc.), each one ships its own manifest — your app's combined manifest is the union.
+
+## 5. Submit for review
+
+In App Store Connect, attach the uploaded build to your release, fill in screenshots and metadata, and submit.
+
+CodePush patches are **not** reviewed by Apple — they are interpreted Dart bytecode running through the Flutter engine's interpreter, covered by DPLA § 3.3.1(B). What you submit for review is the base binary; patches modify the Dart layer of the already-reviewed app. As long as your patches don't change the app's primary purpose (no new categories of feature, no covert storefront), this is the same compliance posture every code-push solution has shipped under for years.
+
+## 6. Ship a patch
+
+Once your release is approved and in production:
+
+<CodeBlock lang="bash" code={`# Edit Dart code, then:
+sankofa patch ios`} />
+
+Devices on the matching release version (`1.0.4+1` in this example) will pick up the patch on the next app launch. No App Store review, no waiting period, no version bump.
+
+## Troubleshooting
+
+| Symptom | Almost-certainly the cause |
+|---|---|
+| Upload rejected with `ITMS-91061` | Missing or stale Privacy Manifest somewhere in the build — confirm `sankofa_flutter` is at the latest version that bundles it. |
+| Upload rejected with `ITMS-90683` | A Required-Reason API was used without declaring the right 4-char reason code. Check which third-party SDK is missing it. |
+| Patch shows uploaded in Sankofa console but devices don't see it | **You almost certainly left "Manage Version and Build Number" checked in Xcode.** See §3. The build that shipped has a different build number from the one Sankofa recorded. |
+| App Store Connect asks the encryption questionnaire on every upload | `ITSAppUsesNonExemptEncryption` is not set in `Info.plist`. See §4.1. |
+| Patch link % is below 95% | Open a support ticket; Sankofa's deferred-dispatch linker targets ≥ 98% reuse on warm sessions, so a sub-95 link% indicates a real engine-side problem we want to investigate. |
+
+## See also
+
+- [Deploy product overview](/products/deploy/overview)
+- [Flutter SDK overview](/sdks/flutter/overview)
+- [Apple App Store Review Guideline 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements)
+- [Apple TN3183 — Required Reason API entries](https://developer.apple.com/documentation/technotes/tn3183-adding-required-reason-api-entries-to-your-privacy-manifest)
