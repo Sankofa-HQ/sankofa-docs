@@ -75,6 +75,8 @@ Pass the API key at build time with `--dart-define`:
 
 <CodeBlock lang="bash" code={`flutter run --dart-define=SANKOFA_KEY=sk_test_...`} />
 
+That single call brings up every product — Analytics, Catch, Switch, Config and Pulse all default on (each gated server-side, so untouched products stay dormant). See the [Flutter SDK overview](/sdks/flutter/overview#initialize) for the full parameter list and how to turn individual products off.
+
 ### Common init flags
 
 <ParameterTable
@@ -83,7 +85,8 @@ Pass the API key at build time with `--dart-define`:
     { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL. Use a regional endpoint to pin data residency." },
     { name: "debug", type: "bool", default: "false", description: "Verbose logging during development. Disable in production." },
     { name: "trackLifecycleEvents", type: "bool", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
-    { name: "enableSessionReplay", type: "bool", default: "false", description: "Wrap your app in <SankofaReplayBoundary> to enable. See the replay guide." },
+    { name: "enableAnalytics / enableCatch / enableFlags / enableConfig / enablePulse", type: "bool", default: "true", description: "Per-product master switches — all on by default. Set any to false to skip that product entirely." },
+    { name: "enableSessionReplay", type: "bool", default: "true", description: "Capture session replays. You must still wrap your app in <SankofaReplayBoundary>." },
   ]}
 />
 

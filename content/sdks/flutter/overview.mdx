@@ -13,7 +13,7 @@ For installation and project setup, see [Install on Flutter](/get-started/instal
 
 ## Initialize
 
-Initialize before `runApp` so default properties (device, OS, locale) are captured from the first frame.
+Initialize before `runApp` so default properties (device, OS, locale) are captured from the first frame. **A single `init()` brings up every product** — Analytics, Catch, Switch, Config and Pulse — with no per-product setup or `register()` step. Each one is gated server-side by the handshake, so enabling a product you don't subscribe to is a harmless no-op.
 
 <CodeBlock lang="dart" filename="lib/main.dart" code={`import 'package:flutter/material.dart';
 import 'package:sankofa_flutter/sankofa_flutter.dart';
@@ -24,11 +24,21 @@ void main() async {
     apiKey: const String.fromEnvironment('SANKOFA_KEY'),
     endpoint: 'https://api.sankofa.dev',
     debug: !const bool.fromEnvironment('dart.vm.product'),
+
+    // Every product below defaults to true — listed here for clarity.
+    enableAnalytics: true, // events, screens, lifecycle, presence
+    enableCatch: true,     // errors + native crashes
+    enableFlags: true,     // Switch — feature flags
+    enableConfig: true,    // remote config
+    enablePulse: true,     // in-app surveys (auto-show, zero wiring)
+
     enableSessionReplay: true,
-    replayMode: ReplayMode.wireframe, // or ReplayMode.screenshot
+    replayMode: SankofaReplayMode.screenshot, // or SankofaReplayMode.wireframe
   );
   runApp(const MyApp());
 }`} />
+
+After init, reach any product through the client getters: `Sankofa.instance.flags`, `.config`, `.pulse`, `.errors`.
 
 ### `Sankofa.instance.init` parameters
 
@@ -38,10 +48,16 @@ void main() async {
     { name: "endpoint", type: "String", default: "https://api.sankofa.dev", description: "Server base URL. Pass a regional endpoint to pin data residency." },
     { name: "debug", type: "bool", default: "false", description: "Verbose logging. Disable in production." },
     { name: "trackLifecycleEvents", type: "bool", default: "true", description: "Auto-track $app_opened, $app_foregrounded, $app_backgrounded." },
-    { name: "enableSessionReplay", type: "bool", default: "false", description: "Wrap your app in <SankofaReplayBoundary> to actually capture replays." },
-    { name: "replayMode", type: "ReplayMode", default: "ReplayMode.wireframe", description: "Either wireframe (lightweight JSON) or screenshot (pixel-perfect, ~10x bandwidth)." },
-    { name: "replayFps", type: "int", default: "1", description: "Frame capture rate for replay." },
+    { name: "enableAnalytics", type: "bool", default: "true", description: "Master switch for analytics — track()/screen(), auto lifecycle + deep-link capture, and the presence heartbeat. Set false to ship a build that sends zero analytics events while keeping every other product live." },
     { name: "enableCatch", type: "bool", default: "true", description: "Auto-install the Catch singleton + chained FlutterError.onError / PlatformDispatcher.onError handlers. Set false only to defer Catch boot for integration tests." },
+    { name: "enableFlags", type: "bool", default: "true", description: "Auto-construct SankofaSwitch (feature flags). Read via Sankofa.instance.flags. Server-gated via handshake." },
+    { name: "flagDefaults", type: "Map<String, FlagDecision>?", description: "Bundled flag defaults returned before the first handshake and while offline." },
+    { name: "enableConfig", type: "bool", default: "true", description: "Auto-construct SankofaConfig (remote config). Read via Sankofa.instance.config. Server-gated via handshake." },
+    { name: "configDefaults", type: "Map<String, ItemDecision>?", description: "Bundled config defaults returned before the first handshake and while offline." },
+    { name: "enablePulse", type: "bool", default: "true", description: "Auto-register Pulse (in-app surveys). Auto-show works with no navigator wiring — Pulse discovers the root navigator from the widget tree. Read via Sankofa.instance.pulse." },
+    { name: "enableSessionReplay", type: "bool", default: "true", description: "Capture session replays. You must still wrap your app in <SankofaReplayBoundary>." },
+    { name: "replayMode", type: "SankofaReplayMode", default: "SankofaReplayMode.screenshot", description: "Either wireframe (lightweight JSON) or screenshot (pixel-perfect, ~10x bandwidth)." },
+    { name: "replayFps", type: "int", default: "1", description: "Frame capture rate for replay." },
     { name: "catchEnvironment", type: "String", default: "live", description: "Environment tag stamped on every captured event (live, staging, dev, custom)." },
     { name: "release", type: "String?", description: "Release identifier (e.g. 'myapp@1.4.0+42') sent on every Catch event for grouping." },
     { name: "appVersion", type: "String?", description: "App version override sent in the Catch device context." },
@@ -185,19 +201,20 @@ If you've already constructed `SankofaSwitch` / `SankofaConfig`, every captured 
 
 ## Switch — feature flags
 
-Construct `SankofaSwitch` with bundled defaults **before** `Sankofa.instance.init` so the first decision handshake routes its payload correctly:
+Switch is auto-constructed by `init(enableFlags: true)` (the default). Pass `flagDefaults` to `init` for the values returned before the first handshake and while offline, then read flags anywhere via `Sankofa.instance.flags`:
 
 <CodeBlock lang="dart" code={`import 'package:sankofa_flutter/sankofa_flutter.dart';
-
-final flags = SankofaSwitch(defaults: {
-  'new_checkout': FlagDecision(value: false, reason: 'default'),
-  'dark_mode_default': FlagDecision(value: false, reason: 'default'),
-});
 
 await Sankofa.instance.init(
   apiKey: 'sk_live_...',
   endpoint: 'https://api.sankofa.dev',
+  flagDefaults: {
+    'new_checkout': FlagDecision(value: false, reason: 'default'),
+    'dark_mode_default': FlagDecision(value: false, reason: 'default'),
+  },
 );
+
+final flags = Sankofa.instance.flags!;
 
 // Boolean
 if (flags.getFlag('new_checkout')) showNewCheckout();
@@ -219,14 +236,17 @@ unsubscribe();`} />
 
 ## Config — remote config
 
-`SankofaConfig` shares the same lifecycle pattern as `SankofaSwitch`:
+Config is auto-constructed by `init(enableConfig: true)` (the default). Pass `configDefaults` to `init` and read via `Sankofa.instance.config`:
 
-<CodeBlock lang="dart" code={`final config = SankofaConfig(defaults: {
-  'max_upload_mb': ItemDecision(value: 25, version: 1, reason: 'default'),
-  'support_email': ItemDecision(value: 'help@example.com', version: 1, reason: 'default'),
-});
+<CodeBlock lang="dart" code={`await Sankofa.instance.init(
+  // ...
+  configDefaults: {
+    'max_upload_mb': ItemDecision(value: 25, version: 1, reason: 'default'),
+    'support_email': ItemDecision(value: 'help@example.com', version: 1, reason: 'default'),
+  },
+);
 
-await Sankofa.instance.init(/* ... */);
+final config = Sankofa.instance.config!;
 
 // Generic typed read — infers T from defaultValue
 final maxMB = config.get<int>('max_upload_mb', 25);
@@ -248,30 +268,66 @@ final unsubscribe = config.onChange('max_upload_mb', (decision) {
 
 ## Pulse — surveys
 
-Register Pulse after `Sankofa.instance.init`:
+Pulse is auto-registered by `init(enablePulse: true)` (the default) — no `register()` call needed. Surveys flagged **auto-show** in the dashboard present themselves; Pulse discovers your app's navigator from the widget tree, so there is **no navigator key to wire up**. Reach it via `Sankofa.instance.pulse`.
 
-<CodeBlock lang="dart" code={`final registered = await SankofaPulse.instance.register();
-if (!registered) {
-  print('Sankofa Core must be initialized before Pulse.');
-}`} />
+<Callout tone="info" title="Nested-navigator apps">
+Auto-show targets the root navigator, which is what you want for app-wide surveys. If your app deliberately runs surveys inside a nested navigator, pin it with `Sankofa.instance.pulse.setNavigatorKey(myKey)` and pass the same key to that navigator.
+</Callout>
 
-Show a survey:
+Show a survey manually:
 
-<CodeBlock lang="dart" code={`await SankofaPulse.instance.show(context, 'srv_post_purchase_feedback');
-
-// Programmatic dismiss
-SankofaPulse.instance.dismiss();`} />
+<CodeBlock lang="dart" code={`await Sankofa.instance.pulse.show(context, surveyId: 'srv_post_purchase_feedback');`} />
 
 Listen for events:
 
-<CodeBlock lang="dart" code={`final unsubscribe = SankofaPulse.instance.on(PulseEvent.completed, (event) {
+<CodeBlock lang="dart" code={`final sub = Sankofa.instance.pulse.on(PulseEvent.surveyCompleted, (event) {
   print('Survey \${event.surveyId} completed');
-});`} />
+});
+// later: sub.cancel();`} />
 
 Inspect eligibility:
 
-<CodeBlock lang="dart" code={`final eligible = await SankofaPulse.instance.activeMatchingSurveys();
-print('Eligible:', eligible.map((s) => s.id).toList());`} />
+<CodeBlock lang="dart" code={`final eligible = await Sankofa.instance.pulse.activeMatchingSurveys();
+print('Eligible: \${eligible.map((s) => s.id).toList()}');`} />
+
+### Targeting rules — what the SDK evaluates
+
+A survey is eligible only when **every** targeting rule matches (AND). Surveys are fetched (with their rules embedded) from `/api/pulse/surveys` on register, on each handshake, and on resume; the SDK evaluates them on-device. Here's how each dashboard rule resolves on Flutter:
+
+| Rule | How it resolves on Flutter | You must… |
+|---|---|---|
+| **Sampling** | Deterministic hash of the respondent's `distinct_id` | — |
+| **Screen** | Matches the SDK's current screen | Call `Sankofa.instance.screen('Vendor Details')` (or use `SankofaNavigatorObserver`) so the SDK knows the screen |
+| **User property** | Matches traits from `setPerson`/`peopleSet` (cached + persisted), plus `setDefaultTargetingContext` | Set the trait via `setPerson({...})` or pass it in |
+| **Event** | Counts custom events tracked **on this device** within ~30 days | `track('your_event')` so the count accrues |
+| **Cohort** | Membership resolved server-side and delivered in the handshake | Nothing — the server ships the membership map |
+| **Frequency cap** | On-device count of confirmed submissions for the survey | — (server is authoritative at submission) |
+| **Feature flag** | Reads merged `SankofaSwitch` flags | Have `enableFlags` on (default) |
+| **URL** | **Ignored on Flutter** — URL targeting is web-only | Use a **Screen** rule instead |
+
+<Callout tone="warning" title="URL rules are web-only">
+A `URL` rule on Flutter is skipped, not evaluated. Because rules are AND-ed, a survey combining `URL contains /checkout` **and** `Screen equals "Checkout"` could never match on mobile if URL were evaluated against the screen name — so Flutter drops URL rules and lets your Screen rule decide. Use Screen rules for mobile targeting.
+</Callout>
+
+For rules whose data the SDK can't see on its own — extra user properties, cohort overrides, feature-flag values — supply them once and they apply to auto-show and every `show()`:
+
+<CodeBlock lang="dart" code={`Sankofa.instance.pulse.setDefaultTargetingContext(
+  userProperties: {'plan': 'pro', 'lifetime_orders': 12},
+  cohorts: {'coh_beta_testers': true}, // usually unnecessary — server delivers these
+  flagValues: {'new_checkout': true},
+);
+
+// Or per call:
+await Sankofa.instance.pulse.show(
+  context,
+  surveyId: 'srv_nps',
+  properties: {'plan': 'pro'},
+  cohorts: {'coh_vip': true},
+);`} />
+
+<Callout tone="note" title="Why only one survey shows, once">
+Auto-show presents the first eligible survey per trigger, then suppresses it for the configured **dismiss cooldown** (7 days by default) and won't re-show it again in the same app session. Other eligible surveys appear on subsequent triggers (navigation, resume). If a survey never appears, it's almost always a targeting rule that can't match — most often a URL rule, an untagged Screen rule, or a User-property/Event rule whose data the SDK hasn't been given.
+</Callout>
 
 ## Session replay
 
@@ -279,8 +335,8 @@ Two recording modes:
 
 | Mode | Payload | Best for |
 |---|---|---|
-| `ReplayMode.wireframe` | Lightweight JSON skeletons of the UI tree (~5 KB/s) | Default. Good UX for replays of structural flow. |
-| `ReplayMode.screenshot` | Pixel-perfect snapshots throttled by frame rate (~50 KB/s) | High-fidelity debugging of visual bugs. |
+| `SankofaReplayMode.wireframe` | Lightweight JSON skeletons of the UI tree (~5 KB/s) | Good UX for replays of structural flow. |
+| `SankofaReplayMode.screenshot` | Pixel-perfect snapshots throttled by frame rate (~50 KB/s) | Default. High-fidelity debugging of visual bugs. |
 
 Wrap your app in `SankofaReplayBoundary` and pass `enableSessionReplay: true` to `init`:
 
@@ -323,11 +379,11 @@ If you wrap a `Row(crossAxisAlignment: CrossAxisAlignment.stretch)` inside `List
 | `Sankofa.setUser(user)` / `setTag` / `setTags` / `setExtra` | Sticky ambient context. |
 | `Sankofa.withScope(fn)` | Sentry-style temporary scope overlay. |
 | `Sankofa.flushCatch()` | Force-flush Dart + native Catch queues. |
-| `SankofaSwitch(defaults).getFlag(key, defaultValue?)` | Boolean feature flag. |
-| `SankofaSwitch.getVariant(key, defaultValue?)` | Variant feature flag. |
-| `SankofaConfig(defaults).get<T>(key, defaultValue)` | Typed remote config. |
-| `SankofaPulse.instance.register()` | Initialize Pulse (async). |
-| `SankofaPulse.instance.show(context, surveyId)` | Show a survey. |
+| `Sankofa.instance.flags.getFlag(key, defaultValue?)` | Boolean feature flag (Switch auto-constructed by `enableFlags`). |
+| `Sankofa.instance.flags.getVariant(key, defaultValue?)` | Variant feature flag. |
+| `Sankofa.instance.config.get<T>(key, defaultValue)` | Typed remote config (auto-constructed by `enableConfig`). |
+| `Sankofa.instance.pulse.show(context, surveyId: ...)` | Show a survey (Pulse auto-registered by `enablePulse`). |
+| `Sankofa.instance.pulse.on(PulseEvent, listener)` | Subscribe to survey lifecycle events. |
 
 ## What's next
 
