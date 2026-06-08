@@ -6,7 +6,7 @@ toc: true
 sdks: [flutter]
 ---
 
-The `sankofa_flutter` package on pub.dev bundles six Sankofa products in a single SDK — Analytics, Catch (error tracking), Switch (feature flags), Config (remote config), Pulse (surveys), and Replay (session replay). OTA Deploy is not exposed at the Dart API surface today; if you need OTA in a hybrid app, use the React Native SDK.
+The `sankofa_flutter` package on pub.dev bundles all seven Sankofa products in a single SDK — Analytics, Catch (error tracking), Switch (feature flags), Config (remote config), Pulse (surveys), Replay (session replay), and Deploy (App-Store-compliant OTA updates).
 
 ## 1. Add the dependency
 
@@ -15,7 +15,7 @@ Add `sankofa_flutter` to your `pubspec.yaml`:
 <CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
   flutter:
     sdk: flutter
-  sankofa_flutter: ^1.0.0`} />
+  sankofa_flutter: ^0.2.1`} />
 
 Then fetch it:
 

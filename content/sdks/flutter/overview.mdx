@@ -1,13 +1,13 @@
 ---
 title: Flutter SDK
-description: Single Flutter package — sankofa_flutter on pub.dev — bundling six products. Analytics, Catch, Switch, Config, Pulse, Replay.
+description: Single Flutter package — sankofa_flutter on pub.dev — bundling seven products. Analytics, Catch, Switch, Config, Pulse, Replay, Deploy.
 toc: true
 sdks: [flutter]
 ---
 
 `sankofa_flutter` is the official Flutter SDK. Unlike the [web SDK](/sdks/web/overview), which splits into seven packages, every product on Flutter ships in the **same** pub.dev package.
 
-The product set on Flutter is **six**: Analytics, Catch, Switch, Config, Pulse, Replay. Deploy / OTA is **not** exposed at the Dart API surface today — the engine recognises the Deploy module on handshake but the Flutter SDK doesn't ship a `SankofaDeploy` class. For OTA on Flutter, use the React Native SDK in a hybrid app.
+The product set on Flutter is **seven**: Analytics, Catch, Switch, Config, Pulse, Replay, and Deploy (App Store / Play Store compliant OTA updates).
 
 For installation and project setup, see [Install on Flutter](/get-started/install/flutter).
 
@@ -31,6 +31,7 @@ void main() async {
     enableFlags: true,     // Switch — feature flags
     enableConfig: true,    // remote config
     enablePulse: true,     // in-app surveys (auto-show, zero wiring)
+    enableDeploy: true,    // OTA updates (Deploy defaults OFF; flip on here)
 
     enableSessionReplay: true,
     replayMode: SankofaReplayMode.screenshot, // or SankofaReplayMode.wireframe
@@ -38,7 +39,7 @@ void main() async {
   runApp(const MyApp());
 }`} />
 
-After init, reach any product through the client getters: `Sankofa.instance.flags`, `.config`, `.pulse`, `.errors`.
+After init, reach any product through the client getters: `Sankofa.instance.flags`, `.config`, `.pulse`, `.errors`, `.deploy`.
 
 ### `Sankofa.instance.init` parameters
 
@@ -55,6 +56,7 @@ After init, reach any product through the client getters: `Sankofa.instance.flag
     { name: "enableConfig", type: "bool", default: "true", description: "Auto-construct SankofaConfig (remote config). Read via Sankofa.instance.config. Server-gated via handshake." },
     { name: "configDefaults", type: "Map<String, ItemDecision>?", description: "Bundled config defaults returned before the first handshake and while offline." },
     { name: "enablePulse", type: "bool", default: "true", description: "Auto-register Pulse (in-app surveys). Auto-show works with no navigator wiring — Pulse discovers the root navigator from the widget tree. Read via Sankofa.instance.pulse." },
+    { name: "enableDeploy", type: "bool", default: "false", description: "Auto-construct the Deploy module (OTA updates). When true the SDK reads sankofa.yaml, checks for staged patches on boot, and arms the SankofaUpdater API. See the Deploy section below." },
     { name: "enableSessionReplay", type: "bool", default: "true", description: "Capture session replays. You must still wrap your app in <SankofaReplayBoundary>." },
     { name: "replayMode", type: "SankofaReplayMode", default: "SankofaReplayMode.screenshot", description: "Either wireframe (lightweight JSON) or screenshot (pixel-perfect, ~10x bandwidth)." },
     { name: "replayFps", type: "int", default: "1", description: "Frame capture rate for replay." },
@@ -329,6 +331,85 @@ await Sankofa.instance.pulse.show(
 Auto-show presents the first eligible survey per trigger, then suppresses it for the configured **dismiss cooldown** (7 days by default) and won't re-show it again in the same app session. Other eligible surveys appear on subsequent triggers (navigation, resume). If a survey never appears, it's almost always a targeting rule that can't match — most often a URL rule, an untagged Screen rule, or a User-property/Event rule whose data the SDK hasn't been given.
 </Callout>
 
+## Deploy — Flutter OTA updates
+
+Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches are interpreted Dart kernel bytecode running inside the Sankofa-forked Flutter engine; permitted by Apple PLA § 3.3.2 and Google Play DNA's carve-out for interpreted code in a VM.
+
+### Setup (one-time, ~30 seconds)
+
+<Steps>
+  <Step title="Add the SDK">
+    `sankofa_flutter` already includes Deploy. No extra packages.
+  </Step>
+  <Step title="Create `sankofa.yaml`">
+    At your project root, with your project's API key:
+
+    <CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
+api_key: sk_live_xxxxxxxxxxxxxxxx`} />
+
+    Or run `sankofa init` and the CLI writes this for you.
+  </Step>
+  <Step title="Add `sankofa.yaml` to assets">
+    <CodeBlock lang="yaml" filename="pubspec.yaml" code={`flutter:
+  assets:
+    - sankofa.yaml`} />
+  </Step>
+  <Step title="Apply staged patches in `main()`">
+    <CodeBlock lang="dart" filename="lib/main.dart" code={`void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SankofaUpdater.preFlight();   // applies any patch staged on the previous run
+  runApp(const MyApp());
+}`} />
+
+    That's everything. The SDK reads `sankofa.yaml`, applies any patch that was downloaded on the previous run, and schedules a "patch healthy" confirmation 10s after the first frame paints. You do not import any helper packages.
+  </Step>
+</Steps>
+
+### Check + download from anywhere
+
+<CodeBlock lang="dart" code={`final updater = SankofaUpdater();
+
+// Currently-installed patch (null on baseline).
+final current = await updater.readCurrentPatch();
+print(current?.label ?? 'baseline');
+
+// Is a new patch available?
+final result = await updater.checkForUpdate();
+if (result.hasUpdate) {
+  final update = result.update!;
+  if (update.isMandatory) {
+    // Skip the prompt — download immediately.
+    await updater.downloadUpdate(update);
+  } else {
+    // Gate behind a user confirmation.
+    final yes = await showUpdateDialog(context, update);
+    if (yes) {
+      await updater.downloadUpdate(
+        update,
+        onProgress: (received, total) {
+          setState(() => _progress = total > 0 ? received / total : 0);
+        },
+      );
+    }
+  }
+}`} />
+
+After `downloadUpdate` returns, the patch is staged on disk. The next cold launch picks it up automatically through `preFlight()`.
+
+### Auto-rollback
+
+Two crashes within 30 seconds of launch automatically disable the patch on that device and restore the last known-good version. The bad label is added to a local ban list so the same patch isn't re-downloaded. No host code required.
+
+### Publishing patches
+
+```bash
+sankofa patch ios          # OR sankofa patch android
+```
+
+The CLI compiles your code change into bytecode, signs it with Ed25519 (when you've run `sankofa keys generate`), uploads to the storage bucket, and registers the release with your dashboard. Set the rollout (default 100%) and devices on their next `checkForUpdate()` call receive the patch.
+
+For a deeper architectural overview, see the [Deploy product page](/products/deploy/overview).
+
 ## Session replay
 
 Two recording modes:
@@ -384,12 +465,16 @@ If you wrap a `Row(crossAxisAlignment: CrossAxisAlignment.stretch)` inside `List
 | `Sankofa.instance.config.get<T>(key, defaultValue)` | Typed remote config (auto-constructed by `enableConfig`). |
 | `Sankofa.instance.pulse.show(context, surveyId: ...)` | Show a survey (Pulse auto-registered by `enablePulse`). |
 | `Sankofa.instance.pulse.on(PulseEvent, listener)` | Subscribe to survey lifecycle events. |
+| `SankofaUpdater.preFlight()` | Apply any OTA patch staged from the previous run. Call once in `main()` before `runApp`. |
+| `SankofaUpdater().checkForUpdate()` | Probe the server for a new OTA patch — returns metadata only, no download. |
+| `SankofaUpdater().downloadUpdate(update, onProgress?)` | Download + verify a patch, stage it for the next cold boot. |
+| `SankofaUpdater().readCurrentPatch()` | Read the patch label currently active on the device (null on baseline). |
 
 ## What's next
 
 <CardGrid cols={3}>
-  <Card href="/sdks/react-native/overview" eyebrow="SDKs" title="React Native SDK">
-    The bridge-based RN SDK with Deploy/OTA support.
+  <Card href="/products/deploy/overview" eyebrow="Product" title="Deploy / OTA">
+    Architecture, rollout controls, auto-rollback rules.
   </Card>
   <Card href="/get-started/first-feature-flag" eyebrow="Hands-on" title="First feature flag">
     Walk through Switch end to end with a real rollout.

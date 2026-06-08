@@ -1,14 +1,17 @@
 ---
 title: Deploy
-description: OTA (over-the-air) bundle releases for hybrid mobile apps. React Native today; gated by Switch decisions and auto-rolled-back by Catch error rates.
+description: OTA (over-the-air) updates for mobile apps. React Native + Flutter, App-Store-compliant, gated by Switch decisions, auto-rolled-back by Catch error rates.
 toc: true
 ---
 
-**Deploy** is Sankofa's OTA (over-the-air) bundle delivery product. It ships JavaScript / asset bundles to React Native apps without an App Store / Play Store review cycle, then watches the rollout and auto-rolls-back if Catch detects errors.
+**Deploy** is Sankofa's OTA (over-the-air) bundle delivery product. It ships code updates to React Native and Flutter apps without an App Store / Play Store review cycle, then watches the rollout and auto-rolls-back if Catch detects errors.
 
-<Callout tone="note" title="React Native only at the SDK layer today">
-The Deploy product's engine is fully shipped (`/api/v1/deploy/*`) and the dashboard supports any platform that can implement the OTA contract. But at the SDK layer, **only `@sankofa/react-native` exports `SankofaDeploy`** today. Native iOS / Android / Flutter SDKs do not include OTA. For native-only apps, use Switch + the platform's standard staged rollouts.
-</Callout>
+| Platform | SDK | Patch payload | API surface |
+|---|---|---|---|
+| **React Native** | `@sankofa/react-native` | JavaScript bundle | `SankofaDeploy` |
+| **Flutter** | `sankofa_flutter` | Dart kernel bytecode (interpreted) | `SankofaUpdater` |
+
+Both ship under the same legal carve-outs — Apple PLA § 3.3.2 and Google Play DNA's interpreted-code-in-a-VM permission. See the [Flutter SDK overview](/sdks/flutter/overview#deploy-flutter-ota-updates) for the customer-facing API.
 
 ## What you ship with Deploy
 
