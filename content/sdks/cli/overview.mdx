@@ -4,7 +4,9 @@ description: One terminal tool for setting up SDK integrations, verifying config
 toc: true
 ---
 
-The Sankofa CLI is a Node-based command-line tool published as `sankofa-cli` on npm with binary name `sankofa`. It handles project-level operations: SDK setup, integration verification, OTA releases for both **Flutter** (bytecode patches via the Sankofa-forked Flutter engine) and **React Native** (JS bundle patches), feature flag and config management, error-tracking symbol uploads, signing-key management, and demo seeding.
+The Sankofa CLI is a Node-based command-line tool published as `sankofa-cli` on npm with binary name `sankofa`. It handles project-level operations: SDK setup, integration verification, OTA releases for both **Flutter** and **React Native**, feature flag and config management, error-tracking symbol uploads, signing-key management, and demo seeding.
+
+Flutter patches ship interpreted code that runs in a VM inside the Sankofa-forked Flutter engine — App Store + Play Store compliant (Apple PLA § 3.3.2 + Google Play DNA carve-outs). React Native patches ship JavaScript bundles. Same `release` / `patch` / `deploy` syntax for both — the CLI detects the stack and runs the right pipeline.
 
 ## Install
 
@@ -30,12 +32,12 @@ sankofa init --all          # install everything available for this stack
 # 3. Verify everything is wired up
 sankofa doctor`} />
 
-For Flutter (OTA bytecode patches):
+For Flutter (OTA patches):
 
 <CodeBlock lang="bash" code={`sankofa init --deploy            # scaffold the whole Deploy setup in a Flutter project
 sankofa release android          # ship the first base release
-sankofa patch android            # push a Dart-only OTA patch
-sankofa patch ios                # iOS Path C — bytecode patch, no JIT entitlement`} />
+sankofa patch android            # push a Dart-only patch
+sankofa patch ios                # push an iOS patch (no JIT entitlement required)`} />
 
 For React Native (analytics + OTA deploy):
 
@@ -66,7 +68,6 @@ The CLI exposes these top-level commands:
 | `submit` | Upload signed binary to App Store Connect / Play Console. |
 | `keys` | Manage Sankofa Deploy signing keys (Ed25519). |
 | `engine` | Manage cached Sankofa Flutter engine binaries. |
-| `kbc` | Sankofa Deploy: Flutter Code — KBC bytecode patch tools. |
 | `flags` | Manage feature flags (Switch). |
 | `config` | Manage remote config items. |
 | `catch` | Catch / error-tracking triage + symbol upload. |
@@ -126,7 +127,7 @@ sankofa switch              # change to a different project without re-auth`} />
 
 ## Deploy commands (Flutter + React Native)
 
-The same `release` / `patch` / `deploy` / `preview` / `status` commands work for both Flutter and React Native projects — the CLI detects the stack from your `pubspec.yaml` / `package.json` and runs the right pipeline. Flutter ships Dart kernel bytecode (KBC) running inside the Sankofa-forked Flutter engine; React Native ships JavaScript bundles.
+The same `release` / `patch` / `deploy` / `preview` / `status` commands work for both Flutter and React Native projects — the CLI detects the stack from your `pubspec.yaml` / `package.json` and runs the right pipeline.
 
 ### `sankofa release`
 
@@ -137,7 +138,7 @@ sankofa release android                        # produces an AAB by default
 sankofa release android --apk                  # produce an APK (sideload-installable)
 sankofa release ios                            # produces an .ipa
 sankofa release android --publish --rollout 50 --description "v1.2.0"
-sankofa release --dry-run android              # build + Diff Guard locally, no upload
+sankofa release --dry-run android              # build + run the safety check locally, no upload
 
 # React Native (identical syntax)
 sankofa release ios
@@ -146,7 +147,7 @@ sankofa release android --publish --rollout 50 --description "v1.2.0"`} />
 Useful flags:
 
 - `--apk` / `--appbundle` — Android format selector (Flutter + RN).
-- `--dry-run` — build locally + capture a Diff Guard baseline, but do not contact the server.
+- `--dry-run` — build locally + capture the patch-safety-check baseline, but do not contact the server.
 - `--upload-mapping <path>` — attach Android ProGuard/R8 `mapping.txt` for Catch symbolication.
 - `--upload-dsym <path>` — attach iOS dSYMs.
 - `--upload-dart-symbols <path>` — attach Flutter symbol bundle.
@@ -156,9 +157,9 @@ Useful flags:
 
 Ship a code-only update against an existing base release. **No native build, no App Store / Play Store resubmission.**
 
-<CodeBlock lang="bash" code={`# Flutter — Dart bytecode patch via Sankofa engine interpreter
+<CodeBlock lang="bash" code={`# Flutter — Dart-only patch
 sankofa patch android
-sankofa patch ios                              # iOS Path C: bytecode interpreter, no JIT entitlement
+sankofa patch ios                              # iOS — interpreted in a VM, no JIT entitlement
 sankofa patch android --publish --rollout 25 --description "fix crash on Pixel 6"
 sankofa patch ios --target-binary-version 1.2.0 --label hotfix-12
 
@@ -166,11 +167,11 @@ sankofa patch ios --target-binary-version 1.2.0 --label hotfix-12
 sankofa patch ios --publish --mandatory
 sankofa patch android --rollout 50`} />
 
-Flutter-specific options (iOS Path C bytecode patches):
+Flutter iOS options (Dart-only patches):
 
 - `--target-binary-version <semver>` — match the host app's published version exactly (`pubspec.yaml.version`).
-- `--label <label>` — patch label override (default `kbc-ios-YYYYMMDDhhmmss`).
-- `--engine-commit <sha>` — bake a specific Sankofa engine fork commit into the envelope metadata.
+- `--label <label>` — patch label override (default `sankofa-ios-YYYYMMDDhhmmss`).
+- `--engine-commit <sha>` — bake a specific Sankofa Flutter engine commit into the patch metadata.
 
 ### `sankofa deploy`
 
@@ -208,25 +209,25 @@ sankofa dist android --android-format aab
 sankofa submit ios --apple-api-key-id ABC --apple-api-issuer UUID
 sankofa submit android --google-service-account ~/sa.json --google-track internal`} />
 
-## Flutter Deploy: signing keys + engine + KBC
+## Flutter Deploy: signing keys + engine
 
 These commands are Flutter-specific and become relevant once you've run `sankofa init --deploy`. The setup writes `.sankofa/flutter-version` (a pin file) and `sankofa.yaml` (project keys) that the commands below read automatically.
 
 ### `sankofa keys` — Ed25519 signing keys
 
-Every Flutter patch (KBC envelope) is signed with the project's Ed25519 private key, and the server + on-device SDK both verify the signature before applying. Keys are project-scoped — generate one per project and back up the private key.
+Every Flutter patch is signed with the project's Ed25519 private key, and the server + on-device SDK both verify the signature before applying. Keys are project-scoped — generate one per project and back up the private key.
 
 <CodeBlock lang="bash" code={`sankofa keys generate                          # generate a keypair for the current project
 sankofa keys generate --force                  # overwrite (invalidates already-shipped patches)
-sankofa keys show                              # print the base64 pubkey (embed in host app or server)
+sankofa keys show                              # print the base64 public key (embed in host app or server)
 sankofa keys path                              # print the local private key path (for backup)
-sankofa keys register                          # POST the pubkey to the server so it verifies envelope signatures at upload time`} />
+sankofa keys register                          # POST the public key to the server so it verifies patch signatures at upload time`} />
 
 Keys are stored at `~/.config/sankofa/keys/<project_id>.ed25519`. Add the directory to your secrets manager — losing the key means you can't ship signed patches against existing releases without a coordinated rotation.
 
-### `sankofa engine` — bundled Flutter engine binaries
+### `sankofa engine` — Sankofa Flutter engine binaries
 
-Sankofa ships a forked Flutter engine that includes the bytecode interpreter (`dart::Interpreter::Run`) used to run Tier-A patches without JIT entitlement. The CLI caches per-ABI binaries locally and verifies SHA-256 against the registry on each download.
+Sankofa ships a customized Flutter engine that runs interpreted patches in a VM (App Store + Play Store compliant). The CLI caches per-ABI binaries locally and verifies SHA-256 against the registry on each download.
 
 <CodeBlock lang="bash" code={`sankofa engine list                            # show cached engines + everything available in the registry
 sankofa engine download                        # download every engine ABI for the current project's pinned version
@@ -236,14 +237,6 @@ sankofa engine verify                          # re-hash every cached engine and
 sankofa engine path                            # print the engine cache root (useful in shell scripts)`} />
 
 The cache lives at `~/.sankofa/engines/`. `sankofa init --deploy` already runs `engine install` for you — the explicit commands are for upgrades and CI cache priming.
-
-### `sankofa kbc` — Dart kernel bytecode tools (advanced)
-
-Low-level KBC envelope tooling. Most customers never run these directly — `sankofa release` and `sankofa patch` orchestrate them under the hood. Reach for them when you need to inspect a published patch, debug a signing issue, or build a patch outside the normal pipeline.
-
-<CodeBlock lang="bash" code={`sankofa kbc build --entry lib/patches/p1.dart --output patch.kbc      # compile a Dart entry-point to .kbc
-sankofa kbc wrap patch.kbc --output patch.skdp                        # wrap raw .kbc → signed SANKOFA_KBC_ENVELOPE
-sankofa kbc inspect patch.skdp                                        # parse + print an envelope's metadata`} />
 
 ## `sankofa update` — keep the whole stack fresh
 
@@ -255,6 +248,23 @@ sankofa update --only cli                      # bump the CLI only
 sankofa update --only flutter                  # refresh the bundled Sankofa Flutter SDK only
 sankofa update --only engine                   # refresh the engine cache only
 sankofa update --only sdk                      # \`flutter pub upgrade sankofa_flutter\` in the current project`} />
+
+## `sankofa upgrade` — bump the CLI binary itself
+
+Just the CLI — `update` covers the broader stack; `upgrade` is the focused "newer version of `sankofa-cli` on npm" check.
+
+<CodeBlock lang="bash" code={`sankofa upgrade                                # check + install if a newer version exists
+sankofa upgrade --check                        # dry-run — report only
+sankofa upgrade --sudo                         # use sudo for the install (CI scripts that already plan for it)`} />
+
+**macOS perms note.** On a default macOS setup the global npm prefix is `/usr/local/lib/node_modules` (root-owned), so `npm install -g …` fails with `EACCES`. `sankofa upgrade` detects that case and **auto-retries the install under `sudo`** — you'll be prompted for your password on stdin once, then the upgrade proceeds. In non-interactive contexts (CI, piped output) the CLI prints the exact remedy instead of popping a hidden password prompt:
+
+```
+sudo npm install -g sankofa-cli@latest
+  (or: sankofa upgrade --sudo)
+```
+
+A user-writable npm prefix (e.g. via `nvm`) avoids the sudo retry altogether.
 
 ## Switch commands
 
@@ -392,7 +402,7 @@ Credentials are resolved in this order (highest wins):
 |---|---|
 | npm package | `sankofa-cli` |
 | Binary name | `sankofa` |
-| Version | `0.1.0` |
+| Version | `0.1.2` |
 
 ## What's next
 

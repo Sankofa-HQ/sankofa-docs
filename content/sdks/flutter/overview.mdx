@@ -333,7 +333,7 @@ Auto-show presents the first eligible survey per trigger, then suppresses it for
 
 ## Deploy — Flutter OTA updates
 
-Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches are interpreted Dart kernel bytecode running inside the Sankofa-forked Flutter engine; permitted by Apple PLA § 3.3.2 and Google Play DNA's carve-out for interpreted code in a VM.
+Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches contain interpreted Dart code that runs in a VM inside the Sankofa-customized Flutter engine — explicitly permitted by Apple PLA § 3.3.2 and Google Play DNA's carve-out for interpreted code in a VM.
 
 ### Setup (one command)
 
