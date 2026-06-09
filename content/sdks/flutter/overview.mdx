@@ -335,35 +335,87 @@ Auto-show presents the first eligible survey per trigger, then suppresses it for
 
 Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches are interpreted Dart kernel bytecode running inside the Sankofa-forked Flutter engine; permitted by Apple PLA § 3.3.2 and Google Play DNA's carve-out for interpreted code in a VM.
 
-### Setup (one-time, ~30 seconds)
+### Setup (one command)
+
+The fastest way is `sankofa init --deploy` — the CLI scaffolds every piece:
+
+<CodeBlock lang="bash" code={`npm install -g sankofa-cli
+sankofa login
+sankofa init --deploy`} />
+
+Run it inside a Flutter project root. The CLI is **idempotent** — re-running on an already-configured project skips each step that's already in place, so it's safe to ship in onboarding scripts.
+
+#### What `sankofa init --deploy` writes
 
 <Steps>
-  <Step title="Add the SDK">
-    `sankofa_flutter` already includes Deploy. No extra packages.
-  </Step>
-  <Step title="Create `sankofa.yaml`">
-    At your project root, with your project's API key:
+  <Step title="pubspec.yaml — SDK dependency">
+    Adds the SDK and a managed `dependency_overrides:` stanza so the VM-binding helper resolves locally without exposing any GitHub URL in your project:
 
-    <CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
-api_key: sk_live_xxxxxxxxxxxxxxxx`} />
+    <CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
+  sankofa_flutter: ^0.2.1
 
-    Or run `sankofa init` and the CLI writes this for you.
-  </Step>
-  <Step title="Add `sankofa.yaml` to assets">
-    <CodeBlock lang="yaml" filename="pubspec.yaml" code={`flutter:
+# Sankofa-managed — do not edit by hand. Re-run \`sankofa init\` if
+# you need to regenerate the vendored package.
+dependency_overrides:
+  dynamic_modules:
+    path: .sankofa/dynamic_modules
+
+flutter:
   assets:
     - sankofa.yaml`} />
+
+    It also pins `flutter_lints: ^4.0.0` if your project shipped with `^6.0.0` — `carrier_info` (a transitive Sankofa dep) requires the older version. Lints are dev-only, so the downgrade has no runtime impact.
   </Step>
-  <Step title="Apply staged patches in `main()`">
-    <CodeBlock lang="dart" filename="lib/main.dart" code={`void main() async {
+  <Step title="sankofa.yaml — project keys">
+    Written at the project root with `app_id` pre-filled from your login session:
+
+    <CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
+api_key: <paste sk_live_* key from app.sankofa.dev → Settings → API Keys>`} />
+
+    **You only need to paste the api_key.** The SDK reads everything else at runtime from the asset bundle.
+  </Step>
+  <Step title=".sankofa/ — local vendor + version pin">
+    A sparse-clone of the `dynamic_modules` trampoline lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter SDK version. The `.sankofa/` dir is automatically added to your `.gitignore` — teammates re-run `sankofa init` on first checkout (~2 seconds).
+  </Step>
+  <Step title="lib/main.dart — startup wiring">
+    Imports `dynamic_modules` and `sankofa_flutter`, then injects two calls into `main()` before `runApp`:
+
+    <CodeBlock lang="dart" filename="lib/main.dart" code={`// ignore: depend_on_referenced_packages
+import 'package:dynamic_modules/dynamic_modules.dart';
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SankofaUpdater.preFlight();   // applies any patch staged on the previous run
+  SankofaUpdater.registerLoader(loadModuleFromBytes);
+  await SankofaUpdater.preFlight();
   runApp(const MyApp());
 }`} />
 
-    That's everything. The SDK reads `sankofa.yaml`, applies any patch that was downloaded on the previous run, and schedules a "patch healthy" confirmation 10s after the first frame paints. You do not import any helper packages.
+    `registerLoader` plugs the VM's bytecode loader into the SDK once at boot; `preFlight` reads `sankofa.yaml`, applies any patch staged on the previous run, and schedules a "patch healthy" confirmation 10 seconds after the first frame paints.
+  </Step>
+  <Step title="Android + iOS native config">
+    AndroidManifest gets `<meta-data android:name="com.sankofa.appId" />` + `<meta-data android:name="com.sankofa.endpoint" />` + the `INTERNET` permission. `MainActivity.kt` is rewritten to extend `SankofaFlutterActivity`. iOS `AppDelegate.swift` extends `SankofaFlutterAppDelegate`; `Info.plist` gets the same `com.sankofa.appId` + `com.sankofa.endpoint` keys.
+
+    No custom `Application` class is required.
   </Step>
 </Steps>
+
+After running, paste your `api_key` into `sankofa.yaml`, then `flutter pub get` and `flutter run`. Verify the setup with `sankofa doctor` — every check should be green.
+
+<Callout tone="note" title="Why `dynamic_modules` is in dependency_overrides">
+The VM binding (`loadModuleFromBytes`) imports `dart:_internal`, which pub.dev refuses to publish. The package is vendored locally so your `pubspec.yaml` contains **no GitHub URL** — only a managed override block. A future Sankofa release will move the binding into the bundled Flutter SDK as a `sdk: flutter` package and the override block will disappear entirely.
+</Callout>
+
+### Manual setup (if you can't run the CLI)
+
+If your environment can't run Node-based CLIs (e.g. an air-gapped CI runner), reproduce what `sankofa init --deploy` does by hand:
+
+1. `flutter pub add sankofa_flutter` and pin `flutter_lints: ^4.0.0` in `dev_dependencies:`.
+2. Clone `Sankofa-HQ/sankofa-dart-sdk` and copy `standalone/dynamic_modules/` to `<project>/.sankofa/dynamic_modules/`.
+3. Add the `dependency_overrides:` + `flutter.assets:` stanzas shown above to `pubspec.yaml`.
+4. Create `sankofa.yaml` with your `app_id` and `api_key`.
+5. Update `lib/main.dart` per the snippet above.
+6. (Optional, for native crash bootstrapping) Extend `SankofaFlutterActivity` in `MainActivity.kt` and `SankofaFlutterAppDelegate` in `ios/Runner/AppDelegate.swift`.
 
 ### Check + download from anywhere
 
