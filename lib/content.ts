@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { cache } from "react";
 import matter from "gray-matter";
+import GithubSlugger from "github-slugger";
 import { z } from "zod";
 import {
   SECTIONS,
@@ -65,15 +66,12 @@ export type DocPage = {
   navBadge?: string;
 };
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[`'"!?,.:/()[\]{}@]/g, "")
-    .replace(/&/g, "and")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
-}
+// Heading slugs MUST match the ids rehype-slug stamps on the rendered
+// headings (it uses github-slugger), or the right-rail "On this page" TOC
+// links + scroll-spy point at ids that don't exist. Use the same slugger here.
+// NOTE: GithubSlugger is stateful (dedupes repeats as `-1`, `-2`, …) — callers
+// that slug a whole document's headings must reuse ONE instance, in document
+// order, exactly like rehype-slug does per file.
 
 function stripFrontmatter(source: string): string {
   if (!source.startsWith("---")) return source;
@@ -85,6 +83,7 @@ function stripFrontmatter(source: string): string {
 function extractHeadings(source: string): Heading[] {
   const body = stripFrontmatter(source);
   const headings: Heading[] = [];
+  const slugger = new GithubSlugger(); // one per document — matches rehype-slug dedup
   let inFence = false;
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
@@ -102,7 +101,7 @@ function extractHeadings(source: string): Heading[] {
       .replace(/[`*_~]/g, "")
       .trim();
     if (!text) continue;
-    headings.push({ id: slugify(text), depth, text });
+    headings.push({ id: slugger.slug(text), depth, text });
   }
   return headings;
 }
@@ -318,7 +317,9 @@ export const getBreadcrumbs = cache((href: string): { href: string; label: strin
 });
 
 export function headingId(text: string): string {
-  return slugify(text);
+  // Fresh slugger: this is the single-heading fallback used by the MDX heading
+  // component when rehype-slug didn't already set an id. Same algorithm.
+  return new GithubSlugger().slug(text);
 }
 
 /** Validates that every entry in nav.config.ts has a corresponding MDX file. Returns missing slugs. */
