@@ -333,7 +333,7 @@ Auto-show presents the first eligible survey per trigger, then suppresses it for
 
 ## Deploy — Flutter OTA updates
 
-Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches contain interpreted Dart code that runs in a VM inside the Sankofa-customized Flutter engine — explicitly permitted by Apple PLA § 3.3.2 and Google Play DNA's carve-out for interpreted code in a VM.
+Sankofa Deploy ships bug fixes and UI tweaks to your already-released Flutter app without a new App Store / Play Store binary. Patches contain Dart code changes and are App Store + Play Store compliant.
 
 ### Setup (one command)
 
@@ -349,7 +349,7 @@ Run it inside a Flutter project root. The CLI is **idempotent** — re-running o
 
 <Steps>
   <Step title="pubspec.yaml — SDK dependency">
-    Adds the SDK and a managed `dependency_overrides:` stanza so the VM-binding helper resolves locally without exposing any GitHub URL in your project:
+    Adds the SDK and a managed `dependency_overrides:` stanza so the local helper resolves without exposing any GitHub URL in your project:
 
     <CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
   sankofa_flutter: ^0.2.1
@@ -375,7 +375,7 @@ api_key: <paste sk_live_* key from app.sankofa.dev → Settings → API Keys>`} 
     **You only need to paste the api_key.** The SDK reads everything else at runtime from the asset bundle.
   </Step>
   <Step title=".sankofa/ — local vendor + version pin">
-    A sparse-clone of the `dynamic_modules` trampoline lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter SDK version. The `.sankofa/` dir is automatically added to your `.gitignore` — teammates re-run `sankofa init` on first checkout (~2 seconds).
+    The managed local helper lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter SDK version. The `.sankofa/` dir is automatically added to your `.gitignore` — teammates re-run `sankofa init` on first checkout (~2 seconds).
   </Step>
   <Step title="lib/main.dart — startup wiring">
     Imports `dynamic_modules` and `sankofa_flutter`, then injects two calls into `main()` before `runApp`:
@@ -391,7 +391,7 @@ Future<void> main() async {
   runApp(const MyApp());
 }`} />
 
-    `registerLoader` plugs the VM's bytecode loader into the SDK once at boot; `preFlight` reads `sankofa.yaml`, applies any patch staged on the previous run, and schedules a "patch healthy" confirmation 10 seconds after the first frame paints.
+    `registerLoader` initializes the Sankofa updater once at boot; `preFlight` reads `sankofa.yaml`, applies any patch staged on the previous run, and schedules a "patch healthy" confirmation 10 seconds after the first frame paints.
   </Step>
   <Step title="Android + iOS native config">
     AndroidManifest gets `<meta-data android:name="com.sankofa.appId" />` + `<meta-data android:name="com.sankofa.endpoint" />` + the `INTERNET` permission. `MainActivity.kt` is rewritten to extend `SankofaFlutterActivity`. iOS `AppDelegate.swift` extends `SankofaFlutterAppDelegate`; `Info.plist` gets the same `com.sankofa.appId` + `com.sankofa.endpoint` keys.
@@ -403,7 +403,7 @@ Future<void> main() async {
 After running, paste your `api_key` into `sankofa.yaml`, then `flutter pub get` and `flutter run`. Verify the setup with `sankofa doctor` — every check should be green.
 
 <Callout tone="note" title="Why `dynamic_modules` is in dependency_overrides">
-The VM binding (`loadModuleFromBytes`) imports `dart:_internal`, which pub.dev refuses to publish. The package is vendored locally so your `pubspec.yaml` contains **no GitHub URL** — only a managed override block. A future Sankofa release will move the binding into the bundled Flutter SDK as a `sdk: flutter` package and the override block will disappear entirely.
+The helper is provided locally rather than from pub.dev, so your `pubspec.yaml` contains **no GitHub URL** — only a managed override block that `sankofa init` maintains for you. A future Sankofa release will fold it into the bundled Flutter SDK and the override block will disappear entirely.
 </Callout>
 
 ### Manual setup (if you can't run the CLI)
@@ -411,7 +411,7 @@ The VM binding (`loadModuleFromBytes`) imports `dart:_internal`, which pub.dev r
 If your environment can't run Node-based CLIs (e.g. an air-gapped CI runner), reproduce what `sankofa init --deploy` does by hand:
 
 1. `flutter pub add sankofa_flutter` and pin `flutter_lints: ^4.0.0` in `dev_dependencies:`.
-2. Clone `Sankofa-HQ/sankofa-dart-sdk` and copy `standalone/dynamic_modules/` to `<project>/.sankofa/dynamic_modules/`.
+2. Generate the `.sankofa/dynamic_modules/` helper — this comes from the CLI (`sankofa init --deploy`) and isn't separately distributable, so Deploy setup needs the CLI at least once to produce it.
 3. Add the `dependency_overrides:` + `flutter.assets:` stanzas shown above to `pubspec.yaml`.
 4. Create `sankofa.yaml` with your `app_id` and `api_key`.
 5. Update `lib/main.dart` per the snippet above.
@@ -458,7 +458,7 @@ Two crashes within 30 seconds of launch automatically disable the patch on that 
 sankofa patch ios          # OR sankofa patch android
 ```
 
-The CLI compiles your code change into bytecode, signs it with Ed25519 (when you've run `sankofa keys generate`), uploads to the storage bucket, and registers the release with your dashboard. Set the rollout (default 100%) and devices on their next `checkForUpdate()` call receive the patch.
+The CLI packages your code change, signs it (when you've run `sankofa keys generate`), uploads it, and registers the release with your dashboard. Set the rollout (default 100%) and devices on their next `checkForUpdate()` call receive the patch.
 
 For a deeper architectural overview, see the [Deploy product page](/products/deploy/overview).
 
