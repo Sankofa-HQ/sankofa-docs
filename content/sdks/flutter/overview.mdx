@@ -375,7 +375,7 @@ api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by \`sankofa login\``} /
     `init` and `login` are order-independent — whichever you run first, the other completes the setup. The SDK reads everything else at runtime from the asset bundle.
   </Step>
   <Step title=".sankofa/ — local vendor + version pin">
-    The managed local helper lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter SDK version. The `.sankofa/` dir is automatically added to your `.gitignore` — teammates re-run `sankofa init` on first checkout (~2 seconds).
+    The managed local helper lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter runtime. **Commit these** — they're what your `pubspec.yaml` path-override resolves against, so committing them means a fresh clone and CI build with `flutter pub get` straight away (no re-running `init`). `init` adds a single `.gitignore` block that ignores only the disposable bits: `.sankofa.json`, `build/`, and the transient `.sankofa/build/` + `.sankofa/baseline/`.
   </Step>
   <Step title="lib/main.dart — startup wiring">
     Imports `dynamic_modules` and `sankofa_flutter`, then injects two calls into `main()` before `runApp`:
