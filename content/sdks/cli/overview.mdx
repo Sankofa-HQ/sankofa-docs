@@ -90,7 +90,7 @@ sankofa init --all                                        # install everything a
 sankofa init --endpoint https://api.sankofa.dev --project-id proj_...
 sankofa init --force                                      # overwrite existing .sankofa.json`} />
 
-For Flutter, `sankofa init --deploy` does the full setup automatically (see the [Flutter SDK page](/sdks/flutter/overview#deploy--flutter-ota-updates)): adds the Sankofa Flutter SDK, creates `sankofa.yaml` with `app_id` pre-filled, wires `lib/main.dart`, and patches the Android + iOS native files. You only need to paste your api_key into `sankofa.yaml` afterward.
+For Flutter, `sankofa init --deploy` does the full setup automatically (see the [Flutter SDK page](/sdks/flutter/overview#deploy--flutter-ota-updates)): adds the Sankofa Flutter SDK, creates `sankofa.yaml`, wires `lib/main.dart`, and patches the Android + iOS native files. Then run `sankofa login` — it fills `sankofa.yaml`'s `app_id` **and** `api_key` from the project you select, so there's nothing to paste. `init` and `login` are order-independent; whichever you run first, the other completes the setup.
 
 ### `sankofa check`
 
@@ -136,41 +136,56 @@ Build and publish a base release — signed native binary + OTA-ready payload in
 <CodeBlock lang="bash" code={`# Flutter
 sankofa release android                        # produces an AAB by default
 sankofa release android --apk                  # produce an APK (sideload-installable)
-sankofa release ios                            # produces an .ipa
+sankofa release ios                            # produces a signed .ipa for App Store
 sankofa release android --publish --rollout 50 --description "v1.2.0"
 sankofa release --dry-run android              # build + run the safety check locally, no upload
+
+# Flavored apps (gradle flavors + per-flavor entrypoint)
+sankofa release android --flavor staging -t lib/main_staging.dart
+sankofa release ios --flavor staging -t lib/main_staging.dart
+
+# Also upload an installable preview build (see preview --from-server)
+sankofa release android --preview-artifact
 
 # React Native (identical syntax)
 sankofa release ios
 sankofa release android --publish --rollout 50 --description "v1.2.0"`} />
 
+For Flutter, **iOS builds a signed `.ipa`** for App Store Connect / TestFlight (or just the `.xcarchive` with `--no-codesign`) and **Android builds your `.aab`** (or `--apk`); both register the release so `sankofa patch` can ship code updates on top.
+
+<Callout tone="warning" title="iOS: uncheck “Manage Version and Build Number”">
+When you upload the `.ipa` in Xcode's Distribute App dialog, **uncheck "Manage Version and Build Number"**. If Xcode rewrites the build number, the shipped version no longer matches the one Sankofa recorded and patches silently fail to apply. The CLI prints this reminder at the end of every `release ios`.
+</Callout>
+
 Useful flags:
 
+- `--flavor <name>` / `-t, --target <file>` — Flutter product flavor + per-flavor entrypoint (e.g. `--flavor staging -t lib/main_staging.dart`). Required for flavored apps.
+- `--no-codesign` — iOS: build the `.xcarchive` without signing (sign + export later in Xcode).
+- `--preview-artifact` — also build + upload an installable preview build (Android APK / iOS simulator app) so teammates can run this release with `sankofa preview --from-server`.
 - `--apk` / `--appbundle` — Android format selector (Flutter + RN).
 - `--dry-run` — build locally + capture the patch-safety-check baseline, but do not contact the server.
-- `--upload-mapping <path>` — attach Android ProGuard/R8 `mapping.txt` for Catch symbolication.
-- `--upload-dsym <path>` — attach iOS dSYMs.
-- `--upload-dart-symbols <path>` — attach Flutter symbol bundle.
-- `--engine-version <version>` — override the bundled Sankofa Flutter runtime version (rare).
+- `--upload-mapping <path>` / `--upload-dsym <path>` / `--upload-dart-symbols <path>` — attach Android mapping / iOS dSYMs / Flutter symbols for Catch symbolication.
 
 ### `sankofa patch`
 
 Ship a code-only update against an existing base release. **No native build, no App Store / Play Store resubmission.**
 
-<CodeBlock lang="bash" code={`# Flutter — Dart-only patch
+<CodeBlock lang="bash" code={`# Flutter — code-only patch
 sankofa patch android
 sankofa patch ios                              # iOS — App Store compliant
 sankofa patch android --publish --rollout 25 --description "fix crash on Pixel 6"
 sankofa patch ios --target-binary-version 1.2.0 --label hotfix-12
+sankofa patch ios -t lib/patch_staging.dart    # pick a specific patch entry-point
 
 # React Native — JS bundle patch
 sankofa patch ios --publish --mandatory
 sankofa patch android --rollout 50`} />
 
-Flutter iOS options:
+Flutter options:
 
+- `-t, --target <file>` — the patch entry-point to compile (default `lib/sankofa_patch.dart`). Use it when you keep several patch entries and want to ship one; `--entry-file` is an alias.
 - `--target-binary-version <semver>` — match the host app's published version exactly (`pubspec.yaml.version`).
-- `--label <label>` — patch label override (default `sankofa-ios-YYYYMMDDhhmmss`).
+- `--label <label>` — patch label override.
 
 ### `sankofa deploy`
 
@@ -182,9 +197,21 @@ sankofa deploy --dry-run android`} />
 
 ### `sankofa preview` / `sankofa status`
 
-<CodeBlock lang="bash" code={`# Local install of a published release
+`preview` runs your app for QA. For **React Native** it downloads + installs a published release on a simulator/emulator. For **Flutter** there are two modes:
+
+- **Local run** (default) — runs your current source on a device via the Sankofa Flutter runtime, passing `--flavor`, `-t/--target`, `-d/--device`, and the build mode (`--release`/`--profile`/`--debug`).
+- **From server** (`--from-server`, or implied by `--label`/`--version`) — downloads a *published* release and installs it on an Android device/emulator or an iOS simulator, so a tester can run a specific build without your source. Requires the release to have been published with `--preview-artifact`.
+
+<CodeBlock lang="bash" code={`# React Native — install a published release on a simulator
 sankofa preview ios
 sankofa preview ios --label v1.2.0-patch.3
+
+# Flutter — local run (your current source)
+sankofa preview -d <device-id> --flavor staging -t lib/main_staging.dart
+
+# Flutter — run a published release from the server (no source needed)
+sankofa preview android --from-server --label v1.2.0 -d <adb-serial>
+sankofa preview ios --from-server --label v1.2.0     # installs on a booted simulator
 
 # Dashboard of releases
 sankofa status

@@ -15,11 +15,14 @@ Releasing a base binary through App Store Review. After this guide, you can ship
 
 Bump your `pubspec.yaml` version (e.g. `version: 1.0.4+1`), then run:
 
-<CodeBlock lang="bash" code={`sankofa release ios`} />
+<CodeBlock lang="bash" code={`sankofa release ios
 
-This produces a signed `.xcarchive` at `build/ios/archive/Runner.xcarchive` and registers the release with Sankofa under the version + build number from your `pubspec.yaml`. **The version + build number ARE the patch addressing key**, so any later patch must target the same `1.0.4+1` you set here.
+# Flavored app (gradle flavors + per-flavor entrypoint):
+sankofa release ios --flavor production -t lib/main_production.dart`} />
 
-For uncodesigned builds (CI farms that sign elsewhere), pass `--no-codesign`.
+This produces a signed `.ipa` at `build/ios/ipa/` (plus the `.xcarchive` at `build/ios/archive/Runner.xcarchive`) and registers the release with Sankofa under the version + build number from your `pubspec.yaml`. The `.ipa` is the binary **you** submit to App Store Connect — Sankofa stores only the release record and serves your patches. **The version + build number ARE the patch addressing key**, so any later patch must target the same `1.0.4+1` you set here.
+
+For uncodesigned builds (CI farms that sign elsewhere), pass `--no-codesign` — it builds just the `.xcarchive` for you to sign + export in Xcode.
 
 ## 2. Upload to App Store Connect
 
