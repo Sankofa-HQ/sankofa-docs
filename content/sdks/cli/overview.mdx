@@ -8,6 +8,29 @@ The Sankofa CLI is a Node-based command-line tool published as `sankofa-cli` on 
 
 Flutter ships Dart code patches; React Native ships JavaScript bundles — both App Store + Play Store compliant. Same `release` / `patch` / `deploy` syntax for both — the CLI detects the stack and runs the right pipeline.
 
+This page is the command reference. For deep dives, jump to:
+
+<CardGrid cols={3}>
+  <Card href="/sdks/cli/installation" eyebrow="CLI" title="Install">
+    npm install, prerequisites, and keeping the CLI up to date.
+  </Card>
+  <Card href="/sdks/cli/configuration" eyebrow="CLI" title="Configuration & auth">
+    Deploy Tokens vs. JWTs, login, sankofa.yaml, and env vars.
+  </Card>
+  <Card href="/sdks/cli/tutorial" eyebrow="CLI" title="First release + patch">
+    End-to-end: install → release → submit → live patch.
+  </Card>
+  <Card href="/sdks/cli/release" eyebrow="CLI" title="sankofa release">
+    Full release flag reference for iOS and Android.
+  </Card>
+  <Card href="/sdks/cli/patch" eyebrow="CLI" title="sankofa patch">
+    The auto-diff workflow and every patch flag.
+  </Card>
+  <Card href="/sdks/cli/engine" eyebrow="CLI" title="sankofa engine">
+    Install, verify, and pin the Sankofa Flutter runtime.
+  </Card>
+</CardGrid>
+
 ## Install
 
 <CodeBlock lang="bash" code={`npm install -g sankofa-cli`} />

@@ -1,0 +1,143 @@
+---
+title: Rollouts & safety
+description: How Sankofa Deploy patches reach devices safely — staged rollout %, mandatory vs optional updates, rollback and roll-forward, and the boot-crash auto-rollback that restores a known-good app on its own.
+toc: true
+sdks: [flutter]
+---
+
+A patch is a code change reaching real users, so Deploy gives you control over **how fast** it spreads and a safety net for **when it goes wrong**.
+
+## The update lifecycle
+
+You don't have to write the update loop — `sankofa init --deploy` wires it into `main()`. Here's what actually happens on a device:
+
+<Steps>
+  <Step title="Boot — apply what's staged">
+    `SankofaUpdater.preFlight()` runs before `runApp`. If a patch was downloaded on a previous run, it's applied now, then a "patch healthy" confirmation is scheduled ~10 seconds after the first frame.
+  </Step>
+  <Step title="Check for a new patch">
+    The SDK checks the server for a newer patch on startup (and on resume). The check returns **metadata only** — label, size, signature, mandatory flag — no download yet.
+  </Step>
+  <Step title="Download + verify">
+    An available patch downloads over HTTPS. The SDK verifies its SHA-256 and, when signing is enabled, its signature. A patch that fails verification is discarded.
+  </Step>
+  <Step title="Stage — apply next cold launch">
+    A verified patch is staged on disk. The **next cold launch** applies it via `preFlight()`. Optional patches wait for a natural restart; mandatory patches are applied before the user continues.
+  </Step>
+</Steps>
+
+To drive the check yourself (for a custom "Update available" prompt or a progress bar), use the `SankofaUpdater` API:
+
+```dart
+final updater = SankofaUpdater();
+
+final result = await updater.checkForUpdate();
+if (result.hasUpdate) {
+  final update = result.update!;
+  if (update.isMandatory) {
+    await updater.downloadUpdate(update); // no prompt — download now
+  } else {
+    final ok = await showUpdateDialog(context, update);
+    if (ok) {
+      await updater.downloadUpdate(
+        update,
+        onProgress: (received, total) {
+          setState(() => _progress = total > 0 ? received / total : 0);
+        },
+      );
+    }
+  }
+}
+```
+
+`checkForUpdate()` resolves to one of a small set of statuses:
+
+| Status | Meaning |
+|---|---|
+| `upToDate` | No newer patch for this device. |
+| `outdated` | A patch is available — see `result.update`. |
+| `unavailable` | Couldn't reach the server (DNS/TCP/timeout/5xx). Transient — try again next launch. |
+| `invalidConfig` | Server rejected the request — usually a mismatched `engine_version` or unknown app version. |
+| `bannedLocally` | The available patch matches one this device already auto-rolled-back. Refused until the local ban is cleared. |
+
+## Staged rollout
+
+Every patch has a **rollout percentage** — the share of eligible devices that receive it. Bucketing is **deterministic per device**, so a device that's in at 25% stays in as you ramp to 50% and 100%; you never re-shuffle who's exposed.
+
+<CodeBlock lang="bash" code={`# Ship to a slice, watch, then widen.
+sankofa patch ios --rollout 10 --description "pricing hotfix"
+sankofa patch ios --rollout 50
+sankofa patch ios --rollout 100`} />
+
+Rollout defaults to 100% when you don't pass `--rollout`. Ramp when the change is risky; go straight to 100% for a confident one-line fix. Watch progress with `sankofa status` or the dashboard's **Patches** view. See the [CLI reference](/sdks/cli/overview#sankofa-patch) for every flag.
+
+## Mandatory vs. optional
+
+| | **Optional** (default) | **Mandatory** |
+|---|---|---|
+| Download | Silent, in the background | Silent, in the background |
+| Apply | On the next natural cold launch | Before the user continues |
+| Use it for | Almost everything | Critical fixes only |
+| Trade-off | Zero disruption; lands whenever the user relaunches | Guarantees fast adoption; interrupts the session |
+
+<CodeBlock lang="bash" code={`sankofa patch ios --mandatory --description "fix data-loss on save"`} />
+
+Reach for **mandatory** sparingly — it's for a fix everyone must have now (a crash, a data-loss bug, a broken payment). Everything else should be optional and simply ride the next relaunch.
+
+## The boot-crash safety net
+
+The most important guarantee in Deploy: **a bad patch can't brick your app.**
+
+When `preFlight()` applies a patch, it starts a grace window. If the freshly-patched app **crashes twice within 30 seconds of launch** before it confirms healthy, the device:
+
+1. **Disables the patch** and restores the **last known-good** version (the prior patch, or the baseline release).
+2. **Bans the bad patch label locally**, so the SDK won't re-download the same patch and re-enter the loop.
+
+This is entirely **on-device** — no server round-trip, no host code, and it works even if the device is offline. A patch that boots fine confirms healthy ~10 seconds after the first frame and the window closes.
+
+<Callout tone="note" title="Why a re-published patch won't 'un-stick' a rolled-back device">
+Because the bad label is banned locally, re-uploading a patch **with the same label** won't reach a device that already rolled it back — `checkForUpdate()` returns `bannedLocally`. To recover those devices, **roll forward** with a *new* patch (see below), which the ban list doesn't cover. A device can clear its own ban list via `SankofaUpdater`'s `clearBannedKbcLabels()` if you ever need to force a re-attempt.
+</Callout>
+
+## Rollback and roll-forward
+
+You have two ways to respond to a patch that's misbehaving in the field.
+
+### Rollback — revert the live patch
+
+From the dashboard (or by pausing the rollout), stop serving the bad patch. Devices that have it restore the last known-good version on their next launch; devices that haven't taken it yet never will. Rollback returns your fleet to the previous good state.
+
+### Roll-forward — ship a corrected patch
+
+Usually the better move: fix the code and publish a **new** patch. Because it's a new patch (new label/number), it isn't covered by any device's local ban list, so it reaches everyone — including devices that auto-rolled-back the broken one.
+
+<CodeBlock lang="bash" code={`# 1. Correct the code behind the same interface seam.
+# 2. Ship it as a NEW patch (do not reuse the bad label).
+sankofa patch ios --rollout 25 --description "pricing hotfix v2 (supersedes v1)"`} />
+
+<Callout tone="tip" title="Rule of thumb">
+**Rollback** to stop the bleeding fast; **roll forward** to actually fix it. Never re-publish a broken patch under its old label expecting rolled-back devices to pick it up — they won't.
+</Callout>
+
+## Signing
+
+Turn on patch signing so devices only apply patches you authored. Generate a project keypair once and register the public key:
+
+<CodeBlock lang="bash" code={`sankofa keys generate     # Ed25519 keypair for this project
+sankofa keys register     # upload the public key so the server verifies at upload time`} />
+
+From then on, `sankofa patch` signs every patch, and both the server (at upload) and the SDK (at apply) verify the signature — an unsigned or wrong-key patch is refused. **Back up the private key.** Details in the [CLI reference](/sdks/cli/overview#sankofa-keys--signing-keys).
+
+## Next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/design-for-hot-fixes" eyebrow="Guide" title="Design for hot-fixes">
+    Make the change patchable in the first place.
+  </Card>
+  <Card href="/products/deploy/platforms" eyebrow="Reference" title="Platform & policy">
+    iOS vs Android, and store-compliance framing.
+  </Card>
+  <Card href="/products/deploy/faq" eyebrow="Reference" title="FAQ & limits">
+    Common questions and the boundaries.
+  </Card>
+</CardGrid>

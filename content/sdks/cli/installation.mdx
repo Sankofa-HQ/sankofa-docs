@@ -1,0 +1,93 @@
+---
+title: Install the CLI
+description: Install the sankofa CLI from npm, meet the platform prerequisites for iOS and Android builds, verify the install with sankofa doctor, and keep it up to date.
+toc: true
+---
+
+The Sankofa CLI is published to npm as **`sankofa-cli`** and installs a single binary named **`sankofa`**. It is the one tool you use to scaffold SDK integrations, ship OTA releases and patches (Flutter + React Native), manage feature flags and remote config, upload crash symbols, and seed demo data.
+
+## Install from npm
+
+<CodeBlock lang="bash" code={`npm install -g sankofa-cli`} />
+
+This puts a `sankofa` executable on your `PATH`. Confirm it:
+
+<CodeBlock lang="bash" code={`sankofa --version
+sankofa --help`} />
+
+You can also run it without a global install using `npx`:
+
+<CodeBlock lang="bash" code={`npx sankofa-cli@latest doctor`} />
+
+<Callout tone="note" title="Package name vs. binary name">
+The npm package is `sankofa-cli`; the command it installs is `sankofa`. Install with `npm install -g sankofa-cli`, then run everything as `sankofa …`.
+</Callout>
+
+## Prerequisites
+
+<ParameterTable
+  params={[
+    { name: "Node.js", type: "runtime", required: true, default: "18+", description: "The CLI is a Node program. Node.js 18 or newer is required; an active LTS (20+) is recommended." },
+    { name: "Xcode + macOS", type: "iOS builds", description: "Required for sankofa release ios, dist ios, and preview ios. iOS artifacts (.ipa / .xcarchive) can only be built on macOS." },
+    { name: "Android SDK + JDK 17", type: "Android builds", description: "Required for sankofa release android, dist android, and Android previews. Gradle builds need JDK 17." },
+    { name: "Flutter or React Native project", type: "workspace", description: "release / patch / preview run inside a project. The CLI auto-detects the stack from pubspec.yaml (Flutter) or package.json (React Native)." },
+    { name: "Sankofa Flutter runtime", type: "Flutter Deploy only", description: "Flutter OTA needs the Sankofa-built Flutter runtime. sankofa init --deploy (or sankofa engine install) fetches it into ~/.sankofa/. See the engine reference." },
+  ]}
+/>
+
+You do **not** need to install or configure the runtime by hand for a Flutter Deploy project — `sankofa init --deploy` and `sankofa engine install` do it for you. See the [engine reference](/sdks/cli/engine).
+
+## Verify your toolchain
+
+`sankofa doctor` reports on every moving part — Node, Xcode, Java/Gradle, the Flutter SDK, the Android SDK, server reachability, and (for Flutter Deploy projects) the full native wiring.
+
+<CodeBlock lang="bash" code={`sankofa doctor            # full toolchain + integration check
+sankofa doctor --deploy   # focus on Sankofa Deploy wiring only`} />
+
+Run it before your first release; it flags a missing engine, an unsigned project, or a broken native patch long before a build fails.
+
+## Keeping the CLI up to date
+
+There are two update commands with different scopes.
+
+### `sankofa upgrade` — just the CLI binary
+
+<CodeBlock lang="bash" code={`sankofa upgrade           # check npm and install if a newer version exists
+sankofa upgrade --check   # dry-run: report only, change nothing
+sankofa upgrade --sudo    # run the install under sudo (CI that plans for it)`} />
+
+<Callout tone="warning" title="macOS EACCES on global installs">
+On a default macOS setup the global npm prefix (`/usr/local/lib/node_modules`) is root-owned, so `npm install -g …` fails with `EACCES`. `sankofa upgrade` detects this and **auto-retries under `sudo`** — you are prompted for your password once. In non-interactive contexts (CI, piped output) it prints the exact remedy instead:
+
+<CodeBlock lang="bash" code={`sudo npm install -g sankofa-cli@latest
+  # or: sankofa upgrade --sudo`} />
+
+A user-writable npm prefix (for example via `nvm`) avoids the sudo retry entirely.
+</Callout>
+
+### `sankofa update` — the whole stack
+
+A developer machine has four moving parts: the CLI itself, the bundled Sankofa Flutter SDK, the engine cache, and the per-project pub.dev SDK. `update` checks all four in one sweep.
+
+<CodeBlock lang="bash" code={`sankofa update                 # check + apply updates to all four surfaces
+sankofa update --check         # dry-run: report what would change
+sankofa update --only cli      # bump the CLI only
+sankofa update --only flutter  # refresh the bundled Sankofa Flutter SDK only
+sankofa update --only engine   # refresh the engine cache only
+sankofa update --only sdk      # flutter pub upgrade sankofa_flutter in this project`} />
+
+The CLI also prints a one-line update notice after commands when a newer version is available. Silence it by setting `SANKOFA_NO_UPDATE_CHECK=1` (the notice is already suppressed automatically when `CI` is set).
+
+## Next steps
+
+<CardGrid cols={3}>
+  <Card href="/sdks/cli/configuration" eyebrow="CLI" title="Configuration & auth">
+    Log in, mint a Deploy Token, and understand sankofa.yaml.
+  </Card>
+  <Card href="/sdks/cli/tutorial" eyebrow="CLI" title="First release + patch">
+    An end-to-end walkthrough from install to a live patch.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="CLI" title="Command reference">
+    Every top-level command at a glance.
+  </Card>
+</CardGrid>

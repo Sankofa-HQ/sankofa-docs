@@ -139,6 +139,17 @@ export const SECTIONS: NavSection[] = [
         ],
       },
       {
+        title: "Deploy — Flutter OTA",
+        pages: [
+          { slug: "deploy/getting-started", title: "Getting started" },
+          { slug: "deploy/design-for-hot-fixes", title: "Design for hot-fixes" },
+          { slug: "deploy/rollouts", title: "Rollouts & safety" },
+          { slug: "deploy/platforms", title: "Platform & policy" },
+          { slug: "deploy/flutter-app-store", title: "Releasing to the App Store" },
+          { slug: "deploy/faq", title: "FAQ & limits" },
+        ],
+      },
+      {
         title: "Experimentation",
         pages: [
           { slug: "switch/overview", title: "Switch" },
@@ -200,8 +211,17 @@ export const SECTIONS: NavSection[] = [
         ],
       },
       {
-        title: "Tooling",
-        pages: [{ slug: "cli/overview", title: "CLI" }],
+        title: "CLI",
+        pages: [
+          { slug: "cli/overview", title: "Overview" },
+          { slug: "cli/installation", title: "Install" },
+          { slug: "cli/configuration", title: "Configuration & auth" },
+          { slug: "cli/tutorial", title: "Tutorial: first release + patch" },
+          { slug: "cli/release", title: "sankofa release" },
+          { slug: "cli/patch", title: "sankofa patch" },
+          { slug: "cli/engine", title: "sankofa engine" },
+          { slug: "cli/troubleshooting", title: "Troubleshooting" },
+        ],
       },
     ],
   },

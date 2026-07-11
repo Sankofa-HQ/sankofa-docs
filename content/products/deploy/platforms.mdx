@@ -1,0 +1,69 @@
+---
+title: Platform & policy
+description: What Sankofa Deploy can patch on iOS vs Android, why the interpreted-Dart path is App Store and Play Store compliant, and which changes still require a new store build.
+toc: true
+sdks: [flutter]
+---
+
+Deploy is cross-platform: the same `sankofa patch` command ships Dart changes to **iOS and Android**. The two platforms differ in *how much* you can change, and in the store rules the patch runs under.
+
+## iOS vs. Android capability
+
+| Capability | iOS | Android |
+|---|---|---|
+| Patch logic behind a virtual call (interface / override) | ✓ | ✓ |
+| Change business rules, thresholds, copy resolved through a seam | ✓ | ✓ |
+| Auto-diff from your real source (`sankofa patch`) | ✓ | ✓ |
+| Signature + hash verification, auto-rollback on bad boot | ✓ | ✓ |
+| Edit `static` / top-level functions or `build()` directly | — | more headroom |
+| Add new fields / classes / assets / plugins | needs store build | needs store build |
+| Upgrade the Sankofa Flutter runtime (engine) | needs store build | needs store build |
+
+<Callout tone="warning" title="Design to the iOS seam">
+iOS is the strict platform: patches must go through a **virtual call** (see [Design for hot-fixes](/products/deploy/design-for-hot-fixes)). Android's loader path can accommodate a broader range of changes, but if you author every patch to the iOS rule, it ships identically on both. Keep the discipline and your patches stay portable — don't paint yourself into an Android-only patch.
+</Callout>
+
+## Why it's store-compliant
+
+Deploy is designed to sit squarely inside both stores' rules for over-the-air updates. The core reasons are the same on both platforms:
+
+- **Interpreted, not JIT-compiled.** Patched Dart runs through the Sankofa runtime's **bytecode interpreter** — code executing inside the VM. The device **never generates native machine code** from downloaded bytes and never maps downloaded code as executable. This is the distinction stores draw between permitted interpreted updates and disallowed native code injection.
+- **It updates an already-reviewed app.** What you submit for review is the **base binary**. A patch modifies the **Dart layer** of that reviewed app — it doesn't introduce a new app, a hidden storefront, or a different category of product.
+- **It doesn't change the app's primary purpose.** Patches fix and tune the app that was reviewed. They must not add features that change what the app fundamentally is, unlock private functionality, or ship anything you wouldn't submit for review.
+- **Delivered over HTTPS**, verified by hash (and, when enabled, signature) before it runs.
+
+### Apple App Store
+
+Apple's guidelines permit an app to run code that isn't embedded in the binary when it runs in the OS's interpreter and doesn't change the app's primary purpose (Guideline [2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements)). Sankofa Deploy patches update the Dart layer of your already-reviewed app under that provision. As long as your patches don't change the app's primary purpose — no new category of feature, no covert storefront — this is the same compliance posture over-the-air update mechanisms have shipped under for years.
+
+The base-release submission has two App Store specifics — a Privacy Manifest and the encryption-export answer — plus **one Xcode checkbox that silently breaks patch addressing**. All three are covered in [Releasing to the App Store](/products/deploy/flutter-app-store).
+
+### Google Play
+
+Play's policy likewise permits interpreted updates that don't circumvent review or change the app's core behavior. Deploy patches are interpreted Dart delivered over HTTPS to an already-reviewed app, so they fit the same posture. Ship the base `.aab` (or `--apk`) through the Play Console as normal, then patch on top.
+
+<Callout tone="note" title="Keep patches in scope">
+Compliance holds because a patch fixes and tunes the app that was reviewed. If a change would need its own review — a new feature category, new data collection, a new permission — ship it as a **new store release**, not a patch.
+</Callout>
+
+## What requires a new store build
+
+A patch delivers **Dart changes only**. Anything below is out of scope for a patch and needs a base release through the stores:
+
+- **Engine upgrades.** Your app is compiled against a specific Sankofa Flutter runtime downloaded from **download.sankofa.dev** at build time. A patch never carries a new engine, so moving to a newer runtime is a store build. Patches are bound to the `engine_version` the app was built against — the server won't hand a device a patch for a different engine (`checkForUpdate()` returns `invalidConfig`).
+- **New surface area.** New fields, classes, dependencies, plugins, native code, permissions, or assets — none are part of the Dart diff surface.
+- **A new store version.** Each base release is addressed by its version + build number; patches target that exact base. A new version starts a new base.
+
+## Next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/flutter-app-store" eyebrow="Guide" title="Releasing to the App Store">
+    Privacy Manifest, encryption export, and the build-number gotcha.
+  </Card>
+  <Card href="/products/deploy/design-for-hot-fixes" eyebrow="Guide" title="Design for hot-fixes">
+    The virtual-call seam that keeps patches in scope.
+  </Card>
+  <Card href="/products/deploy/faq" eyebrow="Reference" title="FAQ & limits">
+    Common questions and boundaries.
+  </Card>
+</CardGrid>

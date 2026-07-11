@@ -1,0 +1,134 @@
+---
+title: "Tutorial: first release + first patch"
+description: An end-to-end walkthrough — install the CLI, log in, set up a Flutter project, cut a base release, submit the store binary, then ship a live code-only patch with the auto-diff workflow.
+toc: true
+---
+
+This tutorial takes you from a clean machine to a **live over-the-air patch**. It uses a Flutter project because that's the richest path; the React Native flow is called out where it differs. By the end you'll have cut a base release, submitted a store binary, edited real code, and shipped that change to devices without a store resubmission.
+
+## Prerequisites
+
+- Node.js 18+ and the platform toolchain for your target (Xcode for iOS, Android SDK + JDK 17 for Android). See [Install the CLI](/sdks/cli/installation).
+- A Sankofa account with a project. Create one in the dashboard first.
+
+## Step 1 — Install and log in
+
+<CodeBlock lang="bash" code={`npm install -g sankofa-cli
+sankofa --version
+
+sankofa login             # opens your browser, mints a Deploy Token for the project you pick`} />
+
+For CI, skip the browser and pass a pre-minted Deploy Token instead:
+
+<CodeBlock lang="bash" code={`sankofa login --deploy-token sk_deploy_xxxxxxxx --project-id proj_xxxxxxxx`} />
+
+## Step 2 — Set up the project
+
+From your Flutter project root:
+
+<CodeBlock lang="bash" code={`sankofa init --deploy`} />
+
+This adds the Sankofa Flutter SDK, creates `sankofa.yaml`, wires `lib/main.dart` (the updater pre-flight call), patches the Android + iOS native files, and installs the Sankofa engine. Because you already logged in, `sankofa.yaml`'s `app_id` and `api_key` are filled from the project you selected — nothing to paste.
+
+Confirm everything is wired:
+
+<CodeBlock lang="bash" code={`sankofa doctor --deploy`} />
+
+<Callout tone="tip" title="Optional: sign your patches">
+Generate a project signing key so every patch is signed and verified on-device:
+
+<CodeBlock lang="bash" code={`sankofa keys generate   # writes the private key to ~/.config/sankofa/keys/, pubkey to sankofa.yaml`} />
+
+Back up the private key — losing it means you can't sign patches for existing releases without a coordinated rotation.
+</Callout>
+
+## Step 3 — Cut the base release
+
+A base release builds the signed store binary **and** registers the OTA baseline patches attach to. Pick your platform:
+
+<CodeBlock lang="bash" code={`# Android — produces a Play Store AAB
+sankofa release android
+
+# iOS — produces a signed .ipa for App Store Connect / TestFlight
+sankofa release ios`} />
+
+The CLI detects the app version, verifies the embedded engine is a genuine Sankofa build, captures the auto-diff base for future patches, and (after you confirm) publishes the baseline. It prints the release label (e.g. `v1.0.0`), the rollout %, and the on-disk path of the store binary.
+
+<Callout tone="warning" title="iOS: the one checkbox that breaks patches">
+When you upload the `.ipa` in Xcode's **Distribute App** dialog, **uncheck "Manage Version and Build Number."** If Xcode rewrites the build number, the shipped version stops matching what Sankofa recorded and patches silently fail to apply.
+</Callout>
+
+## Step 4 — Submit the store binary
+
+Upload the artifact the CLI printed:
+
+- **iOS:** drag the `.ipa` into Transporter, or use Xcode Organizer / `xcrun altool`.
+- **Android:** upload the `.aab` to the Play Console (Production or a testing track).
+
+Submit the **exact binary `sankofa release` produced** — it contains the Sankofa engine and OTA wiring. A binary from a raw `flutter build` is not registered for OTA and won't accept patches.
+
+## Step 5 — Ship your first patch
+
+Now the payoff. Edit your real Dart code — fix a bug, change a string, adjust logic:
+
+<CodeBlock lang="dart" code={`// lib/home_page.dart (example)
+Text('Welcome back!')          // was: Text('Welcome')`} />
+
+Then ship it. Sankofa rebuilds your edited app, diffs it against the baseline, and ships **only the changed functions** — no patch file, no store resubmission:
+
+<CodeBlock lang="bash" code={`sankofa patch android
+# or: sankofa patch ios   (App Store compliant)`} />
+
+You'll see something like:
+
+<CodeBlock lang="text" code={`Patch module built — 1 changed function(s) (612 B).
+  Changed: _HomePageState.build
+Publish patch v1.0.0-patch.1 targeting 1.0.0? (Y/n)`} />
+
+Confirm, and the patch publishes as `v1.0.0-patch.1`. Devices in the rollout fetch and apply it on next launch.
+
+<Callout tone="note" title="Release + patch on the same machine">
+Auto-diff diffs against the baseline captured locally by `sankofa release`, so cut the release and ship its patches from the same machine. If the CLI can't find the local base, it will ask you to run `sankofa release` for this version on this machine first.
+</Callout>
+
+## Step 6 — Roll out gradually
+
+Publish to a slice of devices first, then widen once it looks healthy:
+
+<CodeBlock lang="bash" code={`sankofa patch android --publish --rollout 10 --description "welcome copy fix"
+# …watch Catch + adoption, then re-publish wider by cutting the next patch at a higher rollout`} />
+
+Watch progress any time:
+
+<CodeBlock lang="bash" code={`sankofa status
+sankofa status --env live --platform android`} />
+
+## React Native differences
+
+The shape is identical — `release` then `patch` — but a React Native patch ships a **JavaScript bundle** rather than diffed Dart:
+
+<CodeBlock lang="bash" code={`sankofa release ios
+# …edit your JS/TS…
+sankofa patch ios --publish --rollout 25`} />
+
+React Native's `patch` shows a picker of base releases and asks whether the change touches native code (which can't go OTA).
+
+## One-shot deploy
+
+For CI scripts that shouldn't care whether a baseline exists yet, `sankofa deploy` auto-picks `release` (first run) or `patch` (subsequent runs):
+
+<CodeBlock lang="bash" code={`sankofa deploy android --publish --rollout 50`} />
+
+## Where to go next
+
+<CardGrid cols={3}>
+  <Card href="/sdks/cli/release" eyebrow="CLI" title="release reference">
+    Every release flag, for both platforms and stacks.
+  </Card>
+  <Card href="/sdks/cli/patch" eyebrow="CLI" title="patch reference">
+    Auto-diff, flavors, CI, and the legacy file model.
+  </Card>
+  <Card href="/sdks/cli/troubleshooting" eyebrow="CLI" title="Troubleshooting">
+    Engine mismatch, no_matching_release, and fixes.
+  </Card>
+</CardGrid>

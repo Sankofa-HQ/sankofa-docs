@@ -1,0 +1,138 @@
+---
+title: Configuration & authentication
+description: How the CLI authenticates — Deploy Tokens vs. dashboard JWTs, browser and CI login, the sankofa.yaml project file, environment variables, and credential resolution order.
+toc: true
+---
+
+The CLI needs two things before it can publish: **who you are** (authentication) and **which project + environment** you are shipping to. This page covers both, plus the `sankofa.yaml` file that Flutter Deploy reads at runtime.
+
+## Two credential types
+
+Sankofa uses two different tokens for two different classes of command. Using the wrong one is the single most common auth error.
+
+<ParameterTable
+  params={[
+    { name: "Deploy Token", type: "sk_deploy_…", description: "Publishing credential. Used by release, patch, deploy, status, preview, dist, submit. Scoped to one project. Mint one from the dashboard's Deploy tokens panel, or let sankofa login create one for you." },
+    { name: "Dashboard JWT", type: "session token", description: "Full user session with project-role RBAC. Used by flags, config, catch, and demo — commands that read and write dashboard resources, not just deploy artifacts." },
+  ]}
+/>
+
+<Callout tone="danger" title="SDK API keys cannot publish">
+The publishable keys your app embeds (`sk_live_…` / `sk_test_…`) are **runtime** keys — the app sends them to the ingestion API as the `x-api-key` header. They **cannot** publish releases or patches. Publishing always uses a **Deploy Token** (`sk_deploy_…`). If you pass a runtime key to `sankofa login --api-key`, the CLI rejects it and points you at Deploy Tokens.
+</Callout>
+
+## Log in
+
+### Browser login (interactive)
+
+The default flow opens your browser, authenticates against your Sankofa account, lets you pick an organization + project, and mints a local Deploy Token bound to that project.
+
+<CodeBlock lang="bash" code={`sankofa login`} />
+
+It prompts for the API endpoint (default `https://api.sankofa.dev`), opens a login page, and waits for the callback. On success it saves credentials to `~/.sankofa/credentials.json` and, if the current directory is a Sankofa project, backfills the empty `app_id` / `api_key` fields in `sankofa.yaml` and links `.sankofa.json`.
+
+<CodeBlock lang="bash" code={`sankofa login --project    # save to .sankofa.json in this project instead of global config
+sankofa login --endpoint https://api.sankofa.dev`} />
+
+### Deploy Token login (CI/CD)
+
+For headless environments, authenticate directly with a pre-minted Deploy Token and a project ID — no browser round-trip.
+
+<CodeBlock lang="bash" code={`sankofa login --deploy-token sk_deploy_xxxxxxxx --project-id proj_xxxxxxxx`} />
+
+The token must start with `sk_deploy_`. The project ID can also come from the `SANKOFA_PROJECT_ID` environment variable. The CLI validates the token against the deploy API and records whether it belongs to the `live` or `test` environment.
+
+### Log out and switch projects
+
+<CodeBlock lang="bash" code={`sankofa logout             # clear both project + global scopes
+sankofa logout --project   # clear the project-scoped credentials only
+sankofa switch             # change the active project / environment without re-auth`} />
+
+`sankofa switch` reuses the long-lived session captured at browser login, so it can list your projects and mint a new Deploy Token without another browser trip.
+
+## Credential resolution order
+
+Every authenticated command resolves credentials from the following sources, **highest priority first**:
+
+<Steps>
+  <Step title="Environment variables">
+    `SANKOFA_DEPLOY_TOKEN` (deploy auth), `SANKOFA_JWT` (dashboard auth), `SANKOFA_PROJECT_ID`, `SANKOFA_ENDPOINT`, `SANKOFA_ENVIRONMENT`. `SANKOFA_API_KEY` is accepted as an alias for `SANKOFA_DEPLOY_TOKEN`.
+  </Step>
+  <Step title="Project config">
+    `.sankofa.json` in the project root (created by `sankofa init`, linked by `sankofa login`). Holds `projectId`, `endpoint`, `environment` — but never the Deploy Token.
+  </Step>
+  <Step title="Global config">
+    `~/.sankofa/credentials.json` (written by `sankofa login`). Holds the Deploy Token, endpoint, project ID, and the session used by `sankofa switch`.
+  </Step>
+</Steps>
+
+If nothing resolves, the command exits with a prompt to run `sankofa login`. The endpoint defaults to `https://api.sankofa.dev` and the environment defaults to `live` when unset.
+
+## Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `SANKOFA_DEPLOY_TOKEN` | Deploy auth token for `release` / `patch` / `status` / `preview` / `dist` / `submit`. |
+| `SANKOFA_JWT` | Dashboard JWT for `flags` / `config` / `catch` / `demo`. |
+| `SANKOFA_PROJECT_ID` | Project ID (`proj_…`). |
+| `SANKOFA_ENDPOINT` | API base URL. Defaults to `https://api.sankofa.dev`. |
+| `SANKOFA_ENVIRONMENT` | `live` or `test`. Defaults to `live`. |
+| `SANKOFA_ENGINE_VERSION` | Override the Sankofa Flutter engine version the build resolves. |
+| `SANKOFA_HOME` | Override the cache root (default `~/.sankofa`). Useful to isolate CI caches. |
+| `SANKOFA_NO_UPDATE_CHECK` | Set to `1` to silence post-command update notices. |
+
+<Callout tone="note" title="CI recipe">
+In CI, set `SANKOFA_DEPLOY_TOKEN`, `SANKOFA_PROJECT_ID`, and (optionally) `SANKOFA_ENVIRONMENT`, then run `sankofa release …` or `sankofa patch … --release <label> --publish` non-interactively. For flag / config commands, set `SANKOFA_JWT` instead. The `CI` variable being set also auto-silences update notices.
+</Callout>
+
+## The `sankofa.yaml` project file (Flutter)
+
+Flutter Deploy projects carry a `sankofa.yaml` at the project root. It is bundled as a Flutter asset and read at runtime by the SDK, so the app knows which project it belongs to and which server to talk to. `sankofa init --deploy` creates it; `sankofa login` fills the identity fields.
+
+<CodeBlock lang="yaml" code={`# sankofa.yaml — read at runtime from the asset bundle.
+app_id: proj_xxxxxxxx        # your Sankofa project ID
+api_key: sk_live_xxxxxxxx    # publishable runtime key (sent as x-api-key by the app)
+# base_url: https://api.sankofa.dev   # only when self-hosting a non-default endpoint
+engine_version: 3.44.1+sankofa-2      # written by 'sankofa engine install' / 'upgrade'
+# signing_pubkey: <base64>            # written by 'sankofa keys generate'`} />
+
+<ParameterTable
+  params={[
+    { name: "app_id", type: "string", required: true, description: "Your Sankofa project ID (proj_…). sankofa login fills this from the project you select." },
+    { name: "api_key", type: "string", required: true, description: "The project's publishable runtime key (sk_live_… or sk_test_…). The app sends it to the API as the x-api-key header. It is a client-embedded key by design, like a Firebase or Stripe publishable key." },
+    { name: "base_url", type: "string?", default: "https://api.sankofa.dev", description: "Only written when your endpoint differs from the default (self-hosted / regional). Omitted for the standard cloud." },
+    { name: "engine_version", type: "string?", description: "The pinned Sankofa Flutter engine version (e.g. 3.44.1+sankofa-2). Written by sankofa engine install and re-written by sankofa engine upgrade." },
+    { name: "signing_pubkey", type: "string?", description: "The base64 Ed25519 public key patches are signed with. Written by sankofa keys generate. The SDK verifies every patch against it before applying." },
+  ]}
+/>
+
+<Callout tone="warning" title="Runtime config vs. the API contract">
+The app's runtime SDK is configured with `apiKey` + `endpoint` and authenticates to the ingestion API with the `x-api-key` header — never `appKey` or `serverUrl`. In `sankofa.yaml` those two values live under `api_key` and (optionally) `base_url`; the CLI maps them for you. Do not hand-edit `engine_version` or `signing_pubkey` — the CLI owns them.
+</Callout>
+
+The engine pin is also mirrored to `.sankofa/flutter-version`. `sankofa release`, `sankofa patch`, and `sankofa preview` read the pin automatically, so every build uses the engine your project is locked to.
+
+## Where credentials and caches live
+
+| Path | Contents |
+|---|---|
+| `~/.sankofa/credentials.json` | Global Deploy Token, endpoint, project ID, session. |
+| `.sankofa.json` (project root) | Project ID, endpoint, environment, installed products. Safe to commit — no token. |
+| `sankofa.yaml` (Flutter project root) | Runtime `app_id` + `api_key` + engine pin. Bundled into the app. |
+| `~/.config/sankofa/keys/<projectId>.ed25519` | Patch signing private key (`0600`). Back this up; never commit it. |
+| `~/.sankofa/engines/` | Cached Sankofa Flutter engine binaries. |
+| `~/.sankofa/flutter/<version>/` | Bundled Sankofa Flutter SDK per engine version. |
+
+## Next steps
+
+<CardGrid cols={3}>
+  <Card href="/sdks/cli/release" eyebrow="CLI" title="sankofa release">
+    Build and publish your first base release.
+  </Card>
+  <Card href="/sdks/cli/patch" eyebrow="CLI" title="sankofa patch">
+    Ship code-only OTA updates on top of a release.
+  </Card>
+  <Card href="/sdks/cli/engine" eyebrow="CLI" title="sankofa engine">
+    Manage the Sankofa Flutter runtime the build uses.
+  </Card>
+</CardGrid>

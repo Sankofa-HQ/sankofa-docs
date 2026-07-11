@@ -1,0 +1,176 @@
+---
+title: Troubleshooting
+description: Fixes for the errors you're most likely to hit with the Sankofa CLI — engine version mismatch, no_matching_release, unknown-engine release refusals, the SANKOFA_SKIP_ENGINE_CHECK bypass, auth problems, and more.
+toc: true
+---
+
+Solutions to the most common CLI and OTA problems, grouped by where they surface. Each entry states the symptom, the cause, and the fix.
+
+## Engine version mismatch
+
+**Symptom** — `sankofa patch` stops before building with:
+
+<CodeBlock lang="text" code={`✖ Engine mismatch.
+   Baseline release was built with engine: 3.44.1+sankofa-1
+   Your local engine is:                   3.44.1+sankofa-2
+   A patch built against a different engine will not load.`} />
+
+**Cause** — a patch built against engine X can only apply to a baseline built against engine X. Your local engine was upgraded (or downgraded) after the baseline was cut.
+
+**Fix** — either build the patch with the engine the baseline used, or cut a **new baseline** on your current engine:
+
+<CodeBlock lang="bash" code={`# Option A — match the baseline's engine, then patch
+sankofa engine install 3.44.1+sankofa-1
+sankofa patch android --release <baseline-label>
+
+# Option B — move forward: re-pin, cut a new release, patch on top of it
+sankofa engine upgrade
+sankofa release android
+sankofa patch android`} />
+
+## Devices report `no_matching_release`
+
+**Symptom** — devices never receive an update; the deploy check returns `has_update: false` with `reason: "no_matching_release"`.
+
+**Cause** — the device's installed app version + engine don't match any published release/patch band, or the device isn't in the rollout. Common triggers:
+
+- The store binary's build number was rewritten at upload (see the iOS checkbox below), so the device reports a version Sankofa has no baseline for.
+- The patch targets a different `target_binary_version` than the app the device is running.
+- The device falls outside the current `--rollout` percentage.
+- The app is running a different engine than the release was built against.
+
+**Fix**
+
+<Steps>
+  <Step title="Confirm the target version">
+    `sankofa status` and check the release's target binary version matches the app version installed on the device (from `pubspec.yaml` / store listing).
+  </Step>
+  <Step title="Widen the rollout">
+    If the device should be included, publish a patch at a higher `--rollout` (up to `100`).
+  </Step>
+  <Step title="Verify the engine">
+    Ensure the release was built with the Sankofa engine and matches the device's engine (`sankofa engine list`, `sankofa engine verify`).
+  </Step>
+</Steps>
+
+## Release refused: "not a known Sankofa engine"
+
+**Symptom** — `sankofa release android` fails the trust check:
+
+<CodeBlock lang="text" code={`✖ The libflutter.so embedded in your APK was NOT built by Sankofa CI.
+   Publishing this release would crash every customer device on patch download.`} />
+
+**Cause** — the build bundled a vanilla Flutter engine instead of the Sankofa engine, so it can't load patches.
+
+**Fix** — install the Sankofa engine for your Flutter version and rebuild:
+
+<CodeBlock lang="bash" code={`sankofa engine install       # or: sankofa engine download
+# rebuild so the Sankofa engine is bundled, then:
+sankofa release android`} />
+
+If `sankofa init --deploy` was skipped, run it first — it wires the project to use the Sankofa engine.
+
+## On-device: "running engine is not a Sankofa fork build"
+
+**Symptom** — a patch refuses to apply on-device with a message noting `Platform.version` lacks a `+sankofa-N` marker.
+
+**Cause** — the engine binary is forked, but the Dart SDK version string it reports is unstamped, so the SDK's up-front safety check can't see the marker.
+
+**Fix** — the intended, permanent fix is to build on a properly stamped Sankofa engine. As a **build-time escape hatch** while the Dart version is unstamped, bake the bypass into the build via a dart-define:
+
+<CodeBlock lang="bash" code={`sankofa release android --dart-define SANKOFA_SKIP_ENGINE_CHECK=1
+sankofa release ios      --dart-define SANKOFA_SKIP_ENGINE_CHECK=1`} />
+
+<Callout tone="warning" title="Use the bypass deliberately">
+`SANKOFA_SKIP_ENGINE_CHECK=1` skips only the `Platform.version` marker check — the engine binary itself must still be a real Sankofa fork (the CLI's release-time trust check verifies that). Both `=1` and `=true` are accepted. Don't set it to paper over an actually-vanilla engine; the patch will fail deeper inside the runtime instead.
+</Callout>
+
+## No local auto-diff base found
+
+**Symptom** — `sankofa patch` (Flutter) stops with a note that there's no local auto-diff base for the selected release.
+
+**Cause** — auto-diff needs the baseline's exact AOT + program kernel, which `sankofa release` captures locally under `.sankofa/baseline/autodiff/`. The base isn't on this machine — usually because the release was cut on a different machine.
+
+**Fix** — cut the release for this app version **on this machine** first, then patch:
+
+<CodeBlock lang="bash" code={`sankofa release android    # captures the auto-diff base locally
+# …edit your code…
+sankofa patch android`} />
+
+If you can't re-release, use the legacy file model as a fallback (`sankofa patch android --legacy-patch-file`). Cross-machine patching is on the roadmap.
+
+## "No code changes detected — nothing to ship"
+
+**Symptom** — `sankofa patch` (Flutter, auto-diff) reports no changes and exits without publishing.
+
+**Cause** — your working tree is identical to the baseline snapshot for the functions auto-diff tracks. Whitespace-only or comment-only edits, or edits outside patchable code, produce no shippable diff.
+
+**Fix** — change a function body in your Dart code, then re-run. If you expected a change to be picked up but it wasn't, confirm you edited reachable code (not a native file or asset — those need a new `sankofa release`).
+
+## "A baseline release already exists for this version"
+
+**Symptom** — `sankofa release` refuses because a baseline already exists for this app version (and, for Flutter, engine).
+
+**Cause** — you already cut a baseline for this exact version + engine combination.
+
+**Fix** — to ship code changes, use `sankofa patch` against the existing baseline. To cut a genuinely new baseline, bump the version in `pubspec.yaml` (or `Info.plist` / `build.gradle`) and re-run `sankofa release`.
+
+## Patches silently never apply (iOS)
+
+**Symptom** — everything publishes cleanly, but iOS devices never pick up patches.
+
+**Cause** — in Xcode's **Distribute App** dialog, "Manage Version and Build Number" was left checked, so Xcode rewrote the build number. The shipped version no longer matches what Sankofa recorded, and every patch resolves to `no_matching_release`.
+
+**Fix** — re-distribute with **"Manage Version and Build Number" unchecked**, resubmit, and ship the patch again against the correct version.
+
+## Authentication problems
+
+### "You are not logged in" / "No Deploy Token found"
+
+Run an interactive login, or provide a Deploy Token for CI:
+
+<CodeBlock lang="bash" code={`sankofa login
+# CI:
+sankofa login --deploy-token sk_deploy_xxxxxxxx --project-id proj_xxxxxxxx
+# or export SANKOFA_DEPLOY_TOKEN + SANKOFA_PROJECT_ID`} />
+
+### "This is an app runtime SDK key"
+
+You passed a publishable key (`sk_live_…` / `sk_test_…`) where a **Deploy Token** (`sk_deploy_…`) is required. Runtime keys can't publish. Mint a Deploy Token from the dashboard's Deploy tokens panel (or use `sankofa login` with an Editor account).
+
+### Wrong project or environment
+
+<CodeBlock lang="bash" code={`sankofa switch                     # change the active project without re-auth
+sankofa status --env test          # confirm which environment you're reading`} />
+
+## `npm install -g` fails with EACCES (macOS)
+
+The default macOS npm prefix is root-owned. `sankofa upgrade` auto-retries under `sudo` interactively; otherwise install manually:
+
+<CodeBlock lang="bash" code={`sudo npm install -g sankofa-cli@latest
+# or:
+sankofa upgrade --sudo`} />
+
+A user-writable npm prefix (via `nvm`) avoids the sudo retry entirely.
+
+## Engine cache integrity failure
+
+**Symptom** — a build complains about engine integrity, or `sankofa engine verify` reports a SHA mismatch.
+
+**Fix** — re-download the affected binary (the command is printed in the verify output):
+
+<CodeBlock lang="bash" code={`sankofa engine verify
+sankofa engine download --force --target android --abi arm64-v8a`} />
+
+## Diagnostics catch-all
+
+When in doubt, run the doctor — it inspects Node, Xcode, Java/Gradle, the Flutter + Android SDKs, server reachability, and the full Sankofa Deploy wiring, and points at the specific broken piece.
+
+<CodeBlock lang="bash" code={`sankofa doctor
+sankofa doctor --deploy`} />
+
+## Still stuck?
+
+- [Configuration & auth](/sdks/cli/configuration) — credential resolution and `sankofa.yaml`.
+- [`sankofa engine`](/sdks/cli/engine) — install, verify, and pin the runtime.
+- [Deploy product overview](/products/deploy/overview) — rollout, gating, and auto-rollback behavior.

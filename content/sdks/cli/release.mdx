@@ -1,0 +1,153 @@
+---
+title: sankofa release
+description: Build and publish a base release — the signed store binary plus the OTA baseline that patches attach to. Full flag reference and examples for iOS and Android, Flutter and React Native.
+toc: true
+---
+
+`sankofa release` builds your app and publishes a **base release**: the signed store binary you submit to the App Store / Play Store, plus the OTA **baseline** that `sankofa patch` later ships code updates against. You run it once per app version.
+
+<CodeBlock lang="bash" code={`sankofa release [platform] [options]`} />
+
+`platform` is `ios` or `android`. Omit it and the CLI prompts. The stack (Flutter vs. React Native) is auto-detected from `pubspec.yaml` / `package.json`, and the CLI runs the matching pipeline.
+
+<Callout tone="note" title="One release per app version">
+A base release is keyed by the app version (from `pubspec.yaml`, `Info.plist`, or `build.gradle`) plus — for Flutter — the engine version. If a release already exists for that combination, the CLI refuses and points you at `sankofa patch` (ship code changes) or a version bump (cut a new baseline). This prevents two baselines silently competing for the same installed app.
+</Callout>
+
+## What it produces
+
+| Stack | iOS | Android |
+|---|---|---|
+| **Flutter** | Signed `.ipa` (App Store / TestFlight) + iOS OTA baseline | `.aab` (Play Store) or `--apk` + OTA baseline (`libapp.so`) |
+| **React Native** | Signed `.ipa` + OTA archive + optional simulator preview | `.aab`/`.apk` + OTA archive + optional APK preview |
+
+For Flutter, the store binary is built with the **Sankofa Flutter engine** and the OTA wiring baked in. This is why you must publish through `sankofa release` rather than a raw `flutter build` — only the CLI registers the server-side baseline, and only the Sankofa-engine binary can accept patches later.
+
+## Common options
+
+These apply to both Flutter and React Native.
+
+<ParameterTable
+  params={[
+    { name: "--publish", type: "flag", description: "Publish immediately without the interactive confirmation prompt. Required for non-interactive / CI runs." },
+    { name: "--env <environment>", type: "live | test", description: "Target environment. Prompts if omitted; resolves from SANKOFA_ENVIRONMENT / config otherwise." },
+    { name: "--rollout <percent>", type: "0–100", default: "100", description: "Initial rollout percentage. Deterministic per device — a device is either in or out of the band." },
+    { name: "--mandatory", type: "flag", description: "Mark the release as mandatory (force-update). Existing devices must update before they can run." },
+    { name: "--description <desc>", type: "string", description: "Human-readable release note stored with the release row." },
+    { name: "--project <path>", type: "path", description: "Path to the app directory. Defaults to auto-detecting the project root from the current directory." },
+    { name: "--dry-run", type: "flag", description: "Build the app and capture the local patch-safety baseline, but do NOT contact the server or upload anything. Great for verifying the build + baseline before going live." },
+  ]}
+/>
+
+## Flutter releases
+
+### Android
+
+<CodeBlock lang="bash" code={`# Play Store bundle (default)
+sankofa release android
+
+# Sideload-installable APK instead of an AAB
+sankofa release android --apk
+
+# Non-interactive with a staged rollout + note
+sankofa release android --publish --rollout 25 --description "1.4.0 GA"
+
+# Build + verify locally, upload nothing
+sankofa release android --dry-run`} />
+
+`sankofa release android` builds the AAB (or APK), extracts the AOT baseline (`libapp.so`), verifies the embedded engine is a genuine Sankofa build, captures the auto-diff base for future patches, and registers the baseline on the server. The AAB it prints is your deployable — upload **that** to the Play Console, not the output of a raw `flutter build`.
+
+### iOS
+
+<CodeBlock lang="bash" code={`# Signed .ipa for App Store Connect / TestFlight
+sankofa release ios
+
+# Build the .xcarchive only (sign + export later in Xcode)
+sankofa release ios --no-codesign
+
+# Non-interactive
+sankofa release ios --publish --rollout 50 --description "1.4.0"`} />
+
+`sankofa release ios` builds a signed `.ipa` (your store artifact — Sankofa never stores it), captures the auto-diff base, and registers an iOS OTA **baseline** on the server. iOS OTA runs through the engine's bytecode interpreter, so the baseline is a small signed envelope that the real code (shipped later by `sankofa patch ios`) attaches to.
+
+<Callout tone="warning" title="iOS: uncheck “Manage Version and Build Number”">
+When you upload the `.ipa` in Xcode's **Distribute App** dialog, **uncheck "Manage Version and Build Number."** If Xcode rewrites the build number, the shipped version no longer matches the one Sankofa recorded and **every patch silently fails to apply**. The CLI prints this reminder at the end of each `release ios`.
+</Callout>
+
+### Flavored apps
+
+Apps with Gradle product flavors and a per-flavor entry point need both `--flavor` and `--target`, or the build picks the wrong `main()`.
+
+<CodeBlock lang="bash" code={`sankofa release android --flavor staging    -t lib/main_staging.dart
+sankofa release android --flavor production -t lib/main_production.dart
+sankofa release ios      --flavor staging    -t lib/main_staging.dart`} />
+
+If you have no `lib/main.dart` and pass neither flag, the CLI stops with a hint showing the exact command to use.
+
+### Flutter-specific options
+
+<ParameterTable
+  params={[
+    { name: "--apk", type: "flag", description: "Android: produce a sideload-installable APK instead of the default AAB. Mutually exclusive with --appbundle." },
+    { name: "--appbundle", type: "flag", default: "on", description: "Android: produce a Play Store AAB. This is the default." },
+    { name: "--flavor <name>", type: "string", description: "Product flavor to build (e.g. staging, production). Required for flavored apps." },
+    { name: "-t, --target <file>", type: "path", description: "App entry-point file (e.g. lib/main_staging.dart). Required for flavored apps without a lib/main.dart." },
+    { name: "--no-codesign", type: "flag", description: "iOS: build the .xcarchive without code-signing so you can sign + export later in Xcode." },
+    { name: "--preview-artifact", type: "flag", description: "Android: also upload the release APK so 'sankofa preview --from-server --label <v>' can install this exact build on a device. No-op on iOS (would require a second simulator-only build)." },
+    { name: "--dart-define <KEY=VALUE>", type: "repeatable", description: "Extra dart-define baked into the build. Repeat for multiple. Use SANKOFA_SKIP_ENGINE_CHECK=1 here to bypass the bundled-engine compatibility check when your engine is forked but its Dart version string is unstamped." },
+  ]}
+/>
+
+<Callout tone="note" title="Symbol uploads for Catch">
+`release` can attach crash-symbolication artifacts in the same step so Sankofa Catch can de-obfuscate stacks for this release. Pass a file or directory to any of: `--upload-dart-symbols <path>` (Flutter symbols), `--upload-mapping <path>` (Android R8/ProGuard `mapping.txt`), `--upload-dsym <path>` (iOS dSYMs), `--upload-ndk <path>` (Android NDK `.so`), `--upload-sourcemaps <path>` (JS source maps). A missing path is skipped with a warning rather than failing the release.
+</Callout>
+
+## React Native releases
+
+React Native uses the same command surface. `release` bundles the JavaScript + assets, builds a native preview artifact, and (unless you opt out) the signed store binary.
+
+<CodeBlock lang="bash" code={`sankofa release ios
+sankofa release android --publish --rollout 50 --description "v1.2.0"
+
+# OTA archive only, skip the multi-minute signed-binary build
+sankofa release android --skip-distribution
+
+# Choose the Android format
+sankofa release android --apk
+sankofa release android --appbundle`} />
+
+### React Native-specific options
+
+<ParameterTable
+  params={[
+    { name: "--entry-file <file>", type: "path", description: "JS entry file. Auto-detected (index.js / index.ts) when omitted." },
+    { name: "--output-dir <dir>", type: "path", default: "./build", description: "Directory for built artifacts." },
+    { name: "--no-native-artifact", type: "flag", description: "Skip building/uploading the native preview artifact. Only use this when you intentionally do not need 'sankofa preview'." },
+    { name: "--skip-distribution", type: "flag", description: "Skip building the signed store binary (OTA-only release). By default 'release' also builds the submittable binary." },
+    { name: "--ios-export-method <method>", type: "string", default: "app-store", description: "iOS export method: app-store, ad-hoc, development, or enterprise." },
+    { name: "--ios-team-id <id>", type: "string", description: "Apple Developer Team ID for signing. Auto-detected from the archive when omitted." },
+    { name: "--ios-export-options <path>", type: "path", description: "Path to a custom ExportOptions.plist. Overrides --ios-export-method / --ios-team-id." },
+    { name: "--apk / --appbundle", type: "flag", default: "appbundle", description: "Android output format. (--android-format aab|apk is a deprecated alias.)" },
+  ]}
+/>
+
+## After a successful release
+
+The command prints the release label, platform, target version, rollout %, release ID, and the on-disk path + SHA-256 of every artifact it produced. Two follow-ups are the norm:
+
+<Steps>
+  <Step title="Submit the store binary">
+    Upload the printed `.ipa` to App Store Connect (Transporter, Xcode Organizer, or `xcrun altool`) or the `.aab` to the Play Console. Sankofa does not submit it for you.
+  </Step>
+  <Step title="Ship code updates with patch">
+    Once the base release is live, every subsequent code change ships over-the-air with [`sankofa patch`](/sdks/cli/patch) — no new store submission.
+  </Step>
+</Steps>
+
+## Related commands
+
+- [`sankofa patch`](/sdks/cli/patch) — ship a code-only update against this release.
+- `sankofa dist <ios|android>` — build only the signed store binary, no OTA.
+- `sankofa submit <ios|android>` — upload a signed binary to App Store Connect / Play Console.
+- `sankofa status` — list all releases and patches for the current project.
+- [`sankofa preview`](/sdks/cli/overview#deploy-commands-flutter--react-native) — run a build for QA before you submit.

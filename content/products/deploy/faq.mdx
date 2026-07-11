@@ -1,0 +1,102 @@
+---
+title: FAQ & limits
+description: Answers to the most common Sankofa Deploy questions — what you can patch, why a patch didn't apply, engine-version binding, signing, offline behavior, and the boundaries of over-the-air Dart updates.
+toc: true
+sdks: [flutter]
+---
+
+Short answers to the questions Deploy users ask most. If your question is about the boundary of what's patchable, read [Design for hot-fixes](/products/deploy/design-for-hot-fixes) first — most surprises trace back to it.
+
+## The essentials
+
+<Accordion>
+  <AccordionItem title="Do patches need App Store / Play review?" defaultOpen={true}>
+    No. A patch updates the Dart layer of your already-reviewed app over-the-air. Only the **base release** — the native binary — goes through store review. See [Platform & policy](/products/deploy/platforms) for why this is compliant.
+  </AccordionItem>
+  <AccordionItem title="What exactly can I change in a patch?">
+    Logic reached through a **virtual call** — an interface method or an override. Method bodies behind a seam, business rules, thresholds, and copy resolved through an interface all ship over-the-air. Direct edits to `static`/top-level functions or `build()`/layout are **not** patchable on iOS, and **adding** new fields, classes, dependencies, assets, or plugins is never patchable. Full breakdown in [Design for hot-fixes](/products/deploy/design-for-hot-fixes).
+  </AccordionItem>
+  <AccordionItem title="Do I write a patch file?">
+    No. You edit your real `lib/*.dart` source and run `sankofa patch`. It rebuilds, diffs against the base snapshot captured at release time, and ships only the changed functions. There is no separate patch format to author.
+  </AccordionItem>
+  <AccordionItem title="Is it really cross-platform?">
+    Yes — the same `sankofa patch` command ships to both iOS and Android. iOS holds the tighter boundary (virtual-call seam); Android has more headroom. Design to the iOS seam and one patch serves both.
+  </AccordionItem>
+</Accordion>
+
+## "My patch didn't apply"
+
+<Accordion>
+  <AccordionItem title="It uploaded fine but no device sees it">
+    Most often the shipped store build's **version + build number doesn't match** the release Sankofa recorded. On iOS this is almost always the Xcode **"Manage Version and Build Number"** checkbox left checked at upload — it rewrites the build number so patch addressing misses. See [Releasing to the App Store](/products/deploy/flutter-app-store).
+  </AccordionItem>
+  <AccordionItem title="The patch built, but the change doesn't take effect on iOS">
+    The change probably isn't behind a **virtual call**. If you edited a `static`/top-level function or a `build()` method directly, the auto-diff will include it but iOS can't reroute it. Move the logic behind an interface and re-ship. See [Design for hot-fixes](/products/deploy/design-for-hot-fixes).
+  </AccordionItem>
+  <AccordionItem title="checkForUpdate() returns invalidConfig">
+    Usually a **mismatched `engine_version`** or an unknown app version. The patch was built against a different Sankofa Flutter runtime than the installed app, or targets a version the server doesn't have a base release for. Rebuild the patch against the app's engine, or ship a base release for that version first.
+  </AccordionItem>
+  <AccordionItem title="checkForUpdate() returns bannedLocally">
+    This device previously auto-rolled-back a patch with the same label, so it refuses to re-download it. **Roll forward** with a new patch (new label) instead of re-publishing the old one — see [Rollouts & safety](/products/deploy/rollouts#rollback-and-roll-forward).
+  </AccordionItem>
+  <AccordionItem title="Testing on the iOS Simulator shows nothing">
+    The Simulator runs Dart in debug/JIT and ignores applied patches. Verify on a **physical device** in a **release** build.
+  </AccordionItem>
+</Accordion>
+
+## Delivery & safety
+
+<Accordion>
+  <AccordionItem title="How fast do devices get a patch?">
+    The SDK checks on boot and on resume. A device downloads the patch in the background and applies it on the **next cold launch**. Optional patches ride the next natural relaunch; mandatory patches apply before the user continues.
+  </AccordionItem>
+  <AccordionItem title="What happens if a patch crashes on launch?">
+    The device auto-rolls-back on its own: two crashes within 30 seconds of launch disable the patch, restore the last known-good version, and ban the bad label locally. No server round-trip, works offline, no host code. See [the boot-crash safety net](/products/deploy/rollouts#the-boot-crash-safety-net).
+  </AccordionItem>
+  <AccordionItem title="Can I stage a rollout?">
+    Yes. `sankofa patch --rollout 25` (then 50, 100). Bucketing is deterministic per device, so ramping never re-shuffles who's exposed. Rollout defaults to 100%.
+  </AccordionItem>
+  <AccordionItem title="How do I recover from a bad patch?">
+    **Rollback** (pause the rollout) stops serving it and reverts devices that took it. **Roll-forward** — ship a corrected new patch — is usually better, because it reaches even the devices that auto-rolled-back. Never re-publish a broken patch under its old label.
+  </AccordionItem>
+  <AccordionItem title="What if the device is offline?">
+    Update checks fail transiently (`unavailable`) and are retried on the next launch/resume. An already-installed patch keeps running; auto-rollback still works with no network.
+  </AccordionItem>
+  <AccordionItem title="Are patches signed?">
+    They can and should be. Run `sankofa keys generate` and `sankofa keys register` once; every patch is then signed with your project's Ed25519 key, and both the server and the SDK verify before applying. Back up the private key.
+  </AccordionItem>
+</Accordion>
+
+## Limits & boundaries
+
+<Accordion>
+  <AccordionItem title="I upgraded the Flutter runtime — can I patch that out?">
+    No. The engine (Sankofa Flutter runtime) is downloaded from download.sankofa.dev at build time and ships inside the native binary. Moving to a new engine requires a **new store build**. Patches carry Dart changes only.
+  </AccordionItem>
+  <AccordionItem title="Can a patch add a new screen or feature?">
+    Not new *surface* — a patch can't add classes, fields, assets, or dependencies that weren't in the base. It *can* change what an existing seam does. If you anticipate a feature, put the seam (an interface + a default implementation) in the base release so you can flesh it out later. Genuinely new features ship as a store release.
+  </AccordionItem>
+  <AccordionItem title="Does Deploy replace Remote Config or Switch?">
+    No — they compose. Use [Remote Config](/products/config/overview) to change *values* with no code push at all, and [Switch](/products/switch/overview) to gate behavior with flags. Use Deploy when you need to change *code* — a bug fix or logic correction — without a store release.
+  </AccordionItem>
+  <AccordionItem title="How big is a patch?">
+    Because auto-diff ships only the functions that changed, a typical fix is on the order of kilobytes, not megabytes. The exact size depends on how much compiled output your change touched; `checkForUpdate()` exposes the byte size so you can show a progress bar.
+  </AccordionItem>
+  <AccordionItem title="Is there a React Native path?">
+    This section documents the Flutter product. The CLI's `release` / `patch` commands also cover React Native (JavaScript bundles); see the [CLI reference](/sdks/cli/overview#deploy-commands-flutter--react-native).
+  </AccordionItem>
+</Accordion>
+
+## Next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/overview" eyebrow="Overview" title="Deploy overview">
+    How the auto-diff pipeline and engine model fit together.
+  </Card>
+  <Card href="/products/deploy/design-for-hot-fixes" eyebrow="Guide" title="Design for hot-fixes">
+    The seam pattern behind every answer here.
+  </Card>
+  <Card href="/sdks/cli/overview" eyebrow="Reference" title="CLI reference">
+    Every release / patch / keys / engine flag.
+  </Card>
+</CardGrid>

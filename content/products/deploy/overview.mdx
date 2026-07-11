@@ -1,152 +1,72 @@
 ---
 title: Deploy
-description: OTA (over-the-air) updates for mobile apps. React Native + Flutter, App-Store-compliant, gated by Switch decisions, auto-rolled-back by Catch error rates.
+description: Over-the-air code delivery for React Native and Flutter apps — ship fixes to already-installed apps without an App Store / Play Store resubmit. App Store + Play compliant, with staged rollout and Catch-driven auto-rollback.
 toc: true
+sdks: [react-native, flutter]
 ---
 
-**Deploy** is Sankofa's OTA (over-the-air) bundle delivery product. It ships code updates to React Native and Flutter apps without an App Store / Play Store review cycle, then watches the rollout and auto-rolls-back if Catch detects errors.
+**Sankofa Deploy** ships code updates to your already-installed **React Native and Flutter** apps **over-the-air** — no new App Store / Play Store binary, no review wait. Push a fix, control who gets it, and roll it back automatically if it misbehaves.
 
-| Platform | SDK | Patch payload | API surface |
+Deploy is **store-compliant on both iOS and Android**: a patch updates the code layer of an app you already submitted for review, running inside the platform's interpreter — never downloaded machine code. What ships in a patch, and how it's produced, depends on your framework.
+
+## Platforms
+
+| Framework | SDK | What ships in a patch | Deep-dive |
 |---|---|---|---|
-| **React Native** | `@sankofa/react-native` | JavaScript bundle | `SankofaDeploy` |
-| **Flutter** | `sankofa_flutter` | Dart code | `SankofaUpdater` |
+| **React Native** | `@sankofa/react-native` | A JavaScript bundle | [React Native SDK](/sdks/react-native/overview) |
+| **Flutter** | `sankofa_flutter` | Real Dart code, auto-diffed from your source — no hand-written patch file | [Getting started](/products/deploy/getting-started) |
 
-Both are App Store + Play Store compliant. See the [Flutter SDK overview](/sdks/flutter/overview#deploy-flutter-ota-updates) for the customer-facing API.
+- **React Native** delivers a **JavaScript bundle** built from your app. The RN SDK exposes the Deploy surface (`SankofaDeploy`); the [React Native SDK docs](/sdks/react-native/overview) cover the bundle workflow end to end.
+- **Flutter** uses **Dart code-push**: you edit your ordinary `lib/*.dart` source, run one command, and Sankofa **auto-diffs** the rebuild against a base snapshot and ships only the changed functions. There's no separate patch file to author — see [Getting started](/products/deploy/getting-started).
 
-## What you ship with Deploy
+<Callout tone="warning" title="Flutter has a design boundary — read before you rely on it">
+On Flutter (iOS especially), a patch can only change logic reached through a **virtual call** — an interface method or an override. Route the business logic, config, and copy you intend to hot-fix **behind an interface** and call it through that type. Arbitrary edits to top-level / `static` functions or straight into `build()` / layout still need a new store build. This is a property of the App-Store-safe interpreter path, not a bug — [Design for hot-fixes](/products/deploy/design-for-hot-fixes) is the most important page for Flutter teams.
+</Callout>
 
-A **release** is a versioned bundle:
+## Releases vs. patches
 
-- **Base release** — full native binary + JS bundle. Goes through App Store / Play Store review. Created with `sankofa release ios` / `release android`.
-- **Patch release** — JS-only update against an existing base release. No store review needed. Created with `sankofa patch ios` / `patch android`.
+Deploy has two units of delivery, the same shape on both frameworks:
 
-Every release has:
+| | **Base release** | **Patch** |
+|---|---|---|
+| What it is | The full native binary you submit to the store | A code-only update against a base release |
+| Store review | Yes — normal App Store / Play submission | **No** — delivered over-the-air |
+| Contains | Native runtime + your compiled app + assets | Only the changed code (a JS bundle on RN; the changed Dart on Flutter) |
+| Bound to | A store version + build number | One base release (same version + build number) |
+| Frequency | Once per store version | As often as you need |
 
-- A **release ID** + display label (`v1.4.2-rc.3`).
-- A **rollout %** (0–100, deterministic per device).
-- A **mandatory** flag (whether existing devices must update before they can run).
-- A **status** (`draft`, `published`, `rolling-out`, `complete`, `paused`, `rolled-back`).
+A patch always targets the exact **version + build number** of the base release it was built against. Ship a new store version and you start a new base. Platform specifics live in the sub-pages — see [Getting started](/products/deploy/getting-started) and [Releasing to the App Store](/products/deploy/flutter-app-store) for Flutter, and the [React Native SDK docs](/sdks/react-native/overview) for RN.
 
-## Lifecycle
+## Staged rollout
 
-<Steps>
-  <Step title="Build">
-    `sankofa release ios --skip-distribution` builds the native binary + the OTA bundle. Use `--publish` to send the OTA bundle live immediately, or omit it to stage for review.
-  </Step>
-  <Step title="Rollout ramps">
-    `sankofa release ios --rollout 25` (then `50`, then `100`) — each call updates the server-side rollout %. Devices on the next `checkForUpdate` call see the new bundle if their bucket includes them.
-  </Step>
-  <Step title="Devices check + apply">
-    The SDK calls `deploy.checkForUpdate()` on app start (and on resume if `checkOnResume: true`). If a new bundle is available, it downloads in the background and applies on next restart — or, if mandatory, applies immediately and force-restarts the app.
-  </Step>
-  <Step title="`notifyAppReady` on first successful render">
-    After the new bundle's first successful render, the SDK fires `notifyAppReady()`. This marks the bundle as healthy. **Without this call, two crashes within 30 seconds trigger an automatic rollback** to the previous bundle.
-  </Step>
-  <Step title="Catch + halt + rollback">
-    If a Catch alert detects a regression after rollout, it can post to the deploy halt endpoint. The rollout pauses immediately; affected devices revert to the previous bundle on next launch.
-  </Step>
-</Steps>
+Every patch carries a **rollout percentage** — the share of eligible devices that receive it. Ship to 5%, then 25%, then 100%; bucketing is **deterministic per device**, so a device that's in at 25% stays in as you ramp — you never re-shuffle who's exposed. Patches can be **optional** (applied on the next natural restart) or **mandatory** (applied before the user continues). See [Rollouts & safety](/products/deploy/rollouts) for the full lifecycle.
 
-## Auto-rollback rules
+## Auto-rollback safety net
 
-The auto-rollback path has three triggers:
+A bad patch shouldn't take your app down. Deploy has two independent guards:
 
-| Trigger | Outcome |
-|---|---|
-| Two crashes within 30 seconds without `notifyAppReady()` having fired | Rollback to previous bundle on next launch (per-device). |
-| Catch alert on a Deploy-bonded release crosses error threshold | Rollout pauses globally; devices on the bad bundle revert on next `checkForUpdate`. |
-| Manual rollback from dashboard | Same as Catch alert — global pause + per-device revert. |
+- **On-device boot-crash rollback.** If a freshly-applied patch crash-loops on launch, the device restores the last known-good version on its own — no server round-trip, no host code, works offline. The bad patch is quarantined locally so it isn't re-downloaded.
+- **Catch-driven halt.** Wire [Catch](/products/catch/overview) to Deploy and a spike in errors on a bonded release pauses the rollout for everyone; affected devices revert on their next check. See [Rollouts & safety](/products/deploy/rollouts).
 
-The first trigger is **per-device** — if device A crashes twice but device B is fine, only device A reverts. The second + third are **global** rollouts — the rule pauses for everyone.
-
-## Mandatory vs. optional updates
-
-| Option | Behavior |
-|---|---|
-| Optional (default) | Bundle downloads silently. Applied on next app restart (often the user closes + reopens the app naturally). |
-| Mandatory | Bundle downloads. SDK forces the app to restart and apply, blocking the UI. Use only for critical fixes — disrupts the user's flow. |
-
-## Switch gating
-
-Deploy bundles can be gated by a Switch flag, so a bundle only goes live where the feature is enabled:
-
-<CodeBlock lang="json" code={`{
-  "release_label": "v1.4.2-checkout-redesign",
-  "switch_gate": "new_checkout",
-  "rollout": 100
-}`} />
-
-The gate is evaluated per-device on `checkForUpdate`. If the device's `new_checkout` flag is `false`, the device sees no update — even though the bundle is at 100% rollout for everyone else.
-
-This composes nicely with experiments: roll a Switch variant to 5% of users; only those users get the bundle that contains the new feature.
-
-## CI/CD integration
-
-The CLI is designed for CI:
-
-<CodeBlock lang="yaml" filename=".github/workflows/release.yml" code={`- name: Build + ship iOS bundle
-  env:
-    SANKOFA_DEPLOY_TOKEN: \${{ secrets.SANKOFA_DEPLOY_TOKEN }}
-    SANKOFA_PROJECT_ID: \${{ secrets.SANKOFA_PROJECT_ID }}
-  run: |
-    npx sankofa-cli patch ios --publish --rollout 25 --description "v1.4.2"`} />
-
-The Deploy Token (`sk_deploy_*`) is a project-scoped credential — different from the dashboard JWT used for Switch / Config CRUD.
-
-## Distribution to stores
-
-For the native-binary half (Apple / Google sign + submit), the CLI ships:
-
-<CodeBlock lang="bash" code={`# Build only — no OTA, no submit
-sankofa dist ios
-sankofa dist android --android-format aab
-
-# Submit a built binary to App Store Connect / Play Console
-sankofa submit ios --apple-api-key-id ABC --apple-api-issuer UUID
-sankofa submit android --google-service-account ~/sa.json --google-track internal`} />
-
-These commands integrate with App Store Connect's API key + Play Console's service-account flows.
-
-## API surface
-
-### SDK-called
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/deploy/check` | Device polls for a new bundle. |
-| `POST /api/deploy/report` | Device reports an event (boot success, crash, install completion). |
-| `POST /api/deploy/releases/:id/rollback` | Device-driven rollback (called automatically on the two-crash rule). |
-
-### Management
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/v1/deploy/releases` | List releases for a project. |
-| `POST /api/v1/deploy/releases` | Create a release. |
-| `PUT /api/v1/deploy/releases/:id` | Update rollout %, mandatory flag, etc. |
-| `GET /api/v1/deploy/config` | Read project config (channels, distribution settings). |
-| `GET /api/v1/deploy/stats` | Adoption + rollout stats. |
-| `GET /api/v1/deploy/metrics` | Per-release error / success rates from telemetry. |
-
-## Deploy limits by tier
-
-| Plan | Releases / month | Bundle size | Geo CDN | Auto-rollback |
-|---|---|---|---|---|
-| Hobby | 5 | 50 MB | shared | basic (two-crash) |
-| Pro | unlimited | 200 MB | dedicated | + Catch-driven |
-| Growth | unlimited | 500 MB | dedicated + multi-region | + custom rules |
-| Enterprise | unlimited | unlimited | dedicated + region pinning | + per-device gating |
-
-## What's next
+## Where to go next
 
 <CardGrid cols={3}>
-  <Card href="/products/switch/overview" eyebrow="Compose" title="Switch + Deploy">
-    Gate bundles on flag decisions for staged rollouts.
+  <Card href="/sdks/react-native/overview" eyebrow="SDK" title="React Native">
+    The `@sankofa/react-native` Deploy surface and the JS-bundle workflow.
   </Card>
-  <Card href="/products/catch/overview" eyebrow="Compose" title="Catch + auto-rollback">
-    Wire Catch alerts to revert bad releases.
+  <Card href="/products/deploy/getting-started" eyebrow="Flutter" title="Getting started">
+    Add Sankofa to a Flutter app, ship a base release, ship your first patch.
   </Card>
-  <Card href="/sdks/react-native/overview" eyebrow="SDK" title="React Native SDK">
-    The only SDK that exports `SankofaDeploy` today.
+  <Card href="/products/deploy/design-for-hot-fixes" eyebrow="Flutter" title="Design for hot-fixes">
+    The interface pattern that makes Dart logic patchable. Start here.
+  </Card>
+  <Card href="/products/deploy/rollouts" eyebrow="Guide" title="Rollouts & safety">
+    Rollout %, mandatory updates, rollback / roll-forward, the boot-crash net.
+  </Card>
+  <Card href="/products/deploy/platforms" eyebrow="Reference" title="Platform & policy">
+    iOS vs Android capabilities and store-compliance framing.
+  </Card>
+  <Card href="/products/deploy/faq" eyebrow="Reference" title="FAQ & limits">
+    Common questions and the boundaries of what Deploy can ship.
   </Card>
 </CardGrid>

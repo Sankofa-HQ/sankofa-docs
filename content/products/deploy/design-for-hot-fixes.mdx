@@ -1,0 +1,176 @@
+---
+title: Design for hot-fixes
+description: The one pattern that makes Flutter code patchable over-the-air — put hot-fixable logic behind an interface and call it through that interface, so a patch can reroute the virtual call without a JIT. With concrete Dart before/after.
+toc: true
+sdks: [flutter]
+---
+
+Sankofa Deploy can change **any logic you reach through a virtual call**. If you design for that from day one, a huge share of the bugs and tweaks you'd otherwise hold for a store release become one-command over-the-air patches. If you don't, some patches will build cleanly and then quietly do nothing on iOS.
+
+This page is the rule, the reason, and the pattern.
+
+## The rule
+
+> **Put logic you intend to hot-fix behind an interface, and call it through that interface type.**
+
+That's it. A method dispatched through an interface (or an override) is a **virtual call**: at the call site, the runtime looks up which implementation to run. A patch works by **rerouting that lookup** to the patched method — no machine code is generated on-device, which is exactly what keeps it App Store / Play compliant.
+
+## Why virtual calls, specifically
+
+Deploy runs patched Dart in the Sankofa runtime's **bytecode interpreter** — interpreted code inside the VM, **no JIT**. To make a change take effect without generating new machine code, the runtime has to intercept a call and send it to the patched implementation instead of the original.
+
+- A **virtual call site** (dispatch through an interface / an overridable method) is a real lookup the runtime can redirect. Patchable.
+- A **direct call** to a top-level function or a `static` method has no lookup to redirect — on iOS the compiler resolves it straight to the original code. **Not** patchable over-the-air.
+- Editing a **`build()` method or layout** directly is the same problem: it's invoked on a path the interpreter can't reroute on iOS. Move the *decision* the widget renders behind an interface, and patch that.
+
+In Dart, instance methods are virtual by default — but the compiler will **devirtualize** a call when it can prove the exact type at the call site. Calling **through an interface (abstract) type** prevents that: because any implementation could satisfy the interface, the call stays a genuine virtual dispatch. That is the seam a patch rides.
+
+<Callout tone="note" title="iOS is the strict platform — design to it">
+iOS holds the tight boundary (interpreter-only, App-Store-safe). Android has more headroom for broader changes. **Design every patch to the iOS seam** and your patches are portable to both platforms with identical behavior. Don't ship a patch that only works on Android unless you truly mean to.
+</Callout>
+
+## The pattern: before → after
+
+The transformation is always the same shape. Take the logic you might need to fix, name an **interface** for it, move the logic into an **implementation**, and call it **through the interface**.
+
+### Before — not patchable on iOS
+
+The rule lives inline in the widget's `build()`. It's readable, but there's no seam — a patch to this logic can't take effect on iOS.
+
+```dart
+// lib/checkout_screen.dart
+class CheckoutScreen extends StatelessWidget {
+  const CheckoutScreen({super.key, required this.cart});
+  final Cart cart;
+
+  @override
+  Widget build(BuildContext context) {
+    // Business rule baked straight into build() — no virtual seam.
+    var total = cart.subtotal * cart.quantity;
+    if (cart.quantity >= 10) total *= 0.9; // wrong threshold, say
+    final label = 'Pay \$${total.toStringAsFixed(2)}';
+    return PrimaryButton(label: label, onTap: () => cart.charge(total));
+  }
+}
+```
+
+### After — patchable
+
+Name the rule as an interface, put the logic in an implementation, and have the widget call **through the interface**. `build()` now only *renders* a value produced behind the seam.
+
+```dart
+// lib/pricing.dart
+abstract class PricingEngine {
+  PriceQuote quote(Cart cart);
+}
+
+class PriceQuote {
+  const PriceQuote({required this.total, required this.label});
+  final double total;
+  final String label;
+}
+
+class DefaultPricingEngine implements PricingEngine {
+  const DefaultPricingEngine();
+
+  @override
+  PriceQuote quote(Cart cart) {
+    var total = cart.subtotal * cart.quantity;
+    if (cart.quantity >= 10) total *= 0.9; // <-- patch target
+    return PriceQuote(
+      total: total,
+      label: 'Pay \$${total.toStringAsFixed(2)}',
+    );
+  }
+}
+```
+
+```dart
+// lib/checkout_screen.dart
+class CheckoutScreen extends StatelessWidget {
+  const CheckoutScreen({
+    super.key,
+    required this.cart,
+    // Hold the field as the INTERFACE type — this keeps the call virtual.
+    this.pricing = const DefaultPricingEngine(),
+  });
+
+  final Cart cart;
+  final PricingEngine pricing;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = pricing.quote(cart); // virtual dispatch → reroutable
+    return PrimaryButton(label: q.label, onTap: () => cart.charge(q.total));
+  }
+}
+```
+
+Now shipping a fix is:
+
+```dart
+// Patch: change the body of DefaultPricingEngine.quote
+if (cart.quantity >= 12) total *= 0.85; // corrected threshold + rate
+```
+
+<CodeBlock lang="bash" code={`sankofa patch ios --description "correct bulk-discount threshold"`} />
+
+`sankofa patch` diffs the rebuild against the base snapshot, sees that `DefaultPricingEngine.quote` changed, and ships that method body. Devices reroute the virtual call on their next launch. No store review.
+
+<Callout tone="tip" title="The receiver's STATIC type is what matters">
+Keep the field/variable typed as the **interface** (`PricingEngine`), not the concrete class. If you type it as `DefaultPricingEngine`, the compiler can devirtualize the call on iOS and the seam disappears. Interface in, implementation behind.
+</Callout>
+
+## What lands as a patch vs. what needs a store build
+
+| You changed… | Patch? | Why |
+|---|---|---|
+| The **body** of a method called through an interface / override | **Yes** | Virtual call the runtime can reroute |
+| A threshold, rate, formula, or copy string returned by such a method | **Yes** | Same seam |
+| Which existing implementation is returned by a virtual factory method | **Yes** | The selection itself is behind the seam |
+| A `static` / top-level function's body (iOS) | No | No lookup to reroute |
+| A widget's `build()` / layout directly (iOS) | No | Move the decision behind an interface instead |
+| **Add** a new method, field, class, or interface | No | The base snapshot has no seam for something that didn't exist |
+| Add a package, asset, or plugin | No | Not part of the Dart diff surface |
+| Bump the Sankofa Flutter runtime (engine) | No | Engine upgrades ship in a store build |
+
+The recurring theme: **a patch edits behavior behind seams that already exist in the shipped base.** You can't patch in a seam that wasn't there — so put the seams in *before* you release.
+
+## Practical patterns to build seams in
+
+<Steps>
+  <Step title="Strategy / service interfaces for business logic">
+    Pricing, eligibility, validation, ranking, fee/tax rules, retry policy — anything you might need to correct in production. Define an `abstract class`, provide a default implementation, and inject the interface type.
+  </Step>
+  <Step title="A resolver for tunable values">
+    Route thresholds, limits, feature copy, and formatting through a `SettingsResolver` interface with a default implementation. Patching the resolver's methods lets you correct values over-the-air. (For values you want to change *without* a code push at all, use [Remote Config](/products/config/overview) — the two compose well.)
+  </Step>
+  <Step title="Reskinnable UI behind a theme/spec interface">
+    Keep `build()` thin. Have it read a `ScreenSpec` (colors, labels, spacing, enabled sections) from a `SpecProvider` interface, and render whatever the spec says. Patching the provider's method reskins the screen; the widget tree that *reads* the spec stays put.
+  </Step>
+  <Step title="Override points on your own base classes">
+    A method you `@override` on your own base class is a virtual call too. A shared `BaseController.handle()` you override per screen is a valid patch seam.
+  </Step>
+</Steps>
+
+## Pre-release checklist
+
+- [ ] The logic most likely to need a hot-fix is behind an `abstract class` interface.
+- [ ] Call sites hold the **interface** type, not the concrete implementation type.
+- [ ] `build()` methods render values produced behind a seam, rather than computing business rules inline.
+- [ ] Tunable numbers/strings are returned by a virtual method (or sourced from [Remote Config](/products/config/overview)).
+- [ ] You've shipped and tested a base release, then proven one real patch on a **physical device** in a **release** build.
+
+## Next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/getting-started" eyebrow="Guide" title="Getting started">
+    Wire up Deploy and ship your first patch through a seam.
+  </Card>
+  <Card href="/products/deploy/rollouts" eyebrow="Guide" title="Rollouts & safety">
+    Ramp a patch and rely on the boot-crash net.
+  </Card>
+  <Card href="/products/config/overview" eyebrow="Compose" title="Remote Config">
+    Change values with no code push at all.
+  </Card>
+</CardGrid>

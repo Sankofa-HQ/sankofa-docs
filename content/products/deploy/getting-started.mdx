@@ -1,0 +1,181 @@
+---
+title: Getting started
+description: Add Sankofa Deploy to a Flutter app end-to-end — enable Deploy in init, ship a base release to the store, and ship your first over-the-air Dart patch.
+toc: true
+sdks: [flutter]
+---
+
+This guide takes a Flutter app from zero to a live over-the-air patch. Four moves:
+
+1. [Add Sankofa and enable Deploy](#1-add-sankofa-and-enable-deploy)
+2. [Ship a base release](#2-ship-a-base-release)
+3. [Ship your first patch](#3-ship-your-first-patch)
+4. [Confirm it landed on a device](#4-confirm-it-landed-on-a-device)
+
+<Callout tone="note" title="Prerequisites">
+A Flutter app you can build for a real device, a Sankofa project (the dashboard gives you the `app_id` + API key), and the CLI. Deploy patches are verified on **physical devices** and release builds — the iOS Simulator runs Dart in debug/JIT and will ignore an applied patch, so test on a device.
+</Callout>
+
+## 1. Add Sankofa and enable Deploy
+
+Install the CLI, sign in, and let it scaffold the project. `sankofa init --deploy` is idempotent — safe to re-run and safe to drop into an onboarding script.
+
+<CodeBlock lang="bash" code={`npm install -g sankofa-cli
+sankofa login
+sankofa init --deploy`} />
+
+Run it in your Flutter project root. It wires up `pubspec.yaml`, writes `sankofa.yaml`, installs the pinned Sankofa Flutter runtime, injects the boot calls into `lib/main.dart`, and patches the Android/iOS native config. The full breakdown of what it writes is in the [Flutter SDK — Deploy setup](/sdks/flutter/overview#deploy--flutter-ota-updates) section; the two files that matter most are below.
+
+**`sankofa.yaml`** at the project root carries your project keys (filled in by `sankofa login`):
+
+<CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
+api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by sankofa login`} />
+
+**`lib/main.dart`** applies any patch staged on the previous run **before** `runApp`:
+
+<CodeBlock lang="dart" filename="lib/main.dart" code={`// ignore: depend_on_referenced_packages
+import 'package:dynamic_modules/dynamic_modules.dart';
+import 'package:sankofa_flutter/sankofa_flutter.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Register the loader + apply any patch staged on the last run.
+  SankofaUpdater.registerLoader(loadModuleFromBytes);
+  await SankofaUpdater.preFlight();
+
+  runApp(const MyApp());
+}`} />
+
+`preFlight()` reads `sankofa.yaml`, applies a staged patch if one is waiting, and schedules a "patch healthy" confirmation ~10 seconds after the first frame. That confirmation is what arms [auto-rollback](/products/deploy/rollouts#the-boot-crash-safety-net).
+
+<Callout tone="note" title="Deploy and the unified init flag">
+Deploy is the one product that defaults **off** in `Sankofa.instance.init` (`enableDeploy: false`). If you also run Analytics/Catch/Switch/Config from the same app, keep your regular `Sankofa.instance.init(...)` call and set `enableDeploy: true`. The `SankofaUpdater.registerLoader` + `preFlight()` calls above are what actually arm OTA — the flag is *intent*, and the server's [handshake](/concepts/decision-handshake) is authoritative over it.
+</Callout>
+
+Verify the wiring before you build:
+
+<CodeBlock lang="bash" code={`sankofa doctor`} />
+
+Every check should be green. Fix anything red before continuing — a half-wired project produces patches that upload fine but never apply.
+
+## 2. Ship a base release
+
+The **base release** is the store binary *and* the reference snapshot every future patch is diffed against. Bump your `pubspec.yaml` version first (e.g. `version: 1.0.0+1`), then:
+
+<CodeBlock lang="bash" code={`# iOS — builds a signed .ipa for App Store Connect / TestFlight
+sankofa release ios
+
+# Android — builds an .aab (or --apk for a sideloadable build)
+sankofa release android`} />
+
+This produces the store artifact **and** registers the release under your `pubspec.yaml` version + build number. That version + build number is the **addressing key** for every patch you ship against this release, so keep it stable.
+
+Submit the artifact to the stores as you normally would. For iOS there is **one Xcode checkbox that silently breaks patch addressing** if you leave it checked — read [Releasing to the App Store](/products/deploy/flutter-app-store) before you upload. See the [CLI reference](/sdks/cli/overview#sankofa-release) for flavors, code-signing, and symbol-upload flags.
+
+<Callout tone="tip" title="Sign your patches">
+Generate a project signing keypair once with `sankofa keys generate` and register the public key with `sankofa keys register`. From then on every patch is signed, and both the server and the SDK verify the signature before applying. Back up the private key — see the [CLI reference](/sdks/cli/overview#sankofa-keys--signing-keys).
+</Callout>
+
+## 3. Ship your first patch
+
+Here is the whole point of Deploy. **Edit real Dart code**, then run one command — there is no patch file to author.
+
+<Callout tone="warning" title="Make sure the change is behind a seam">
+On iOS a patch can only reroute logic reached through a **virtual call** (an interface method or an override). If you edit a `static` function or a `build()` method directly, the patch will build but won't take effect on iOS. Ten minutes on [Design for hot-fixes](/products/deploy/design-for-hot-fixes) before your first real patch will save you that surprise.
+</Callout>
+
+Say your base release resolves prices through a service interface:
+
+```dart
+// lib/pricing.dart — established in the base release
+abstract class PricingEngine {
+  double total({required double subtotal, required int quantity});
+}
+
+class DefaultPricingEngine implements PricingEngine {
+  @override
+  double total({required double subtotal, required int quantity}) {
+    // BUG: forgot the bulk discount.
+    return subtotal * quantity;
+  }
+}
+```
+
+Fix the method body in your normal source:
+
+```dart
+class DefaultPricingEngine implements PricingEngine {
+  @override
+  double total({required double subtotal, required int quantity}) {
+    final gross = subtotal * quantity;
+    // Fixed: 10% off orders of 10+.
+    return quantity >= 10 ? gross * 0.9 : gross;
+  }
+}
+```
+
+Then ship it:
+
+<CodeBlock lang="bash" code={`# Rebuild, auto-diff against the base snapshot, sign, upload.
+sankofa patch ios
+
+# Or Android:
+sankofa patch android
+
+# Stage a small rollout with a description:
+sankofa patch ios --rollout 25 --description "fix bulk-discount pricing"`} />
+
+`sankofa patch` rebuilds your app, diffs it against the base snapshot captured in step 2, and ships **only** the functions that changed — here, `DefaultPricingEngine.total`. No hand-authored patch, no version bump, no store review. Rollout defaults to 100%; use `--rollout` to ramp and `--mandatory` for a forced apply. Full flags: [`sankofa patch`](/sdks/cli/overview#sankofa-patch).
+
+## 4. Confirm it landed on a device
+
+Devices pick up patches automatically — `preFlight()` applies a staged patch on the next cold launch, and the SDK checks for new patches on boot and resume. You don't have to write any of that. To surface the state (or drive your own "Update available" prompt), use the `SankofaUpdater` API:
+
+```dart
+final updater = SankofaUpdater();
+
+// Which patch is this device running? (null on the baseline release)
+final current = await updater.readCurrentPatch();
+debugPrint(current?.label ?? 'baseline');
+
+// Is a newer patch available right now?
+final result = await updater.checkForUpdate();
+if (result.hasUpdate) {
+  await updater.downloadUpdate(result.update!); // staged; applies next cold launch
+}
+```
+
+After a patch is downloaded it is staged on disk; the next cold launch applies it through `preFlight()`. On the dashboard, the release's **Patches** view shows rollout progress and adoption.
+
+<Callout tone="tip" title="Watch the rollout">
+`sankofa status` prints live release + patch state from the terminal, and `sankofa patches` lists patches for CI scripts. See [Rollouts & safety](/products/deploy/rollouts) for staged ramps, mandatory updates, and the auto-rollback net.
+</Callout>
+
+## Recap
+
+<Steps>
+  <Step title="Enable Deploy once">
+    `sankofa init --deploy` + `sankofa login`, then `sankofa doctor` until green.
+  </Step>
+  <Step title="Release to the store once per version">
+    `sankofa release ios|android` builds the binary and captures the base snapshot.
+  </Step>
+  <Step title="Patch as often as you like">
+    Edit real Dart behind an interface, run `sankofa patch ios|android`. Auto-diff does the rest.
+  </Step>
+</Steps>
+
+## Next
+
+<CardGrid cols={3}>
+  <Card href="/products/deploy/design-for-hot-fixes" eyebrow="Guide" title="Design for hot-fixes">
+    Make the logic you want to patch reroutable. The essential pattern.
+  </Card>
+  <Card href="/products/deploy/rollouts" eyebrow="Guide" title="Rollouts & safety">
+    Staged rollout, mandatory updates, rollback / roll-forward.
+  </Card>
+  <Card href="/products/deploy/flutter-app-store" eyebrow="Guide" title="Releasing to the App Store">
+    Submit the base binary without breaking patch addressing.
+  </Card>
+</CardGrid>

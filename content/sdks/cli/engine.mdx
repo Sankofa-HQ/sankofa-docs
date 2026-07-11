@@ -1,0 +1,134 @@
+---
+title: sankofa engine
+description: Manage the Sankofa Flutter runtime the CLI builds and patches against — list, install, download, verify, upgrade, and pin an engine version. Flutter Deploy only.
+toc: true
+---
+
+Flutter OTA requires the **Sankofa Flutter engine** — a build of the Flutter runtime that can load code patches. `sankofa engine` manages the local copy of that runtime plus the bundled Flutter SDK the CLI uses to build and patch your app. These commands are **Flutter Deploy only**; React Native projects don't use them.
+
+<CodeBlock lang="bash" code={`sankofa engine <subcommand> [options]`} />
+
+<Callout tone="note" title="You usually don't run these by hand">
+`sankofa init --deploy` runs `engine install` for you, and `sankofa release` / `patch` / `preview` read the pinned version automatically. Reach for these commands to upgrade the engine, prime a CI cache, or debug an engine-trust failure.
+</Callout>
+
+## Engine versions
+
+Every Sankofa engine is identified as `<flutter-version>+sankofa-<N>` — for example `3.44.1+sankofa-2`. Your project pins one in `sankofa.yaml` (`engine_version:`) and in `.sankofa/flutter-version`. A patch built against one engine only applies to a baseline built against the same engine, so the pin keeps releases and patches coherent.
+
+## `sankofa engine install`
+
+The "do everything for this version" command. Run it once per engine version on a fresh machine. It clones the bundled Sankofa Flutter SDK into `~/.sankofa/flutter/<version>/` (your own `flutter` on `PATH` is untouched) and downloads every engine ABI binary into the cache.
+
+<CodeBlock lang="bash" code={`sankofa engine install                 # install the project's / latest version
+sankofa engine install 3.44.1+sankofa-2
+sankofa engine install --skip-engines  # bundled SDK only, skip the per-ABI download
+sankofa engine install --force         # re-clone / re-download even if present`} />
+
+<ParameterTable
+  params={[
+    { name: "[version]", type: "string", description: "Engine version to install. Falls back to SANKOFA_ENGINE_VERSION, then the latest published on the CDN." },
+    { name: "--local-path <path>", type: "path", description: "Use a local sankofa-flutter checkout instead of cloning." },
+    { name: "--ref <branch|tag|sha>", type: "string", description: "Install a specific git ref (default: the branch tracking the version)." },
+    { name: "--skip-engines", type: "flag", description: "Install only the bundled Flutter SDK; skip the per-ABI engine binary download." },
+    { name: "--force", type: "flag", description: "Re-clone / re-download even if a valid copy already exists." },
+  ]}
+/>
+
+## `sankofa engine upgrade`
+
+The one-command engine bump. Inside a project it resolves the newest published engine, installs its bundled SDK + binaries, and re-pins the project (`sankofa.yaml` `engine_version:` and `.sankofa/flutter-version`). Subsequent releases and patches build with the new engine automatically.
+
+<CodeBlock lang="bash" code={`sankofa engine upgrade                    # upgrade to the latest published engine + re-pin
+sankofa engine upgrade --check            # report what would change; install nothing
+sankofa engine upgrade --version 3.44.1+sankofa-2   # target a specific version
+sankofa engine upgrade --force`} />
+
+<ParameterTable
+  params={[
+    { name: "--version <version>", type: "string", description: "Target a specific engine version instead of the latest." },
+    { name: "--check", type: "flag", description: "Report what would change (re-pin, install) without doing it." },
+    { name: "--force", type: "flag", description: "Re-clone / re-download even if already present." },
+  ]}
+/>
+
+<Callout tone="warning" title="Upgrading the engine means a new baseline">
+An engine upgrade changes the engine your builds target, so your existing baseline's patches no longer match. After upgrading, cut a fresh `sankofa release` — that new baseline is what future patches attach to. Devices update to it through a normal store submission.
+</Callout>
+
+## `sankofa engine list`
+
+Show what's cached locally and everything the registry offers, with a `●`/`○` marker for cached vs. downloadable.
+
+<CodeBlock lang="bash" code={`sankofa engine list
+sankofa engine list --flutter-version 3.44.1
+sankofa engine list --target android
+sankofa engine list --modified-only     # only Sankofa-modified engine builds`} />
+
+<ParameterTable
+  params={[
+    { name: "--flutter-version <version>", type: "string", description: "Filter to one Flutter version." },
+    { name: "--target <android|ios>", type: "string", description: "Filter to one target platform." },
+    { name: "--modified-only", type: "flag", description: "Only show Sankofa-modified engine builds (hide vanilla baselines)." },
+  ]}
+/>
+
+## `sankofa engine download`
+
+Pull specific engine binaries into the cache — handy for priming a CI cache before a build.
+
+<CodeBlock lang="bash" code={`sankofa engine download                            # for the active flutter --version
+sankofa engine download --flutter-version 3.44.1 --target android
+sankofa engine download --target ios --abi device-arm64
+sankofa engine download --force                    # re-download over a cache hit`} />
+
+<ParameterTable
+  params={[
+    { name: "--flutter-version <version>", type: "string", description: "Flutter version. Defaults to the active flutter --version." },
+    { name: "--target <android|ios>", type: "string", description: "Target platform. Defaults to both." },
+    { name: "--abi <abi>", type: "string", description: "Specific ABI (e.g. arm64-v8a, device-arm64). Defaults to every ABI for the target." },
+    { name: "--force", type: "flag", description: "Re-download even when a valid cache hit exists." },
+  ]}
+/>
+
+## `sankofa engine verify`
+
+Re-hash every cached engine binary and compare against the registry. Use it when a build complains about engine integrity, or in CI to assert the cache is trustworthy. Exits non-zero if any binary fails.
+
+<CodeBlock lang="bash" code={`sankofa engine verify`} />
+
+A mismatch prints the exact re-download command, for example:
+
+<CodeBlock lang="bash" code={`sankofa engine download --force --target android --abi arm64-v8a`} />
+
+## `sankofa engine path`
+
+Print the cache root (default `~/.sankofa/engines`, or `$SANKOFA_HOME/engines`). Useful in shell scripts.
+
+<CodeBlock lang="bash" code={`sankofa engine path
+export ENGINE_CACHE="$(sankofa engine path)"`} />
+
+## Cache location & environment
+
+| Path / variable | Meaning |
+|---|---|
+| `~/.sankofa/engines/` | Cached engine binaries (`libflutter.so` / `Flutter.framework`). |
+| `~/.sankofa/flutter/<version>/` | Bundled Sankofa Flutter SDK per version. |
+| `SANKOFA_HOME` | Override the cache root (default `~/.sankofa`). Used by CI/tests to isolate caches. |
+| `SANKOFA_ENGINE_VERSION` | Override the resolved engine version. |
+
+## `sankofa engine register` — internal only
+
+<Callout tone="danger" title="Staff-only command">
+`sankofa engine register` is a **Sankofa-internal** administrative write that adds an engine SHA to the server's trust list. It is hidden from `--help`, requires a separate engine-registry token, and is used only by Sankofa operations when publishing new engine builds. Customers never run it — engines are published by Sankofa, and the CLI verifies them for you at release time.
+</Callout>
+
+## How the trust check works
+
+At `sankofa release`, the CLI hashes the `libflutter.so` embedded in your build and looks it up in the registry. If it isn't a known Sankofa engine, the release is refused (a vanilla-Flutter binary can't load patches, so publishing it would strand every device on patch download). If you hit this, install the Sankofa engine and rebuild — see [Troubleshooting](/sdks/cli/troubleshooting).
+
+## Related
+
+- [Configuration & auth](/sdks/cli/configuration#the-sankofayaml-project-file-flutter) — where the engine pin lives.
+- [`sankofa patch`](/sdks/cli/patch#engine-must-match-the-baseline) — why engine and baseline must match.
+- [Troubleshooting](/sdks/cli/troubleshooting) — engine mismatch and skip-check recipes.

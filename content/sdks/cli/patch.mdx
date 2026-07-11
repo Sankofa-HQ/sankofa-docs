@@ -1,0 +1,141 @@
+---
+title: sankofa patch
+description: Ship a code-only OTA update on top of a base release — no store resubmission. Covers the Flutter auto-diff workflow (edit real Dart, ship only changed functions), the React Native JS-bundle path, and every flag.
+toc: true
+---
+
+`sankofa patch` ships a **code-only** update against an existing base release. **No native rebuild, no App Store / Play Store resubmission** — devices in the rollout fetch and apply the patch on next launch. Both iOS and Android are App Store + Play Store compliant.
+
+<CodeBlock lang="bash" code={`sankofa patch [platform] [options]`} />
+
+`platform` is `ios` or `android`. Omit it and the CLI prompts. As with `release`, the stack is auto-detected and the matching pipeline runs.
+
+## Flutter: the auto-diff workflow (default)
+
+The Flutter path is the headline feature: **you edit your real Dart code, and `sankofa patch` ships only the functions that changed.** There is no patch file to write and no special entry point to maintain.
+
+<Steps>
+  <Step title="Edit your real code">
+    Change a function body in your `lib/` — fix a bug, tweak a string, adjust logic. Just edit the app the way you normally would.
+  </Step>
+  <Step title="Run sankofa patch">
+    The CLI rebuilds your edited app, diffs it against the baseline captured by `sankofa release`, and lifts exactly the changed functions into a tiny patch module.
+  </Step>
+  <Step title="Publish">
+    The module is signed (if you have a signing key), uploaded, and labelled `<base>-patch.N`. Devices in the rollout apply it on next launch via the Sankofa updater.
+  </Step>
+</Steps>
+
+<CodeBlock lang="bash" code={`# 1. …edit your Dart code…
+
+# 2. Ship it — Sankofa diffs your edits and ships only what changed
+sankofa patch android
+sankofa patch ios                # App Store compliant
+
+# Non-interactive with a staged rollout + note
+sankofa patch android --publish --rollout 25 --description "fix crash on Pixel 6"`} />
+
+If nothing changed vs. the baseline, the CLI tells you there is nothing to ship and exits without publishing.
+
+<Callout tone="note" title="Release and patch on the same machine (for now)">
+Auto-diff needs the baseline's exact AOT + program kernel, which `sankofa release` captures locally under `.sankofa/baseline/autodiff/`. So today you cut the release and ship its patches from the **same machine**. If the CLI can't find a local auto-diff base for the selected release it tells you to release this app version on this machine first. (Cross-machine patching — fetching the base from the server — is on the roadmap.)
+</Callout>
+
+### What you can and cannot patch
+
+A patch carries **Dart code changes only**. The safety check refuses anything that changes `AndroidManifest.xml`, native assets, or adds new native bindings — those require a full `sankofa release` and a store submission. Practically:
+
+- **Yes:** changed logic and function bodies in your Dart code, bug fixes, copy tweaks, behavior changes reachable through your existing code.
+- **No:** new native plugins, changed `Info.plist` / `AndroidManifest.xml`, new bundled assets, engine upgrades, or a different app version. Cut a new release for those.
+
+### Engine must match the baseline
+
+A patch built against engine X can only be applied to a baseline built against engine X, or the device cannot load it. The CLI cross-checks this before building and stops with an explicit **engine mismatch** message if your local engine differs from the baseline's. If you intentionally upgraded, cut a new release with [`sankofa engine upgrade`](/sdks/cli/engine#sankofa-engine-upgrade) first.
+
+### Selecting the baseline
+
+With one baseline release the CLI picks it automatically. With several it shows an interactive picker. For headless / CI runs, name the baseline explicitly:
+
+<CodeBlock lang="bash" code={`# Pick the base release by label (or id) — required for CI / non-interactive runs
+sankofa patch android --release v1.4.0 --publish
+
+# Scope to the flavor the base release was built with
+sankofa patch android --release v1.4.0 --flavor production --publish`} />
+
+Patches inherit the baseline's `target_binary_version` (so device targeting lines up) and are labelled `<base>-patch.N`, where `N` auto-increments.
+
+### Flavored apps
+
+<CodeBlock lang="bash" code={`sankofa patch android --flavor production -t lib/main_production.dart
+sankofa patch ios      --flavor staging    -t lib/main_staging.dart`} />
+
+`--flavor` scopes which base release the patch targets (mirroring `sankofa release --flavor`); `-t/--target` is the entry point the rebuild + diff uses.
+
+### Legacy patch-file model
+
+The default auto-diff path replaces the older model where you hand-wrote a single entry-point file. You can still opt into it:
+
+<CodeBlock lang="bash" code={`# Compile a single hand-written @pragma('dyn-module:entry-point') file
+sankofa patch android --legacy-patch-file                       # default lib/sankofa_patch.dart
+sankofa patch android --legacy-patch-file lib/my_patch.dart`} />
+
+This is limited compared to auto-diffing your real code — prefer the default unless you have a specific reason.
+
+## React Native: JS-bundle patch
+
+React Native patches bundle your JavaScript + assets and ship them against a chosen base release. The CLI shows a picker of base releases, asks whether the change includes native code (which can't go OTA), then bundles and uploads.
+
+<CodeBlock lang="bash" code={`sankofa patch ios --publish --mandatory
+sankofa patch android --rollout 50
+sankofa patch ios --release v1.2.0 --publish   # skip the picker in CI`} />
+
+## Full flag reference
+
+### Shared
+
+<ParameterTable
+  params={[
+    { name: "--publish", type: "flag", description: "Publish without the confirmation prompt. Required for CI." },
+    { name: "--env <environment>", type: "live | test", description: "Target environment. Prompts if omitted." },
+    { name: "--rollout <percent>", type: "0–100", default: "100", description: "Rollout percentage for this patch." },
+    { name: "--mandatory", type: "flag", description: "Force devices to apply on next launch." },
+    { name: "--description <desc>", type: "string", description: "Patch note stored with the release row." },
+    { name: "--release <labelOrId>", type: "string", description: "Baseline release to patch. Skips the interactive picker — required for headless / CI patching." },
+    { name: "--project <path>", type: "path", description: "Project root. Defaults to auto-detect." },
+    { name: "--dry-run", type: "flag", description: "Build + run the safety check locally, but do NOT contact the server or upload." },
+  ]}
+/>
+
+### Flutter
+
+<ParameterTable
+  params={[
+    { name: "-t, --target <file>", type: "path", default: "lib/main.dart", description: "App entry-point to rebuild + diff. Pass your flavored main (e.g. lib/main_prod.dart). You just edit real code; Sankofa diffs the rebuild and ships only changed functions." },
+    { name: "--entry-file <file>", type: "path", description: "Alias of -t/--target for the auto-diff rebuild. (For React Native, this is the JS entry file.)" },
+    { name: "--legacy-patch-file [file]", type: "path", default: "lib/sankofa_patch.dart", description: "Opt into the legacy single-file model instead of auto-diffing real code. Compiles one hand-written @pragma('dyn-module:entry-point') file." },
+    { name: "--flavor <name>", type: "string", description: "Product flavor the base release was built with. Scopes which base release the patch targets." },
+    { name: "--no-rebuild", type: "flag", description: "Skip the app rebuild and reuse the last build under --output-dir. Advanced; only when you just built." },
+    { name: "--output-dir <dir>", type: "path", default: "./build", description: "Directory for built artifacts." },
+    { name: "--dart-define <KEY=VALUE>", type: "repeatable", description: "dart-define passed to the rebuild. Repeat for multiple." },
+    { name: "--engine-version <version>", type: "string", description: "Override the detected engine version (rare)." },
+    { name: "--target-binary-version <semver>", type: "string", description: "Host app version for a standalone base patch. Defaults to the baseline release's version." },
+    { name: "--label <label>", type: "string", description: "Standalone base-patch label override — used only when no baseline release exists." },
+    { name: "--dynamic-interface <yaml>", type: "path", default: "./sankofa/dynamic_interface.yaml", description: "Dynamic-interface YAML path, used when present." },
+    { name: "--engine-commit <sha>", type: "string", description: "Sankofa Flutter engine commit baked into patch metadata." },
+    { name: "--dart-version <semver>", type: "string", description: "Dart SDK version baked into patch metadata." },
+  ]}
+/>
+
+## Signing
+
+If a project signing key exists on disk (created by [`sankofa keys generate`](/sdks/cli/overview#sankofa-keys--signing-keys)), every patch is signed with it automatically and the device verifies the signature before applying. Without a key, patches are unsigned but still fully functional — generate a key when you want end-to-end signature verification.
+
+## After publishing
+
+The command prints the patch ID, label (`<base>-patch.N`), runtime, engine, target version, rollout %, and whether it is mandatory. Devices in the rollout fetch and apply it on next launch through the Sankofa updater's pre-flight step at startup. Track adoption with `sankofa status`.
+
+## Related commands
+
+- [`sankofa release`](/sdks/cli/release) — cut the base release a patch attaches to.
+- [`sankofa engine`](/sdks/cli/engine) — inspect / match / upgrade the engine a patch is built against.
+- [Troubleshooting](/sdks/cli/troubleshooting) — engine mismatch, `no_matching_release`, and the `SANKOFA_SKIP_ENGINE_CHECK` escape hatch.
