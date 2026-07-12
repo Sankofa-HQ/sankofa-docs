@@ -1,11 +1,11 @@
 ---
 title: React Native SDK
-description: One package, all products — @sankofa/react-native bridges to the native iOS and Android SDKs and ships analytics, errors, flags, config, surveys, replay, and the only mobile Deploy/OTA surface in the matrix.
+description: One package, all products — sankofa-react-native bridges to the native iOS and Android SDKs and ships analytics, errors, flags, config, surveys, replay, and JavaScript OTA Deploy.
 toc: true
 sdks: [react-native]
 ---
 
-`@sankofa/react-native` wraps the native [iOS](/sdks/ios/overview) and [Android](/sdks/android/overview) Sankofa SDKs and exposes a single TypeScript surface. It's the **only** mobile SDK that ships Deploy/OTA at the package level — Flutter, native iOS, and native Android don't expose Deploy.
+`sankofa-react-native` wraps the native [iOS](/sdks/ios/overview) and [Android](/sdks/android/overview) Sankofa SDKs and exposes a single TypeScript surface, including OTA Deploy — JavaScript bundle updates without a store review. (Flutter ships Deploy too, via the [Flutter SDK](/sdks/flutter/overview).)
 
 For installation and project setup, see [Install on React Native](/get-started/install/react-native).
 
@@ -15,7 +15,7 @@ React Native packages with native modules don't work in Expo Go. You need either
 
 ## Initialize
 
-<CodeBlock lang="tsx" filename="App.tsx" code={`import { Sankofa } from "@sankofa/react-native";
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { Sankofa } from "sankofa-react-native";
 
 Sankofa.initialize(process.env.EXPO_PUBLIC_SANKOFA_KEY!, {
   endpoint: "https://api.sankofa.dev",
@@ -46,7 +46,7 @@ Sankofa.initialize(process.env.EXPO_PUBLIC_SANKOFA_KEY!, {
 
 ## Analytics — track, identify, screen
 
-<CodeBlock lang="tsx" code={`import { Sankofa, useSankofaScreen } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa, useSankofaScreen } from "sankofa-react-native";
 
 function CheckoutScreen() {
   // Hook tags the current screen on mount; powers heatmaps + replay context.
@@ -107,7 +107,7 @@ The React Native SDK does **not** ship React hooks for flags or config. Instanti
 
 Catch auto-boots inside `Sankofa.initialize` on both the JS side AND the underlying iOS/Android native side. Once init resolves, every `Sankofa.captureException` / `Sankofa.log` call routes to the singleton — no `new SankofaCatch(...)` boilerplate needed.
 
-<CodeBlock lang="tsx" code={`import { Sankofa } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa } from "sankofa-react-native";
 
 // Capture a caught exception from anywhere — Sentry-style.
 try {
@@ -140,7 +140,7 @@ Sankofa.addBreadcrumb({ category: "user-action", message: "Tapped checkout" });`
 - **iOS `NSSetUncaughtExceptionHandler`** + POSIX signal handlers — NSException and SIGSEGV/SIGABRT/SIGBUS/etc. via the bundled `SankofaIOS` Pod.
 - **Android chained `Thread.UncaughtExceptionHandler`** + ANR watcher — JVM-uncaught exceptions and main-thread hangs.
 
-All four sources POST to the same `/api/catch/events` endpoint. Sessions correlate by `distinct_id`.
+All four sources report through the same Catch pipeline. Sessions correlate by `distinct_id`.
 
 ### withScope — Sentry-style temporary scope
 
@@ -176,7 +176,7 @@ Throws inside `beforeSend` are swallowed — the original event ships unchanged.
 For class-component boundaries, call the static helper from `componentDidCatch`:
 
 <CodeBlock lang="tsx" filename="app/_layout.tsx" code={`import React from "react";
-import { Sankofa } from "@sankofa/react-native";
+import { Sankofa } from "sankofa-react-native";
 
 class RootBoundary extends React.Component<{ children: React.ReactNode }> {
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
@@ -204,7 +204,7 @@ class RootBoundary extends React.Component<{ children: React.ReactNode }> {
 
 Construct `SankofaSwitch` **before** `Sankofa.initialize`:
 
-<CodeBlock lang="tsx" code={`import { Sankofa, SankofaSwitch } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaSwitch } from "sankofa-react-native";
 
 const flags = new SankofaSwitch({
   defaults: { new_checkout: false, dark_mode_default: false },
@@ -229,7 +229,7 @@ const unsubscribe = flags.onChange("new_checkout", (decision) => {
 
 ## Config — remote config
 
-<CodeBlock lang="tsx" code={`import { Sankofa, SankofaConfig } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa, SankofaConfig } from "sankofa-react-native";
 
 const config = new SankofaConfig({
   defaults: { max_upload_mb: 25, support_email: "help@example.com" },
@@ -253,7 +253,7 @@ const unsubscribe = config.onChange("max_upload_mb", (decision) => {
 
 `SankofaPulse` is imperative (no `<SankofaPulseProvider>` context):
 
-<CodeBlock lang="tsx" code={`import { SankofaPulse, SurveyModal } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { SankofaPulse, SurveyModal } from "sankofa-react-native";
 
 const pulse = new SankofaPulse();
 
@@ -273,7 +273,7 @@ pulse.setContext({ tenantId: "acme", plan: "pro" });`} />
 
 Render `<SurveyModal>` once at your app's root for the SDK to mount surveys into:
 
-<CodeBlock lang="tsx" filename="App.tsx" code={`import { SurveyModal } from "@sankofa/react-native";
+<CodeBlock lang="tsx" filename="App.tsx" code={`import { SurveyModal } from "sankofa-react-native";
 
 export default function App() {
   return (
@@ -284,11 +284,11 @@ export default function App() {
   );
 }`} />
 
-## Deploy — OTA releases (RN-only)
+## Deploy — OTA releases
 
-`SankofaDeploy` ships JavaScript updates without an App Store / Play Store review. **This is the only mobile SDK that exports a Deploy class.**
+`SankofaDeploy` ships JavaScript updates without an App Store / Play Store review.
 
-<CodeBlock lang="tsx" code={`import { SankofaDeploy } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { SankofaDeploy } from "sankofa-react-native";
 
 const deploy = new SankofaDeploy({
   apiKey: "sk_live_...",

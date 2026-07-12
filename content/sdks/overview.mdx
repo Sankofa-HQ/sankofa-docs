@@ -17,7 +17,7 @@ The matrix splits into three groups:
     Seven small packages. Install only what you use. Tree-shakeable. Every product (Catch, Switch, Config, Pulse, Replay, React) is an optional plugin to `@sankofa/browser`.
   </Step>
   <Step title="Mobile — single SDK">
-    Flutter, React Native, iOS, and Android each ship a single SDK that bundles every supported client product (Analytics, Catch, Switch, Config, Pulse, Replay). Of these, **only React Native ships Deploy/OTA** at the SDK level today.
+    Flutter, React Native, iOS, and Android each ship a single SDK that bundles every supported client product (Analytics, Catch, Switch, Config, Pulse, Replay). The **Flutter and React Native** SDKs also ship Deploy/OTA at the SDK level.
   </Step>
   <Step title="Server — Catch-focused">
     Node, Go, Java, and Python SDKs focus on **Catch** (error tracking) plus distributed tracing. Server-side flag and config evaluation is not built into these SDKs — instead they accept optional `readFlagSnapshot` / `readConfigSnapshot` callbacks so captured error events can include flag context.
@@ -28,11 +28,11 @@ The matrix splits into three groups:
   <Card href="/sdks/web/overview" eyebrow="Multi-package" title="Web">
     `@sankofa/browser` (core), plus optional packages for Catch, Switch, Config, Pulse, Replay, and React hooks.
   </Card>
-  <Card href="/sdks/flutter/overview" eyebrow="Single SDK" title="Flutter">
-    `sankofa_flutter` on pub.dev. Six products bundled.
+  <Card href="/sdks/flutter/overview" eyebrow="Single SDK + Deploy" title="Flutter">
+    `sankofa_flutter` on pub.dev. Six products + OTA Deploy (Dart code-push).
   </Card>
   <Card href="/sdks/react-native/overview" eyebrow="Single SDK + Deploy" title="React Native">
-    `@sankofa/react-native`. The only mobile SDK shipping OTA Deploy.
+    `sankofa-react-native`. Six products + OTA Deploy (JS bundles).
   </Card>
   <Card href="/sdks/ios/overview" eyebrow="Single SDK" title="iOS">
     Native Swift framework. Six products bundled.
@@ -78,7 +78,7 @@ The matrix splits into three groups:
 A few specific notes from this matrix:
 
 - **A/B testing is built into Switch + Config.** Switch flag variants and Config A/B item experiments share the same targeting engine — there's no separate "A/B Switch" product or SDK module.
-- **Deploy / OTA is React-Native only at the SDK layer.** Native iOS / Android / Flutter SDKs do not export a `SankofaDeploy` class today. Pure-native apps use Switch for feature gating + the platform's standard staged rollouts.
+- **Deploy / OTA ships in the Flutter and React Native SDKs.** Flutter code-push via `SankofaUpdater`; React Native JS bundles via `SankofaDeploy`. Native iOS / Android SDKs don't ship OTA — pure-native apps use Switch for feature gating + the platform's standard staged rollouts.
 - **Pulse is mobile + web only.** Server SDKs don't render UI, so they don't ship Pulse.
 - **Server SDKs are Catch-focused.** They expose error capture, breadcrumbs, transactions, and profiling. They do *not* expose `Sankofa.flags.get(...)` / `Sankofa.config.get(...)` calls — instead, they accept callbacks (`readFlagSnapshot`, `readConfigSnapshot`) that you wire to your own flag system, so error events can include flag context.
 
@@ -88,7 +88,7 @@ A few specific notes from this matrix:
 |---|---|---|
 | Web — 7 packages | npmjs.com | `@sankofa/{browser,catch,config,switch,pulse,replay-rrweb,react}` (each `0.1.2`) |
 | Flutter | pub.dev | `sankofa_flutter` (`0.1.0`) |
-| React Native | npmjs.com | `@sankofa/react-native` (`0.1.0`) |
+| React Native | npmjs.com | `sankofa-react-native` (`0.1.0`) |
 | iOS | Swift Package Manager | `SankofaIOS` (Swift target name) |
 | Android | Maven Central | `dev.sankofa.sdk:sankofa-android:1.0.0` |
 | Node | npmjs.com | `@sankofa/node` (`0.1.0`) — subpaths `./express`, `./fastify` |

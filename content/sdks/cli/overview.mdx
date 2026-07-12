@@ -206,7 +206,7 @@ sankofa patch android --rollout 50`} />
 
 Flutter options:
 
-- `-t, --target <file>` — the patch entry-point to compile (default `lib/sankofa_patch.dart`). Use it when you keep several patch entries and want to ship one; `--entry-file` is an alias.
+- `-t, --target <file>` — the app entry-point to rebuild + diff (default `lib/main.dart`). Pass your flavored main (e.g. `lib/main_prod.dart`); `--entry-file` is an alias. You just edit your real code — Sankofa diffs the rebuild.
 - `--target-binary-version <semver>` — match the host app's published version exactly (`pubspec.yaml.version`).
 - `--label <label>` — patch label override.
 

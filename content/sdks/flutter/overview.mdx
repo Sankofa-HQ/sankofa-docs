@@ -147,7 +147,7 @@ Out of the box `Sankofa.instance.init` installs:
 - **iOS `NSSetUncaughtExceptionHandler`** + **POSIX signal handlers** — NSException, SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGTRAP, SIGSYS. Wired by the Flutter plugin's iOS code with no Pod dependency on the standalone iOS SDK.
 - **Android chained `Thread.UncaughtExceptionHandler`** + **ANR watcher** — JVM-uncaught exceptions and main-thread hangs > 5s. Wired by the Flutter plugin's Android code with no Maven dependency on the standalone Android SDK.
 
-Both Dart-side and native-side captures POST to the same `/api/catch/events` endpoint. Sessions correlate by `distinct_id`.
+Both Dart-side and native-side captures report through the same Catch pipeline. Sessions correlate by `distinct_id`.
 
 ### withScope — Sentry-style temporary scope
 

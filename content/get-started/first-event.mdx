@@ -57,7 +57,7 @@ document.getElementById("checkout-button")?.addEventListener("click", () => {
 );`} />
 </CodeGroupItem>
 <CodeGroupItem tab="react-native" label="React Native">
-<CodeBlock lang="tsx" code={`import { Sankofa } from "@sankofa/react-native";
+<CodeBlock lang="tsx" code={`import { Sankofa } from "sankofa-react-native";
 
 <Pressable onPress={() => Sankofa.track("checkout_started", {
   cart_value: 49.99,

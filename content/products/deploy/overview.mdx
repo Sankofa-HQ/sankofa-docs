@@ -13,7 +13,7 @@ Deploy is **store-compliant on both iOS and Android**: a patch updates the code 
 
 | Framework | SDK | What ships in a patch | Deep-dive |
 |---|---|---|---|
-| **React Native** | `@sankofa/react-native` | A JavaScript bundle | [React Native SDK](/sdks/react-native/overview) |
+| **React Native** | `sankofa-react-native` | A JavaScript bundle | [React Native SDK](/sdks/react-native/overview) |
 | **Flutter** | `sankofa_flutter` | Real Dart code, auto-diffed from your source — no hand-written patch file | [Getting started](/products/deploy/getting-started) |
 
 - **React Native** delivers a **JavaScript bundle** built from your app. The RN SDK exposes the Deploy surface (`SankofaDeploy`); the [React Native SDK docs](/sdks/react-native/overview) cover the bundle workflow end to end.
@@ -52,7 +52,7 @@ A bad patch shouldn't take your app down. Deploy has two independent guards:
 
 <CardGrid cols={3}>
   <Card href="/sdks/react-native/overview" eyebrow="SDK" title="React Native">
-    The `@sankofa/react-native` Deploy surface and the JS-bundle workflow.
+    The `sankofa-react-native` Deploy surface and the JS-bundle workflow.
   </Card>
   <Card href="/products/deploy/getting-started" eyebrow="Flutter" title="Getting started">
     Add Sankofa to a Flutter app, ship a base release, ship your first patch.

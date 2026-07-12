@@ -71,9 +71,9 @@ sankofa patch ios      --flavor staging    -t lib/main_staging.dart`} />
 
 `--flavor` scopes which base release the patch targets (mirroring `sankofa release --flavor`); `-t/--target` is the entry point the rebuild + diff uses.
 
-### Legacy patch-file model
+### Single-file mode (advanced)
 
-The default auto-diff path replaces the older model where you hand-wrote a single entry-point file. You can still opt into it:
+As an alternative to auto-diff, you can compile a single hand-written entry-point file:
 
 <CodeBlock lang="bash" code={`# Compile a single hand-written @pragma('dyn-module:entry-point') file
 sankofa patch android --legacy-patch-file                       # default lib/sankofa_patch.dart
@@ -112,7 +112,7 @@ sankofa patch ios --release v1.2.0 --publish   # skip the picker in CI`} />
   params={[
     { name: "-t, --target <file>", type: "path", default: "lib/main.dart", description: "App entry-point to rebuild + diff. Pass your flavored main (e.g. lib/main_prod.dart). You just edit real code; Sankofa diffs the rebuild and ships only changed functions." },
     { name: "--entry-file <file>", type: "path", description: "Alias of -t/--target for the auto-diff rebuild. (For React Native, this is the JS entry file.)" },
-    { name: "--legacy-patch-file [file]", type: "path", default: "lib/sankofa_patch.dart", description: "Opt into the legacy single-file model instead of auto-diffing real code. Compiles one hand-written @pragma('dyn-module:entry-point') file." },
+    { name: "--legacy-patch-file [file]", type: "path", default: "lib/sankofa_patch.dart", description: "Opt into the single-file model instead of auto-diffing your real code. Compiles one hand-written @pragma('dyn-module:entry-point') file." },
     { name: "--flavor <name>", type: "string", description: "Product flavor the base release was built with. Scopes which base release the patch targets." },
     { name: "--no-rebuild", type: "flag", description: "Skip the app rebuild and reuse the last build under --output-dir. Advanced; only when you just built." },
     { name: "--output-dir <dir>", type: "path", default: "./build", description: "Directory for built artifacts." },
