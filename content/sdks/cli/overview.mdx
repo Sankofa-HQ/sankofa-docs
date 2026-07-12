@@ -272,7 +272,7 @@ sankofa keys show                              # print the base64 public key (em
 sankofa keys path                              # print the local private key path (for backup)
 sankofa keys register                          # POST the public key to the server so it verifies patch signatures at upload time`} />
 
-Keys are stored at `~/.config/sankofa/keys/<project_id>.ed25519`. Add the directory to your secrets manager — losing the key means you can't ship signed patches against existing releases without a coordinated rotation.
+Your patch-signing private key is stored locally — run `sankofa keys path` to locate it, then add it to your secrets manager. Losing the key means you can't ship signed patches against existing releases without a coordinated rotation.
 
 ### `sankofa engine` — Sankofa Flutter runtime
 
@@ -423,8 +423,8 @@ Credentials are resolved in this order (highest wins):
   <Step title="Project config">
     `.sankofa.json` in the project root (created by `sankofa init`).
   </Step>
-  <Step title="Global config">
-    `~/.sankofa/credentials.json` (written by `sankofa login`).
+  <Step title="Global login">
+    Your saved account login (from `sankofa login`).
   </Step>
 </Steps>
 

@@ -29,7 +29,7 @@ The default flow opens your browser, authenticates against your Sankofa account,
 
 <CodeBlock lang="bash" code={`sankofa login`} />
 
-It prompts for the API endpoint (default `https://api.sankofa.dev`), opens a login page, and waits for the callback. On success it saves credentials to `~/.sankofa/credentials.json` and, if the current directory is a Sankofa project, backfills the empty `app_id` / `api_key` fields in `sankofa.yaml` and links `.sankofa.json`.
+It prompts for the API endpoint (default `https://api.sankofa.dev`), opens a login page, and waits for the callback. On success it caches your credentials locally and, if the current directory is a Sankofa project, backfills the empty `app_id` / `api_key` fields in `sankofa.yaml`.
 
 <CodeBlock lang="bash" code={`sankofa login --project    # save to .sankofa.json in this project instead of global config
 sankofa login --endpoint https://api.sankofa.dev`} />
@@ -48,7 +48,7 @@ The token must start with `sk_deploy_`. The project ID can also come from the `S
 sankofa logout --project   # clear the project-scoped credentials only
 sankofa switch             # change the active project / environment without re-auth`} />
 
-`sankofa switch` reuses the long-lived session captured at browser login, so it can list your projects and mint a new Deploy Token without another browser trip.
+`sankofa switch` reuses your existing sign-in, so it can list your projects and switch without another browser trip.
 
 ## Credential resolution order
 
@@ -59,10 +59,10 @@ Every authenticated command resolves credentials from the following sources, **h
     `SANKOFA_DEPLOY_TOKEN` (deploy auth), `SANKOFA_JWT` (dashboard auth), `SANKOFA_PROJECT_ID`, `SANKOFA_ENDPOINT`, `SANKOFA_ENVIRONMENT`. `SANKOFA_API_KEY` is accepted as an alias for `SANKOFA_DEPLOY_TOKEN`.
   </Step>
   <Step title="Project config">
-    `.sankofa.json` in the project root (created by `sankofa init`, linked by `sankofa login`). Holds `projectId`, `endpoint`, `environment` — but never the Deploy Token.
+    Per-project settings written by `sankofa init` / `sankofa login` — project ID, endpoint, environment. Never holds a login token.
   </Step>
-  <Step title="Global config">
-    `~/.sankofa/credentials.json` (written by `sankofa login`). Holds the Deploy Token, endpoint, project ID, and the session used by `sankofa switch`.
+  <Step title="Global login">
+    Your saved account sign-in from `sankofa login`.
   </Step>
 </Steps>
 
@@ -112,15 +112,11 @@ The app's runtime SDK is configured with `apiKey` + `endpoint` and authenticates
 
 The engine pin is also mirrored to `.sankofa/flutter-version`. `sankofa release`, `sankofa patch`, and `sankofa preview` read the pin automatically, so every build uses the engine your project is locked to.
 
-## Where credentials and caches live
+## What's safe to commit — and what to protect
 
-| Path | Contents |
-|---|---|
-| `~/.sankofa/credentials.json` | Global Deploy Token, endpoint, project ID, session. |
-| `.sankofa.json` (project root) | Project ID, endpoint, environment, installed products. Safe to commit — no token. |
-| `sankofa.yaml` (Flutter project root) | Runtime `app_id` + `api_key` + engine pin. Bundled into the app. |
-| `~/.config/sankofa/keys/<projectId>.ed25519` | Patch signing private key (`0600`). Back this up; never commit it. |
-| `~/.sankofa/engines/` | Cached Sankofa Flutter engine binaries. |
+- **Safe to commit:** `.sankofa.json` and `sankofa.yaml` carry your project ID, endpoint, and the *publishable* runtime key (`api_key`, sent as `x-api-key` — a client-embedded key by design, like a Firebase or Stripe publishable key). Neither file holds a login token.
+- **Never commit:** your account login (created by `sankofa login`) and your **patch-signing private key** (created by `sankofa keys generate`). Losing the signing key means you can't sign future patches; leaking it means someone else could — back it up somewhere safe and manage it with `sankofa keys`.
+- Engine binaries and other CLI state live under a local cache root you can relocate with `SANKOFA_HOME` (handy for isolating CI caches).
 | `~/.sankofa/flutter/<version>/` | Bundled Sankofa Flutter SDK per engine version. |
 
 ## Next steps

@@ -37,7 +37,7 @@ Confirm everything is wired:
 <Callout tone="tip" title="Optional: sign your patches">
 Generate a project signing key so every patch is signed and verified on-device:
 
-<CodeBlock lang="bash" code={`sankofa keys generate   # writes the private key to ~/.config/sankofa/keys/, pubkey to sankofa.yaml`} />
+<CodeBlock lang="bash" code={`sankofa keys generate   # creates your patch-signing key; writes the public key into sankofa.yaml`} />
 
 Back up the private key — losing it means you can't sign patches for existing releases without a coordinated rotation.
 </Callout>
