@@ -29,7 +29,9 @@ Run it in your Flutter project root. It wires up `pubspec.yaml`, writes `sankofa
 **`sankofa.yaml`** at the project root carries your project keys (filled in by `sankofa login`):
 
 <CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
-api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by sankofa login`} />
+api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by sankofa login
+engine_version: 3.44.1+sankofa-2  # stamped by init; do not hand-edit
+# base_url: https://api.sankofa.dev  # optional — defaults to this if omitted`} />
 
 **`lib/main.dart`** applies any patch staged on the previous run **before** `runApp`:
 

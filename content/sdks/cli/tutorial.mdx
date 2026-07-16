@@ -37,7 +37,9 @@ Confirm everything is wired:
 <Callout tone="tip" title="Optional: sign your patches">
 Generate a project signing key so every patch is signed and verified on-device:
 
-<CodeBlock lang="bash" code={`sankofa keys generate   # creates your patch-signing key; writes the public key into sankofa.yaml`} />
+<CodeBlock lang="bash" code={`sankofa keys generate   # creates your patch-signing key + prints the public key`} />
+
+`keys generate` saves the private key locally and prints the base64 **public** key. Wire that public key into your app so the SDK can verify patches — either add it to `sankofa.yaml` as `signing_pubkey: <base64>`, or pass it to `Sankofa.initialize(deploySigningPubkey: '<base64>')`.
 
 Back up the private key — losing it means you can't sign patches for existing releases without a coordinated rotation.
 </Callout>
@@ -69,10 +71,14 @@ Submit the **exact binary `sankofa release` produced** — it contains the Sanko
 
 ## Step 5 — Ship your first patch
 
-Now the payoff. Edit your real Dart code — fix a bug, change a string, adjust logic:
+Now the payoff. Edit your real Dart code — fix a bug, change a value, correct logic. Patch a **method your app calls through an interface**, and keep its body working from its **parameters** (no `this`) — that's the shape that ships over-the-air:
 
-<CodeBlock lang="dart" code={`// lib/home_page.dart (example)
-Text('Welcome back!')          // was: Text('Welcome')`} />
+<CodeBlock lang="dart" code={`// lib/pricing.dart
+// DefaultPricing implements the Pricing interface your checkout calls through.
+class DefaultPricing implements Pricing {
+  @override
+  double serviceFee(double subtotal) => subtotal * 0.05;   // was 0.08 — fixing an overcharge
+}`} />
 
 Then ship it. Sankofa rebuilds your edited app, diffs it against the baseline, and ships **only the changed functions** — no patch file, no store resubmission:
 
@@ -82,7 +88,7 @@ Then ship it. Sankofa rebuilds your edited app, diffs it against the baseline, a
 You'll see something like:
 
 <CodeBlock lang="text" code={`Patch module built — 1 changed function(s) (612 B).
-  Changed: _HomePageState.build
+  Changed: DefaultPricing.serviceFee
 Publish patch v1.0.0-patch.1 targeting 1.0.0? (Y/n)`} />
 
 Confirm, and the patch publishes as `v1.0.0-patch.1`. Devices in the rollout fetch and apply it on next launch.

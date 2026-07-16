@@ -5,7 +5,7 @@ toc: true
 sdks: [flutter]
 ---
 
-Sankofa Deploy can change **any logic you reach through a virtual call**. If you design for that from day one, a huge share of the bugs and tweaks you'd otherwise hold for a store release become one-command over-the-air patches. If you don't, some patches will build cleanly and then quietly do nothing on iOS.
+Sankofa Deploy can change a **method body you reach through a virtual call** — provided that body works from its **inputs**, not from its object. If you design for that from day one, a huge share of the bugs and tweaks you'd otherwise hold for a store release become one-command over-the-air patches. If you don't, some patches will build cleanly and then quietly do nothing on iOS.
 
 This page is the rule, the reason, and the pattern.
 
@@ -14,6 +14,16 @@ This page is the rule, the reason, and the pattern.
 > **Put logic you intend to hot-fix behind an interface, and call it through that interface type.**
 
 That's it. A method dispatched through an interface (or an override) is a **virtual call**: at the call site, the runtime looks up which implementation to run. A patch works by **rerouting that lookup** to the patched method — no machine code is generated on-device, which is exactly what keeps it App Store / Play compliant.
+
+> **The second half of the rule: the patched method body must not touch its receiver.**
+
+A patched method is shipped as a **standalone function** — it has no `this`. So the body may use its **parameters**, local variables, constants, imported symbols, and its own library's types — but it must **not** read instance fields, call sibling methods on the same object, or otherwise reference `this`. If it does, the patch will compile and then fail to apply on device.
+
+The fix is always the same: **pass everything the method needs in as parameters**. A method like `Summary compute(double bill, int tipPercent, int people)` is ideal — it reads only its arguments. A method that reaches for `this.taxRate` or calls `_recalculate()` is not; lift what it needs into parameters, or move a sibling method's body into a top-level function so the patched method calls that instead of `this` (top-level helpers ride along in the patch, as long as the method that reaches them is itself receiver-free).
+
+<Callout tone="note" title="You'll know at build time">
+`sankofa patch` runs on your machine and refuses a method that uses `this` or calls a sibling method, naming the offending method — so you find out before you ship, not after. (Instance-field reads can still slip through to a build error; the rule above is what keeps you clear of both.)
+</Callout>
 
 ## Why virtual calls, specifically
 
@@ -146,10 +156,10 @@ The recurring theme: **a patch edits behavior behind seams that already exist in
     Route thresholds, limits, feature copy, and formatting through a `SettingsResolver` interface with a default implementation. Patching the resolver's methods lets you correct values over-the-air. (For values you want to change *without* a code push at all, use [Remote Config](/products/config/overview) — the two compose well.)
   </Step>
   <Step title="Reskinnable UI behind a theme/spec interface">
-    Keep `build()` thin. Have it read a `ScreenSpec` (colors, labels, spacing, enabled sections) from a `SpecProvider` interface, and render whatever the spec says. Patching the provider's method reskins the screen; the widget tree that *reads* the spec stays put.
+    Keep `build()` thin. Have it read a `ScreenSpec` (colors, labels, spacing, enabled sections) from a `SpecProvider` interface, and render whatever the spec says. Patching the provider's method reskins the screen; the widget tree that *reads* the spec stays put. Keep the provider method itself self-contained — build the spec from constants and any values passed in, not from fields on the provider instance.
   </Step>
   <Step title="Override points on your own base classes">
-    A method you `@override` on your own base class is a virtual call too. A shared `BaseController.handle()` you override per screen is a valid patch seam.
+    A method you `@override` on your own base class is a virtual call too, so it's a valid seam — **as long as the override body obeys the receiver rule.** A common trap: a per-screen `BaseController.handle()` override that reads `this` state (fields, sibling methods) will compile and then fail to apply. Make the override work from its parameters — e.g. `handle(Request req, ScreenState state)` — passing in what it needs, rather than reaching into the controller instance.
   </Step>
 </Steps>
 

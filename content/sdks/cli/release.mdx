@@ -84,6 +84,20 @@ sankofa release ios      --flavor staging    -t lib/main_staging.dart`} />
 
 If you have no `lib/main.dart` and pass neither flag, the CLI stops with a hint showing the exact command to use.
 
+Cut **one base release per flavor**, and patch each with the matching flavor:
+
+<CodeBlock lang="bash" code={`sankofa patch android --flavor production -t lib/main_production.dart --release <label>`} />
+
+**How flavor scoping works** — three things line up automatically:
+
+1. **Build** — `--flavor production` is passed to `flutter build`, and the CLI also injects `--dart-define=SANKOFA_FLAVOR=production` so the binary knows its own flavor. No app-code change.
+2. **Runtime** — the SDK reads that compile-time flavor (or an explicit `Sankofa.init(flavor: …)`) and reports it on every update check. Nothing to wire up.
+3. **Server** — a release's flavor is a targeting filter: an **empty** flavor is a wildcard that reaches every device, and a **non-empty** flavor must match the device's flavor exactly. So a `production` device pulls only `production` (and wildcard) releases — it can **never** receive a `staging` patch, and vice-versa.
+
+<Callout tone="warn" title="The store binary must be built by the CLI (or set the flavor explicitly)">
+Flavor only reaches the SDK because `sankofa release` injects `SANKOFA_FLAVOR`. If your **store** artifact is built by a plain `flutter build` in CI/Fastlane instead, the SDK won't know the flavor — the device reports *unflavored* and silently matches only wildcard releases, missing your flavor-scoped patches. Either build the store binary with `sankofa release`, or pass `Sankofa.init(flavor: 'production')` in your app. There is no `flavor` key in `sankofa.yaml` — it's compile-time only.
+</Callout>
+
 ### Flutter-specific options
 
 <ParameterTable

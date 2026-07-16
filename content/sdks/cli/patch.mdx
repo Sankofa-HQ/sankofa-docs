@@ -45,8 +45,12 @@ Auto-diff needs the baseline's exact AOT + program kernel, which `sankofa releas
 
 A patch carries **Dart code changes only**. The safety check refuses anything that changes `AndroidManifest.xml`, native assets, or adds new native bindings — those require a full `sankofa release` and a store submission. Practically:
 
-- **Yes:** changed logic and function bodies in your Dart code, bug fixes, copy tweaks, behavior changes reachable through your existing code.
+- **Yes:** changed **method and function bodies** — bug fixes, logic corrections, copy and value tweaks — as long as a changed method reaches its data through its **parameters** (and locals, constants, imports, and its own library's types).
 - **No:** new native plugins, changed `Info.plist` / `AndroidManifest.xml`, new bundled assets, engine upgrades, or a different app version. Cut a new release for those.
+
+<Callout tone="warn" title="The receiver rule">
+The patch's entry point is a method your app calls **through an interface or override**, and its body is shipped as a **standalone function** — it has no `this`. So that body must **not** read instance fields, call sibling methods on the same object, or reference `this`. `sankofa patch` catches `this`/sibling-method use at build time and names the method, so you find out before you ship. The fix is to pass what the method needs in as **parameters**, or move a sibling's logic into a **top-level function** so the patched method calls that instead of reaching into `this` (top-level helpers ride along in the patch). A method that already works only from its arguments — e.g. `double serviceFee(double subtotal)` or `Summary compute(double bill, int tipPercent, int people)` — is the sweet spot. See [Design for hot-fixes](/products/deploy/design-for-hot-fixes) for the full pattern.
+</Callout>
 
 ### Engine must match the baseline
 

@@ -94,7 +94,7 @@ app_id: proj_xxxxxxxx        # your Sankofa project ID
 api_key: sk_live_xxxxxxxx    # publishable runtime key (sent as x-api-key by the app)
 # base_url: https://api.sankofa.dev   # only when self-hosting a non-default endpoint
 engine_version: 3.44.1+sankofa-2      # written by 'sankofa engine install' / 'upgrade'
-# signing_pubkey: <base64>            # written by 'sankofa keys generate'`} />
+# signing_pubkey: <base64>            # paste the key printed by 'sankofa keys generate'`} />
 
 <ParameterTable
   params={[
@@ -102,12 +102,12 @@ engine_version: 3.44.1+sankofa-2      # written by 'sankofa engine install' / 'u
     { name: "api_key", type: "string", required: true, description: "The project's publishable runtime key (sk_live_… or sk_test_…). The app sends it to the API as the x-api-key header. It is a client-embedded key by design, like a Firebase or Stripe publishable key." },
     { name: "base_url", type: "string?", default: "https://api.sankofa.dev", description: "Only written when your endpoint differs from the default (self-hosted / regional). Omitted for the standard cloud." },
     { name: "engine_version", type: "string?", description: "The pinned Sankofa Flutter engine version (e.g. 3.44.1+sankofa-2). Written by sankofa engine install and re-written by sankofa engine upgrade." },
-    { name: "signing_pubkey", type: "string?", description: "The base64 Ed25519 public key patches are signed with. Written by sankofa keys generate. The SDK verifies every patch against it before applying." },
+    { name: "signing_pubkey", type: "string?", description: "The base64 Ed25519 public key patches are signed with. sankofa keys generate prints it; you paste it here (or pass it to Sankofa.initialize(deploySigningPubkey:)). The SDK verifies every patch against it before applying." },
   ]}
 />
 
 <Callout tone="warning" title="Runtime config vs. the API contract">
-The app's runtime SDK is configured with `apiKey` + `endpoint` and authenticates to the ingestion API with the `x-api-key` header — never `appKey` or `serverUrl`. In `sankofa.yaml` those two values live under `api_key` and (optionally) `base_url`; the CLI maps them for you. Do not hand-edit `engine_version` or `signing_pubkey` — the CLI owns them.
+The app's runtime SDK is configured with `apiKey` + `endpoint` and authenticates to the ingestion API with the `x-api-key` header — never `appKey` or `serverUrl`. In `sankofa.yaml` those two values live under `api_key` and (optionally) `base_url`; the CLI maps them for you. Don't hand-edit `engine_version` — the CLI stamps it. `signing_pubkey` is the one key you add yourself, from the `sankofa keys generate` output.
 </Callout>
 
 The engine pin is also mirrored to `.sankofa/flutter-version`. `sankofa release`, `sankofa patch`, and `sankofa preview` read the pin automatically, so every build uses the engine your project is locked to.

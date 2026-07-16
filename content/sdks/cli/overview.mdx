@@ -73,7 +73,9 @@ The CLI exposes these top-level commands:
 
 | Command | Purpose |
 |---|---|
+| `create` | Scaffold a new Flutter app and run `init` in it — the fastest way to start from scratch. |
 | `init` | Set up Sankofa in any project. Auto-detects platform; pass `--deploy`/`--catch`/`--flag`/`--config`/`--all` to skip the picker. |
+| `account` | Show who you're logged in as, and your organizations / apps. |
 | `check` | Verify SDK integration is correct. |
 | `doctor` | Low-level toolchain diagnostics (Node, Xcode, Java, Flutter, Sankofa native wiring). |
 | `login` / `logout` | Browser-based or CI-token authentication. |
@@ -140,7 +142,7 @@ Browser-based OAuth-style login. Creates a Deploy Token bound to the selected pr
 
 <CodeBlock lang="bash" code={`sankofa login
 sankofa login --deploy-token sk_deploy_... --project-id proj_...   # CI/CD
-sankofa login --region eu                                          # pin EU residency`} />
+sankofa login --endpoint https://api.self-hosted.example           # non-default server`} />
 
 ### `sankofa logout` / `sankofa switch`
 
@@ -197,7 +199,7 @@ Ship a code-only update against an existing base release. **No native build, no 
 sankofa patch android
 sankofa patch ios                              # iOS — App Store compliant
 sankofa patch android --publish --rollout 25 --description "fix crash on Pixel 6"
-sankofa patch ios --target-binary-version 1.2.0 --label hotfix-12
+sankofa patch ios --release v1.2.0 --publish   # name the baseline (required in CI)
 sankofa patch ios -t lib/patch_staging.dart    # pick a specific patch entry-point
 
 # React Native — JS bundle patch
@@ -321,7 +323,7 @@ Flag CRUD authenticates with your **dashboard JWT** (not the Deploy Token) — f
 ### Flag subcommands
 
 <CodeBlock lang="bash" code={`sankofa flags list                                                # list all flags
-sankofa flags list --env test --include-archived                  # include archived
+sankofa flags list --include-archived                             # include archived
 sankofa flags get new_checkout                                    # show full details
 
 sankofa flags create new_checkout --description "..." --default false
@@ -346,7 +348,6 @@ The stale-flag scanner walks your code for `.getFlag(...)` and `.getVariant(...)
 ## Config commands
 
 <CodeBlock lang="bash" code={`sankofa config list
-sankofa config list --env test
 sankofa config get max_upload_mb
 
 # Type is required on create; updates require matching type.

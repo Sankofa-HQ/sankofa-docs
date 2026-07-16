@@ -352,11 +352,13 @@ Run it inside a Flutter project root. The CLI is **idempotent** — re-running o
     Adds the SDK and a managed `dependency_overrides:` stanza so the local helper resolves without exposing any GitHub URL in your project:
 
     <CodeBlock lang="yaml" filename="pubspec.yaml" code={`dependencies:
-  sankofa_flutter: ^0.2.2
+  sankofa_flutter: ^0.2.10
 
-# Sankofa-managed — do not edit by hand. Re-run \`sankofa init\` if
-# you need to regenerate the vendored package.
+# Sankofa-managed — do not edit by hand. Re-run \`sankofa init\` to regenerate.
 dependency_overrides:
+  # Temporary Android build fix — safe to remove once your engine tracks a newer
+  # Flutter stable (see Troubleshooting).
+  shared_preferences_android: 2.4.23
   dynamic_modules:
     path: .sankofa/dynamic_modules
 
@@ -370,9 +372,21 @@ flutter:
     Written at the project root. Run `sankofa login` and it fills **both** `app_id` and `api_key` from the project you select — nothing to paste:
 
     <CodeBlock lang="yaml" filename="sankofa.yaml" code={`app_id: proj_xxxxxxxxxxxxx
-api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by \`sankofa login\``} />
+api_key: sk_live_xxxxxxxxxxxxx   # filled automatically by \`sankofa login\`
+engine_version: 3.44.1+sankofa-2  # stamped by init; do not hand-edit
+# base_url: https://api.sankofa.dev  # optional — defaults to this if omitted`} />
 
-    `init` and `login` are order-independent — whichever you run first, the other completes the setup. The SDK reads everything else at runtime from the asset bundle.
+    `init` and `login` are order-independent — whichever you run first, the other completes the setup. `engine_version` is stamped by the CLI (never hand-edit it), and `base_url` is optional — leave it out to use `https://api.sankofa.dev`, or set it to point at a self-hosted endpoint. The SDK reads everything else at runtime from the asset bundle.
+  </Step>
+  <Step title="sankofa_dynamic_interface.yaml — patchable surface">
+    Written at the project root and passed to every build as `--dynamic-interface`. It declares which libraries a code-push patch may reach, so the release compiler retains the members a patch needs (`==`, `toString`, list/string helpers) instead of tree-shaking them out. `init` scaffolds it pointing at your app's entry library; extend the lists as your patchable surface grows.
+
+    <CodeBlock lang="yaml" filename="sankofa_dynamic_interface.yaml" code={`callable:
+  - library: 'package:your_app/main.dart'
+extendable:
+  - library: 'package:your_app/main.dart'
+can-be-overridden:
+  - library: 'package:your_app/main.dart'`} />
   </Step>
   <Step title=".sankofa/ — local vendor + version pin">
     The managed local helper lands in `.sankofa/dynamic_modules/`, and `.sankofa/flutter-version` pins the bundled Sankofa Flutter runtime. **Commit these** — they're what your `pubspec.yaml` path-override resolves against, so committing them means a fresh clone and CI build with `flutter pub get` straight away (no re-running `init`). `init` adds a single `.gitignore` block that ignores only the disposable bits: `.sankofa.json`, `build/`, and the transient `.sankofa/build/` + `.sankofa/baseline/`.
@@ -412,10 +426,11 @@ If your environment can't run Node-based CLIs (e.g. an air-gapped CI runner), re
 
 1. `flutter pub add sankofa_flutter` and pin `flutter_lints: ^4.0.0` in `dev_dependencies:`.
 2. Generate the `.sankofa/dynamic_modules/` helper — this comes from the CLI (`sankofa init --deploy`) and isn't separately distributable, so Deploy setup needs the CLI at least once to produce it.
-3. Add the `dependency_overrides:` + `flutter.assets:` stanzas shown above to `pubspec.yaml`.
-4. Create `sankofa.yaml` with your `app_id` and `api_key`.
-5. Update `lib/main.dart` per the snippet above.
-6. (Optional, for native crash bootstrapping) Extend `SankofaFlutterActivity` in `MainActivity.kt` and `SankofaFlutterAppDelegate` in `ios/Runner/AppDelegate.swift`.
+3. Add the `dependency_overrides:` (including the `shared_preferences_android: 2.4.23` pin) + `flutter.assets:` stanzas shown above to `pubspec.yaml`.
+4. Create `sankofa.yaml` with your `app_id`, `api_key`, and the `engine_version` your build targets.
+5. Create `sankofa_dynamic_interface.yaml` declaring your patchable libraries (snippet above).
+6. Update `lib/main.dart` per the snippet above.
+7. (Optional, for native crash bootstrapping) Extend `SankofaFlutterActivity` in `MainActivity.kt` and `SankofaFlutterAppDelegate` in `ios/Runner/AppDelegate.swift`.
 
 ### Check + download from anywhere
 
