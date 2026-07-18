@@ -37,8 +37,8 @@ The npm package is `sankofa-cli`; the command it installs is `sankofa`. Install 
 
 You do **not** need to install or configure the runtime by hand for a Flutter Deploy project — `sankofa init --deploy` and `sankofa engine install` do it for you. See the [engine reference](/sdks/cli/engine).
 
-<Callout tone="warning" title="Flutter Deploy host OS: macOS (Apple Silicon) today">
-The Sankofa Flutter runtime that powers OTA builds (`sankofa release` / `patch`) is currently published for **macOS on Apple Silicon** only, so `release`/`patch` for Flutter Deploy run there today. Analytics, Catch, Switch, Config, and Pulse have no such restriction — they're pure SDK/CLI and run anywhere Node does. **Linux and Windows host support is planned.** (iOS builds require macOS regardless — that's an Xcode constraint shared by all Flutter tooling.)
+<Callout tone="note" title="Flutter Deploy host OS: macOS, Windows, and Linux">
+The Sankofa Flutter runtime that powers OTA builds (`sankofa release` / `patch`) is published for **macOS (Apple Silicon)**, **Windows (x64)**, and **Linux (x64)** — `sankofa engine install` (and `sankofa init --deploy`) fetches the right build for your host automatically. Windows and Linux need **CLI 0.1.19 or newer**. Analytics, Catch, Switch, Config, and Pulse have no host restriction at all — they're pure SDK/CLI and run anywhere Node does. Building the **iOS** artifact still requires macOS + Xcode (a constraint shared by all Flutter tooling); the **Android** build and the OTA **patch** build run on any of the three hosts.
 </Callout>
 
 ## Verify your toolchain
